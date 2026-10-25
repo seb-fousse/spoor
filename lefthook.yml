@@ -16,3 +16,9 @@ commit-msg:
     - name: commitlint
       # {1} is the path to the file holding the commit message.
       run: pnpm commitlint --edit {1}
+    - name: dco-signoff
+      # DCO: every commit needs a Signed-off-by trailer. `git commit -s` adds it.
+      run: |
+        grep -qE '^Signed-off-by: .+ <.+@.+>$' {1} && exit 0
+        echo "Missing DCO sign-off. Commit with 'git commit -s', or fix the last commit with 'git commit --amend -s --no-edit'."
+        exit 1
