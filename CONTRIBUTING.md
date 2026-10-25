@@ -44,8 +44,9 @@ pnpm test
   - `docs: explain the export round-trip guarantee`
 - The body explains **why**; the diff shows what.
 - **DCO sign-off is required** (`git commit -s`), certifying the
-  [Developer Certificate of Origin](https://developercertificate.org/). Spoor
-  uses DCO rather than a CLA, which limits later relicensing.
+  [Developer Certificate of Origin](https://developercertificate.org/). A git
+  hook rejects commits without it. Spoor uses DCO rather than a CLA, which
+  limits later relicensing.
 
 ## Pull requests
 
