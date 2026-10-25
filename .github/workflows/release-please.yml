@@ -1,0 +1,25 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # Maintains per-package release PRs (changelogs + semver bumps) from
+      # Conventional Commits, driven by release-please-config.json and
+      # .release-please-manifest.json.
+      #
+      # Note: with the default GITHUB_TOKEN, the release PR this opens will not
+      # itself trigger the CI workflow. If you want CI to run on release PRs,
+      # supply a PAT via a `token:` input (see the action's README).
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

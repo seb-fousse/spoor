@@ -1,0 +1,9 @@
+# Require one of the structured templates; no blank issues.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/seb-fousse/spoor/security/advisories/new
+    about: Please report vulnerabilities privately. See SECURITY.md. Do not open a public issue.
+  - name: Questions and ideas
+    url: https://github.com/seb-fousse/spoor/discussions
+    about: Open-ended questions and discussion.

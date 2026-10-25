@@ -1,0 +1,22 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm blocks dependency build/install scripts by default (supply-chain
+# hardening) and records per-package decisions in `allowBuilds`.
+#
+# lefthook ships its binary via a platform-specific optional dependency, so its
+# postinstall is unnecessary; denying it keeps a clean `pnpm install` from
+# failing on an "ignored build scripts" error. Add an entry set to `true` only
+# when a dependency genuinely needs to run a build, and review it deliberately.
+allowBuilds:
+  lefthook: false
+
+# pnpm 12 applies a default "release-age" cooldown to freshly published
+# versions. pnpm appends these intentionally pinned, recently published packages
+# here automatically on install so they are allowed through. Harmless on setups
+# without the cooldown.
+minimumReleaseAgeExclude:
+  - "@vitest/mocker@5.0.5"
+  - "@vitest/spy@5.0.5"
+  - vitest@5.0.5

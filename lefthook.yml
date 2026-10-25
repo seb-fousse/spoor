@@ -1,0 +1,18 @@
+# Git hooks, managed by lefthook (https://lefthook.dev).
+# Installed automatically by the root `prepare` script on `pnpm install`.
+# Run `pnpm lefthook install` manually if hooks are ever missing.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      # Format + lint + organize-imports on staged files only, then restage fixes.
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,css}"
+      run: pnpm biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      # {1} is the path to the file holding the commit message.
+      run: pnpm commitlint --edit {1}

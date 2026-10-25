@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Test / coverage output
+coverage/
+
+# Rust / Tauri build artifacts
+target/
+# Tauri generates capability schemas on build
+apps/desktop/src-tauri/gen/
+
+# Local env and secrets (never commit these)
+.env
+.env.*
+!.env.example
+*.local
+
+# Spoor local data files (the user's database must never be committed)
+*.spoor
+*.sqlite
+*.sqlite3
+*.db
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json

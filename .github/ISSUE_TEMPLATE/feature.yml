@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a feature as a small product spec.
+title: "feat: "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Spoor grows in thin vertical slices. A good feature issue reads like a
+        small product spec: start from the problem, not the solution. The
+        maintainer may decline features that don't fit the project's scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is painful today? Describe the situation, not a solution.
+      placeholder: When I track time across midnight, the entry is split awkwardly and…
+    validations:
+      required: true
+  - type: textarea
+    id: who
+    attributes:
+      label: Who has this problem
+      description: Which user, in which situation, and how often?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know it works? List observable, checkable outcomes.
+      placeholder: |
+        - [ ] An entry can span midnight and is shown on both days.
+        - [ ] Export/import round-trips such an entry unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Explicitly out of scope
+      description: What this issue will NOT do, to keep the slice thin.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / open questions
+      description: Data-model impact, privacy considerations, alternatives.
+    validations:
+      required: false
