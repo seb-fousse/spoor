@@ -33,7 +33,7 @@ pnpm test
 - **Branch names:** `feat/...`, `fix/...`, `docs/...`, `chore/...`, `refactor/...`.
 - **Every change goes through a PR**, and CI must pass.
 - **Squash-merge only.** The PR title becomes the commit on `main`, so it must
-  be a valid Conventional Commit.
+  be a valid Conventional Commit. CI checks it.
 
 ## Commits
 
