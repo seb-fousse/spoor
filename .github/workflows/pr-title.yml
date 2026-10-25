@@ -1,0 +1,43 @@
+name: PR title
+
+on:
+  pull_request:
+    # `edited` re-checks a renamed title; `synchronize` re-runs on new commits so
+    # the check stays attached to the PR's latest head (required checks need it).
+    types: [opened, edited, reopened, synchronize]
+
+# Least privilege: the title comes from the event payload; nothing is written.
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commitlint:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        # Reads the pinned version from package.json "packageManager".
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Squash-merge turns the PR title into the commit on `main`, so it gets the
+      # same commitlint rules as local commits. The title goes through `env`, never
+      # straight into the script, so a crafted title cannot inject shell commands.
+      - name: Lint PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | pnpm commitlint --verbose
