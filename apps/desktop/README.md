@@ -20,10 +20,13 @@ without Rust:
 ```bash
 pnpm --filter @spoor/desktop dev        # Vite dev server
 pnpm --filter @spoor/desktop build      # typecheck + Vite build
+pnpm --filter @spoor/desktop test       # Vitest (IPC mocked)
 ```
 
 ## Layout
 
 - `src/`: React UI.
-- `src-tauri/`: Rust side: window, IPC commands, and later the SQLite database
+- `src/platform/`: desktop implementations of core's platform seams
+  (`Database` over Tauri IPC).
+- `src-tauri/`: Rust side: window, IPC commands, and the SQLite database
   behind core's `Database` seam.
