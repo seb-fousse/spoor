@@ -2,9 +2,6 @@
 
 ## Overview
 
-Four domains, each separating user-configured definitions from the records
-they shape:
-
 | Domain | Records | Definition tables | Data tables |
 | ------ | ------- | ----------------- | ----------- |
 | Timelines | Time spent in a category | `Timeline`, `TimelineCategory` | `TimelineInterval` |
@@ -12,27 +9,27 @@ they shape:
 | Logs | Events at a point in time or over a period | `LogType`, `LogTypeVersion`, `LogField`, `LogFieldVersion` | `LogEntry`, `LogFieldValue` |
 | Things | Entities independent of time: a movie, a person, a place | `ThingType`, `ThingTypeVersion`, `ThingField`, `ThingFieldVersion` | `Thing`, `ThingFieldValue` |
 
-There are no domain-specific tables. Activity tracking, mood tracking, media
-logs, and journaling are all built from user-created definitions.
+There are no domain-specific tables. I.e. activity tracking, mood tracking, media
+logs, journaling, and anything else the user wants to track are all built from user-created definitions.
 
 ## Principles
 
 - **The file is the user's.** The schema is open and documented; export and
-  import are first-class.
-- **Forward-compatible forever.** A file written by an old version always opens
+  import should be easy.
+- **Forward-compatible.** A file written by an old version always opens
   in a newer one.
-- **Sync-ready from the first table.**
+- **Sync-ready from the first table.** A mobile app for on-the-go data entry is a a future goal. Wanting to design tables & logic with this as a consideration.
 - **Definitions, configurable by the user, describe the shape of the
-  underlying data.**
-- **Sensitive by default.** Collect only what the user configures.
+  underlying data.** These abstractions and the definitions built on top of them are the basis for data tracking.
+- **Sensitive by default.** Collect only what the user opts into or inputs themselves. Optional file encryption.
 
 ## Conventions
 
 Every table lists all of its fields. Shared fields mean the same everywhere:
 
-| Field | Meaning |
+| Field | Notes |
 | ----- | ------- |
-| `id` | UUID, never an auto-increment integer. |
+| `id` | UUID. |
 | `created_at` | When the record was created. |
 | `updated_at` | Bumped on every change. |
 | `archived_at` | Definitions only. Retired: not offered for new records, still visible and valid for existing ones. |
