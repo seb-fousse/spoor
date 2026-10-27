@@ -165,6 +165,15 @@ describe("definitions", () => {
       expect(() => draftFields(T, [field as NewField])).toThrow(message);
     });
 
+    it("refuses two fields with the same name", () => {
+      expect(() =>
+        draftFields(T, [
+          { name: "Title", valueType: "text" },
+          { name: " TITLE", valueType: "number" },
+        ]),
+      ).toThrow(/Thing field .*: name "TITLE" is already used by field/);
+    });
+
     it("refuses a reference to a thing type that does not exist", async () => {
       const missing = newId();
       await expect(
@@ -350,6 +359,68 @@ describe("definitions", () => {
       ).rejects.toThrow(/thing type .* not found/);
     });
 
+    it("refuses a new reference to an archived thing type, keeping existing ones", async () => {
+      const target = await createType(fields, "Target");
+      const ref = {
+        name: "Ref",
+        valueType: "ref" as const,
+        constraints: { thingTypeId: target.id },
+      };
+      const { id, fieldIds } = await createType([...fields, ref]);
+      await db.execute("UPDATE thing_types SET archived_at = 1 WHERE id = ?", [target.id]);
+      const [name, rating, existing] = fieldIds;
+      const kept = [
+        { ...fields[0], id: name },
+        { ...fields[1], id: rating },
+      ];
+
+      // The existing field keeps its target, even when its required flag changes.
+      await expect(
+        reviseFields(db, T, id, [...kept, { ...ref, id: existing, required: true }], 2_000),
+      ).resolves.toEqual({ version: 2, created: true });
+      await expect(
+        reviseFields(
+          db,
+          T,
+          id,
+          [...kept, { ...ref, id: existing }, { ...ref, name: "Ref 2" }],
+          2_000,
+        ),
+      ).rejects.toThrow(new RegExp(`thing type ${target.id} is archived`));
+      await expect(createType([ref], "New")).rejects.toThrow(/is archived/);
+    });
+
+    it("requires unique names, ignoring case and surrounding spaces", async () => {
+      const { id, fieldIds } = await createType(fields);
+      await expect(
+        reviseFields(
+          db,
+          T,
+          id,
+          [
+            { ...fields[0], id: fieldIds[0] },
+            { name: " name ", valueType: "text" },
+          ],
+          2_000,
+        ),
+      ).rejects.toThrow(new RegExp(`name "name" is already used by field ${fieldIds[0]}`));
+
+      // A retired field's name is free for a new field.
+      await reviseFields(db, T, id, [{ ...fields[0], id: fieldIds[0] }], 2_000);
+      await expect(
+        reviseFields(
+          db,
+          T,
+          id,
+          [
+            { ...fields[0], id: fieldIds[0] },
+            { name: "Rating", valueType: "text" },
+          ],
+          3_000,
+        ),
+      ).resolves.toEqual({ version: 3, created: true });
+    });
+
     it("refuses an unknown type", async () => {
       await expect(reviseFields(db, T, newId(), [], 2_000)).rejects.toThrow(
         /Thing type .*: not found/,
@@ -373,6 +444,17 @@ describe("definitions", () => {
       await expect(updateField(db, T, newId(), {}, 2_000)).rejects.toThrow(
         /Thing field .*: not found/,
       );
+    });
+
+    it("refuses a rename to another field's name, but not to its own in another case", async () => {
+      const { fieldIds } = await createType([
+        { name: "Title", valueType: "text" },
+        { name: "Year", valueType: "number" },
+      ]);
+      await expect(updateField(db, T, fieldIds[1], { name: "title " }, 2_000)).rejects.toThrow(
+        /already used/,
+      );
+      await updateField(db, T, fieldIds[0], { name: "TITLE" }, 2_000);
     });
 
     it("reorders the current version's fields, each listed once", async () => {

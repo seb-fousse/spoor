@@ -1,17 +1,15 @@
-import {
-  createFirstVersion,
-  draftFields,
-  MANUAL,
-  type NewField,
-  reviseFields,
-  setValues,
-  THING_TABLES,
-  type ValuePatch,
-} from "../definitions";
 import { newId } from "../ids";
 import type { Database } from "../platform/index";
+import {
+  createThing,
+  createThingType,
+  deleteThing,
+  deleteThingType,
+  getThingTypeVersionFields,
+  reviseThingTypeFields,
+  setThingTypeArchived,
+} from "../things";
 import { now } from "../time";
-import { transaction } from "../transaction";
 
 /**
  * TEST-ONLY. Thing types, things and values for the round-trip test: every value
@@ -19,97 +17,55 @@ import { transaction } from "../transaction";
  * live, trashed, merged and purged things, plus a timeline and a category that
  * refer to them.
  *
- * Types and things are inserted with raw SQL until the things repository exists;
- * fields, versions and values go through `definitions.ts`.
+ * Operations that do not exist yet write raw SQL: the purge's tombstone, the
+ * merged duplicate, and the timeline links.
  */
 
-/** Ids above any UUID v7 made today, so this survivor sorts after the thing merged into it. */
-const SURVIVOR_ID = "f0000000-0000-7000-8000-000000000001";
+/** Below any UUID v7 made today, so the duplicate sorts before the thing it was merged into. */
+const DUPLICATE_ID = "01000000-0000-7000-8000-000000000001";
 
 export async function populateThings(db: Database): Promise<void> {
-  await transaction(db, async () => {
-    const t = now();
+  const fieldIds = async (typeId: string) =>
+    (await getThingTypeVersionFields(db, typeId)).map((f) => f.id);
 
-    const insertType = async (name: string, fields: readonly NewField[], id = newId()) => {
-      const drafts = draftFields(THING_TABLES, fields);
-      await db.execute(
-        `INSERT INTO thing_types (id, name, title_field_id, schema_version, created_at, updated_at)
-         VALUES (?, ?, ?, 1, ?, ?)`,
-        [id, name, drafts[0].id, t, t],
-      );
-      await createFirstVersion(db, THING_TABLES, id, drafts, t);
-      return { id, fieldIds: drafts.map((d) => d.id) };
-    };
+  // Person: version 1 has a birth date; version 2 retires it and adds friends.
+  const name = {
+    name: "Name",
+    valueType: "text",
+    required: true,
+    constraints: { maxLength: 200 },
+  } as const;
+  const person = await createThingType(db, {
+    name: "Person",
+    description: "Someone",
+    fields: [name, { name: "Born", valueType: "date" }],
+  });
+  const [nameId, bornId] = await fieldIds(person.id);
+  const alex = await createThing(db, {
+    thingTypeId: person.id,
+    values: { [nameId]: "Alex", [bornId]: "1990-04-01" },
+  });
+  await reviseThingTypeFields(db, person.id, [
+    { ...name, id: nameId },
+    { name: "Friends", valueType: "multi_ref", constraints: { thingTypeId: person.id } },
+  ]);
+  const [, friendsId] = await fieldIds(person.id);
+  const survivor = await createThing(db, {
+    thingTypeId: person.id,
+    values: { [nameId]: "Alex Smith" },
+  });
+  await createThing(db, {
+    thingTypeId: person.id,
+    values: { [nameId]: "Sam", [friendsId]: [alex.id, survivor.id] },
+  });
+  const kim = await createThing(db, { thingTypeId: person.id, values: { [nameId]: "Kim" } });
+  await deleteThing(db, kim.id);
 
-    const insertThing = async (
-      typeId: string,
-      version: number,
-      values: ValuePatch,
-      options: { id?: string; source?: string; externalId?: string } = {},
-    ) => {
-      const id = options.id ?? newId();
-      await db.execute(
-        `INSERT INTO things (id, thing_type_id, thing_type_version, source, external_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, typeId, version, options.source ?? MANUAL, options.externalId ?? null, t, t],
-      );
-      const record = { id, typeId, typeVersion: version };
-      await setValues(db, THING_TABLES, record, values, {
-        writtenBy: options.source ?? MANUAL,
-        writtenAt: t,
-      });
-      return id;
-    };
-
-    const trash = (table: string, id: string, extra = "") =>
-      db.execute(
-        `UPDATE ${table} SET deleted_at = ?, deletion_id = ?, updated_at = ?${extra} WHERE id = ?`,
-        [t + 1, newId(), t + 1, id],
-      );
-
-    // Person: version 1 has a birth date; version 2 retires it and adds friends.
-    const person = await insertType("Person", [
-      { name: "Name", valueType: "text", required: true, constraints: { maxLength: 200 } },
-      { name: "Born", valueType: "date" },
-    ]);
-    const [name, born] = person.fieldIds;
-    const alex = await insertThing(person.id, 1, { [name]: "Alex", [born]: "1990-04-01" });
-    await reviseFields(
-      db,
-      THING_TABLES,
-      person.id,
-      [
-        {
-          id: name,
-          name: "Name",
-          valueType: "text",
-          required: true,
-          constraints: { maxLength: 200 },
-        },
-        { name: "Friends", valueType: "multi_ref", constraints: { thingTypeId: person.id } },
-      ],
-      t,
-    );
-    const friends = (
-      await db.query<{ id: string }>("SELECT id FROM thing_fields WHERE name = 'Friends'")
-    )[0].id;
-    const survivor = await insertThing(person.id, 2, { [name]: "Alex Smith" }, { id: SURVIVOR_ID });
-    await insertThing(person.id, 2, { [name]: "Sam", [friends]: [alex, survivor] });
-
-    // A duplicate merged into the survivor, a trashed thing, and a purged tombstone.
-    const duplicate = await insertThing(person.id, 2, { [name]: "alex s" });
-    await trash("things", duplicate, `, merged_into_id = '${SURVIVOR_ID}'`);
-    const trashed = await insertThing(person.id, 2, { [name]: "Kim" });
-    await trash("things", trashed);
-    await db.execute(
-      `INSERT INTO things
-         (id, thing_type_id, thing_type_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
-       VALUES (?, ?, 2, ?, ?, ?, ?, ?)`,
-      [newId(), person.id, t, t, t + 1, newId(), t + 2],
-    );
-
-    // Movie: every other value column, with option labels and a reference.
-    const movie = await insertType("Movie", [
+  // Movie: every other value column, with option labels, a reference, and an
+  // imported thing whose value an automated writer set.
+  const movie = await createThingType(db, {
+    name: "Movie",
+    fields: [
       { name: "Title", valueType: "text", required: true },
       { name: "Year", valueType: "number", constraints: { min: 1878, precision: 1 } },
       {
@@ -126,39 +82,56 @@ export async function populateThings(db: Database): Promise<void> {
       { name: "Seen", valueType: "boolean" },
       { name: "Released", valueType: "datetime" },
       { name: "Director", valueType: "ref", constraints: { thingTypeId: person.id } },
-    ]);
-    const [title, year, format, seen, released, director] = movie.fieldIds;
-    await insertThing(
-      movie.id,
-      1,
-      {
-        [title]: "Alien",
-        [year]: 1979.5,
-        [format]: "cinema",
-        [seen]: true,
-        [released]: Date.UTC(1979, 4, 25),
-        [director]: survivor,
-      },
-      { source: "import", externalId: "tt0078748" },
-    );
-
-    // An archived type and a trashed one.
-    const place = await insertType("Place", [{ name: "Name", valueType: "text", required: true }]);
-    await db.execute("UPDATE thing_types SET archived_at = ? WHERE id = ?", [t + 1, place.id]);
-    const old = await insertType("Old", [{ name: "Name", valueType: "text", required: true }]);
-    await trash("thing_types", old.id);
-
-    // A timeline offering people first, with a category that is a thing.
-    const people = newId();
-    await db.execute(
-      `INSERT INTO timelines (id, name, exclusive, default_thing_type_id, created_at, updated_at)
-       VALUES (?, 'People', 0, ?, ?, ?)`,
-      [people, person.id, t, t],
-    );
-    await db.execute(
-      `INSERT INTO timeline_categories (id, timeline_id, name, thing_id, created_at, updated_at)
-       VALUES (?, ?, 'Alex Smith', ?, ?, ?)`,
-      [newId(), people, survivor, t, t],
-    );
+    ],
   });
+  const [title, year, format, seen, released, director] = await fieldIds(movie.id);
+  await createThing(db, {
+    thingTypeId: movie.id,
+    source: "import",
+    externalId: "tt0078748",
+    values: {
+      [title]: "Alien",
+      [year]: 1979.5,
+      [format]: "cinema",
+      [seen]: true,
+      [released]: Date.UTC(1979, 4, 25),
+      [director]: survivor.id,
+    },
+  });
+
+  // An archived type, and a trashed one with its thing.
+  const place = await createThingType(db, { name: "Place", fields: [name] });
+  await setThingTypeArchived(db, place.id, true);
+  const old = await createThingType(db, { name: "Old", fields: [name] });
+  await createThing(db, { thingTypeId: old.id, values: { [(await fieldIds(old.id))[0]]: "x" } });
+  await deleteThingType(db, old.id);
+
+  const t = now();
+  // Merging does not exist yet, so write the duplicate it leaves.
+  await db.execute(
+    `INSERT INTO things
+       (id, thing_type_id, thing_type_version, source, merged_into_id, created_at, updated_at, deleted_at, deletion_id)
+     VALUES (?, ?, 2, 'manual', ?, ?, ?, ?, ?)`,
+    [DUPLICATE_ID, person.id, survivor.id, t, t, t + 1, newId()],
+  );
+  // The purge operation does not exist yet, so write the tombstone it will leave.
+  await db.execute(
+    `INSERT INTO things
+       (id, thing_type_id, thing_type_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
+     VALUES (?, ?, 2, ?, ?, ?, ?, ?)`,
+    [newId(), person.id, t, t, t + 1, newId(), t + 2],
+  );
+
+  // A timeline offering people first, with a category that is a thing.
+  const people = newId();
+  await db.execute(
+    `INSERT INTO timelines (id, name, exclusive, default_thing_type_id, created_at, updated_at)
+     VALUES (?, 'People', 0, ?, ?, ?)`,
+    [people, person.id, t, t],
+  );
+  await db.execute(
+    `INSERT INTO timeline_categories (id, timeline_id, name, thing_id, created_at, updated_at)
+     VALUES (?, ?, 'Alex Smith', ?, ?, ?)`,
+    [newId(), people, survivor.id, t, t],
+  );
 }

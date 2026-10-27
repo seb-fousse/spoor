@@ -165,11 +165,14 @@ export interface ValueWriter {
 
 /**
  * Validates the fields of a new type and gives each a new id, in input order.
- * Touches no database, so a caller can learn the ids before inserting its type
- * row (a thing type names its title field).
+ * Names must be unique, ignoring case and surrounding spaces. Touches no
+ * database, so a caller can learn the ids before inserting its type row (a
+ * thing type names its title field).
  */
 export function draftFields(tables: DefinitionTables, inputs: readonly NewField[]): FieldDraft[] {
-  return inputs.map((input) => draftField(tables, newId(), input));
+  const drafts = inputs.map((input) => draftField(tables, newId(), input));
+  assertUniqueNames(tables, drafts);
+  return drafts;
 }
 
 /**
@@ -199,7 +202,8 @@ export async function createFirstVersion(
 /**
  * Replaces a type's field list with `inputs`, in display order. Existing fields
  * are referenced by `id`, including retired ones, which come back; fields
- * without one are added.
+ * without one are added. Names must be unique among `inputs`, ignoring case and
+ * surrounding spaces.
  *
  * If no field was added or left out and every shape and required flag is
  * unchanged, no version is created. Otherwise the type gets version n+1, with a
@@ -238,6 +242,7 @@ export async function reviseFields(
     }
     return draftField(tables, input.id ?? newId(), input);
   });
+  assertUniqueNames(tables, drafts);
 
   const unchanged = (draft: FieldDraft) => {
     const field = current.get(draft.id);
@@ -266,7 +271,11 @@ export async function reviseFields(
   }
   if (!created) return { version: type.schema_version, created };
 
-  for (const draft of drafts) if (!unchanged(draft)) await assertRefTarget(db, tables, draft);
+  // Only a new field or a new shape picks a target; existing references stay valid.
+  for (const draft of drafts) {
+    const field = current.get(draft.id);
+    if (!field || !sameShape(field.shape, draft.shape)) await assertRefTarget(db, tables, draft);
+  }
   const version = type.schema_version + 1;
   await insertVersion(db, tables, typeId, version, at);
   await insertFieldVersions(db, tables, typeId, version, drafts, at);
@@ -278,7 +287,10 @@ export async function reviseFields(
   return { version, created };
 }
 
-/** Renames or relabels a field, without a version. */
+/**
+ * Renames or relabels a field, without a version. A new name must be unique
+ * among the fields of the type's current version.
+ */
 export async function updateField(
   db: Database,
   tables: DefinitionTables,
@@ -294,10 +306,18 @@ export async function updateField(
     .where("id", "=", fieldId)
     .executeTakeFirst();
   if (!row) throw new Error(`${label}: not found`);
+  const name = patch.name === undefined ? row.name : requireName(label, patch.name);
+  if (patch.name !== undefined) {
+    const type = await requireType(db, tables, row.def_type_id);
+    const others = (await getVersionFields(db, tables, type.id, type.schema_version)).filter(
+      (f) => f.id !== fieldId,
+    );
+    assertUniqueNames(tables, [...others, { id: fieldId, name }]);
+  }
   await q
     .updateTable("def_fields")
     .set({
-      name: patch.name === undefined ? row.name : requireName(label, patch.name),
+      name,
       option_labels:
         patch.optionLabels === undefined
           ? row.option_labels
@@ -673,17 +693,38 @@ async function insertFieldVersions(
   }
 }
 
-/** A `ref` or `multi_ref` field must target a live thing type. */
+/** Field names are unique within a field list, ignoring case and surrounding spaces. */
+function assertUniqueNames(
+  tables: DefinitionTables,
+  fields: readonly { id: string; name: string }[],
+) {
+  const seen = new Map<string, string>();
+  for (const { id, name } of fields) {
+    const key = name.trim().toLowerCase();
+    const other = seen.get(key);
+    if (other !== undefined) {
+      throw new Error(
+        `${tables.fieldKind} ${id}: name ${JSON.stringify(name.trim())} is already used by field ${other}`,
+      );
+    }
+    seen.set(key, id);
+  }
+}
+
+/** A new `ref` or `multi_ref` field must target a live, unarchived thing type. */
 async function assertRefTarget(db: Database, tables: DefinitionTables, field: FieldDraft) {
   if (field.shape.valueType !== "ref" && field.shape.valueType !== "multi_ref") return;
   const { thingTypeId } = field.shape.constraints;
   const target = await queryBuilder(db)
     .selectFrom("thing_types")
-    .select("deleted_at")
+    .select(["deleted_at", "archived_at"])
     .where("id", "=", thingTypeId)
     .executeTakeFirst();
   if (!target || target.deleted_at !== null) {
     throw new Error(`${tables.fieldKind} ${field.id}: thing type ${thingTypeId} not found`);
+  }
+  if (target.archived_at !== null) {
+    throw new Error(`${tables.fieldKind} ${field.id}: thing type ${thingTypeId} is archived`);
   }
 }
 
