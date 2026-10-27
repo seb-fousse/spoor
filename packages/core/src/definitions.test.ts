@@ -238,6 +238,40 @@ describe("definitions", () => {
       ]);
     });
 
+    it("keeps option labels a revision leaves out, and clears them with {}", async () => {
+      const mood: NewField = {
+        name: "Mood",
+        valueType: "enum",
+        constraints: { options: [{ key: "a", order: 1 }] },
+        optionLabels: { a: "Happy" },
+      };
+      const { id, fieldIds } = await createType([fields[0], mood]);
+      const labels = async () => (await getVersionFields(db, T, id, 1))[1].optionLabels;
+      const { optionLabels: _, ...unlabelled } = mood;
+      await reviseFields(
+        db,
+        T,
+        id,
+        [
+          { ...fields[0], id: fieldIds[0] },
+          { ...unlabelled, id: fieldIds[1] },
+        ],
+        2_000,
+      );
+      expect(await labels()).toEqual({ a: "Happy" });
+      await reviseFields(
+        db,
+        T,
+        id,
+        [
+          { ...fields[0], id: fieldIds[0] },
+          { ...unlabelled, id: fieldIds[1], optionLabels: {} },
+        ],
+        3_000,
+      );
+      expect(await labels()).toEqual({});
+    });
+
     it("leaves untouched fields' rows alone", async () => {
       const { id, fieldIds } = await createType(fields);
       await reviseFields(

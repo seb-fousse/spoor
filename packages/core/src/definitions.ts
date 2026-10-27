@@ -216,7 +216,8 @@ export async function createFirstVersion(
  * unchanged, no version is created. Otherwise the type gets version n+1, with a
  * field version for every field in `inputs`; a field left out is retired, and
  * its row and past versions stay. Names, positions and option labels are
- * updated either way, without a version.
+ * updated either way, without a version; an existing field given no
+ * `optionLabels` keeps its stored ones, while `{}` clears them.
  */
 export async function reviseFields(
   db: Database,
@@ -263,7 +264,10 @@ export async function reviseFields(
       await insertField(db, tables, typeId, draft, position, at);
       continue;
     }
-    const optionLabels = JSON.stringify(draft.optionLabels);
+    const optionLabels =
+      inputs[position].optionLabels === undefined
+        ? row.option_labels
+        : JSON.stringify(draft.optionLabels);
     if (
       row.name !== draft.name ||
       row.position !== position ||

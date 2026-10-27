@@ -312,7 +312,6 @@ interface FieldDraft {
   required: boolean;
   /** JSON text, or the target thing type for references. */
   constraints: string;
-  optionLabels?: Record<string, string>;
 }
 
 /** Edits the whole field list, saved as one revision. Removing a field retires it. */
@@ -332,8 +331,6 @@ function FieldEditor({
       valueType: f.shape.valueType as FieldValueType,
       required: f.required,
       constraints: JSON.stringify(f.shape.constraints),
-      // Labels are replaced by a revision, so carry them over.
-      optionLabels: f.optionLabels,
     })),
   );
   const change = (i: number, patch: Partial<FieldDraft>) =>
