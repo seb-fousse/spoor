@@ -191,6 +191,37 @@ mod tests {
         assert!(err.contains("unsupported param"));
     }
 
+    // The migration runner in core drives transactions and `user_version`
+    // through these two functions, one statement per call.
+    #[test]
+    fn supports_the_migration_runner_statements() {
+        let conn = memory();
+        let user_version = |conn: &Connection| {
+            query(conn, "PRAGMA user_version", vec![]).unwrap()[0]["user_version"].clone()
+        };
+
+        execute(&conn, "BEGIN IMMEDIATE", vec![]).unwrap();
+        execute(&conn, "CREATE TABLE m (id TEXT PRIMARY KEY) STRICT", vec![]).unwrap();
+        execute(&conn, "PRAGMA user_version = 1", vec![]).unwrap();
+        execute(&conn, "COMMIT", vec![]).unwrap();
+        assert_eq!(user_version(&conn), json!(1));
+
+        execute(&conn, "BEGIN IMMEDIATE", vec![]).unwrap();
+        execute(&conn, "CREATE TABLE r (id TEXT PRIMARY KEY) STRICT", vec![]).unwrap();
+        execute(&conn, "PRAGMA user_version = 2", vec![]).unwrap();
+        execute(&conn, "ROLLBACK", vec![]).unwrap();
+        assert_eq!(user_version(&conn), json!(1));
+        assert!(
+            query(
+                &conn,
+                "SELECT name FROM sqlite_master WHERE name = 'r'",
+                vec![]
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+
     #[test]
     fn applies_connection_settings() {
         let dir = std::env::temp_dir().join(format!("spoor-db-test-{}", std::process::id()));
