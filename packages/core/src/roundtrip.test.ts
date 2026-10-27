@@ -59,6 +59,20 @@ describe("export/import round trip", () => {
     expect((doc.timelineCategories ?? []).some((c) => c.archivedAt !== null)).toBe(true);
   });
 
+  it("exports observations in every state, with typed values", async () => {
+    const doc = await exportData(source);
+    const observations = doc.observations ?? [];
+    expect(observations.map((o) => o.valueNum).filter((n) => n !== null)).toContain(7.5);
+    expect(observations.some((o) => o.valueBool === false)).toBe(true);
+    expect(observations.some((o) => o.writtenBy === "healthkit")).toBe(true);
+    expect(observations.some((o) => o.purgedAt !== null && o.date === null)).toBe(true);
+    expect(doc.observationMetricVersions?.some((v) => v.version === 2)).toBe(true);
+    expect(doc.observationMetrics?.find((m) => m.name === "Mood")?.optionLabels).toEqual({
+      low: "Low",
+      high: "High",
+    });
+  });
+
   it("exports in the documented shape", async () => {
     const doc = await exportData(source);
     expect(doc.schemaVersion).toBe(1);

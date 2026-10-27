@@ -11,6 +11,7 @@ import {
   setTimelineArchived,
   startInterval,
 } from "../timelines";
+import { populateObservations } from "./sample-observations";
 
 /**
  * TEST-ONLY. A database holding at least one row of every kind the export has to
@@ -71,6 +72,7 @@ export async function populate(db: Database): Promise<void> {
   const habits = await createTimeline(db, { name: "Habits", exclusive: false });
   await createCategory(db, habits.id, { name: "Read" });
   await setTimelineArchived(db, habits.id, true);
+  await populateObservations(db);
 }
 
 /** Every row of every table, for comparing two databases exactly. */

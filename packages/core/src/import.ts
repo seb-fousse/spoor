@@ -158,6 +158,8 @@ function checkValue({ kind, nullable }: Column, value: unknown): string | undefi
       return isUuid(value) ? undefined : "must be a lowercase UUID";
     case "int":
       return isInstant(value) ? undefined : "must be an integer";
+    case "real":
+      return typeof value === "number" && Number.isFinite(value) ? undefined : "must be a number";
     case "bool":
       return typeof value === "boolean" ? undefined : "must be true or false";
     case "instant":
