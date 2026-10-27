@@ -17,4 +17,17 @@ export interface Migration {
  * - Every `CREATE TABLE` ends with `STRICT` (see data-spec, Storage).
  * - Table names are snake_case.
  */
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    name: "create settings",
+    statements: [
+      // Settings are configuration, so `value` is JSON text rather than typed columns.
+      `CREATE TABLE settings (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL CHECK (json_valid(value)),
+        updated_at INTEGER NOT NULL
+      ) STRICT`,
+    ],
+  },
+];
