@@ -6,3 +6,5 @@
 
 export * from "./guards";
 export * from "./platform/index";
+export * from "./schema/migrate";
+export * from "./schema/migrations";

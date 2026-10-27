@@ -15,8 +15,9 @@
  *
  * On desktop, SQLite lives on the Rust side and this is implemented over Tauri
  * IPC. In tests, it is implemented with an in-memory `better-sqlite3` instance
- * (see `database.test.ts`). Encryption at rest (SQLCipher) lives *behind* this
- * interface, so the rest of core never knows whether the file is encrypted.
+ * (see `testing/in-memory-database.ts`). Encryption at rest (SQLCipher) lives
+ * *behind* this interface, so the rest of core never knows whether the file is
+ * encrypted.
  */
 export interface Database {
   /** Run a statement that returns no rows (INSERT/UPDATE/DELETE/DDL). */
