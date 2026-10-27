@@ -1,6 +1,6 @@
 import { type Selectable, sql } from "kysely";
 import { isTimeZone } from "./days";
-import { isNonEmptyString } from "./guards";
+import { optionalText, requireName } from "./guards";
 import { newId } from "./ids";
 import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
@@ -696,15 +696,6 @@ async function requireLiveInterval(db: Database, id: string): Promise<TimelineIn
     .executeTakeFirst();
   if (!row) throw new Error(`Timeline interval ${id}: not found`);
   return toInterval(row);
-}
-
-function requireName(label: string, name: string): string {
-  if (!isNonEmptyString(name)) throw new Error(`${label}: name is required`);
-  return name.trim();
-}
-
-function optionalText(text: string | null | undefined): string | null {
-  return isNonEmptyString(text) ? text.trim() : null;
 }
 
 function toTimeline(row: TimelineRow): Timeline {
