@@ -1,5 +1,6 @@
 import { isTimeZone, systemTimeZone } from "./days";
 import type { Database } from "./platform/index";
+import { queryBuilder } from "./query";
 import { now } from "./time";
 
 /**
@@ -10,9 +11,11 @@ import { now } from "./time";
 
 /** The parsed value stored under `key`, or `undefined` if it was never set. */
 export async function getSetting<T>(db: Database, key: string): Promise<T | undefined> {
-  const [row] = await db.query<{ value: string }>("SELECT value FROM settings WHERE key = ?", [
-    key,
-  ]);
+  const row = await queryBuilder(db)
+    .selectFrom("settings")
+    .select("value")
+    .where("key", "=", key)
+    .executeTakeFirst();
   return row === undefined ? undefined : (JSON.parse(row.value) as T);
 }
 
@@ -22,11 +25,16 @@ export async function setSetting(db: Database, key: string, value: unknown): Pro
   if (json === undefined) {
     throw new Error(`Setting ${JSON.stringify(key)} must be a JSON value; got ${typeof value}`);
   }
-  await db.execute(
-    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    [key, json, now()],
-  );
+  await queryBuilder(db)
+    .insertInto("settings")
+    .values({ key, value: json, updated_at: now() })
+    .onConflict((oc) =>
+      oc.column("key").doUpdateSet((eb) => ({
+        value: eb.ref("excluded.value"),
+        updated_at: eb.ref("excluded.updated_at"),
+      })),
+    )
+    .execute();
 }
 
 /**
