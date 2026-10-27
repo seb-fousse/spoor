@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../platform/index";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
@@ -110,6 +111,18 @@ describe("MIGRATIONS", () => {
     expect("CREATE TABLE t (id TEXT PRIMARY KEY) strict, WITHOUT ROWID;").toMatch(STRICT_TABLE);
     expect("CREATE TABLE t (id TEXT)").not.toMatch(STRICT_TABLE);
     expect("CREATE TABLE t (strict TEXT)").not.toMatch(STRICT_TABLE);
+  });
+
+  it("lists every file in migrations/, in order", () => {
+    // A file nobody imported would never run; one listed out of order would
+    // run under the wrong version.
+    const files = readdirSync(new URL("./migrations", import.meta.url))
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    const expected = MIGRATIONS.map(
+      ({ version, name }) => `${String(version).padStart(4, "0")}_${name}.sql`,
+    );
+    expect(files).toEqual(expected);
   });
 
   it("makes every table STRICT", () => {
