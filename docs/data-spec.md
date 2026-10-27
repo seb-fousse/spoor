@@ -601,7 +601,17 @@ LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
 - Round-trip is a core requirement: export then import reproduces IDs,
   timestamps, versions, values, sources, and trash and purge state exactly.
 - Import validates definitions and values and refuses invalid data rather than
-  dropping or altering it.
+  dropping or altering it. It checks the whole file before writing anything, so
+  a refused import changes nothing.
+- Records use camelCase field names. Instants are ISO 8601 UTC, booleans are
+  `true`/`false`, and a setting's `value` is its JSON value. Every row is
+  exported in every state: live, archived, trashed, and purged.
+- `schemaVersion` is the version of this format, not of the database. A file
+  with a newer version is refused. A table missing from the file is treated as
+  empty, so an export from an older Spoor still imports.
+- Import needs an empty database, apart from settings, which it overwrites.
+  Merging into existing data is not supported.
+- Only the JSON export exists so far; the CSV export is not yet built.
 
 ```json
 {
