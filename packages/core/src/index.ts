@@ -4,6 +4,7 @@
  * Apps import from here only. Keep the barrel small and intentional.
  */
 
+export * from "./days";
 export * from "./guards";
 export * from "./platform/index";
 export * from "./schema/migrate";
