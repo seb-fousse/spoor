@@ -99,6 +99,17 @@ describe("migrate", () => {
   it("applies the real migrations", async () => {
     expect(await migrate(db)).toEqual({ from: 0, to: MIGRATIONS.length });
   });
+
+  it("upgrades a version 1 database to the real migrations, keeping its data", async () => {
+    await migrate(db, MIGRATIONS.slice(0, 1));
+    await db.execute("INSERT INTO settings (key, value, updated_at) VALUES ('k', '1', 0)");
+
+    expect(await migrate(db)).toEqual({ from: 1, to: MIGRATIONS.length });
+    expect(await db.query("SELECT key, value FROM settings")).toEqual([{ key: "k", value: "1" }]);
+    expect(await tables()).toEqual(
+      expect.arrayContaining(["timeline_categories", "timeline_intervals", "timelines"]),
+    );
+  });
 });
 
 describe("MIGRATIONS", () => {

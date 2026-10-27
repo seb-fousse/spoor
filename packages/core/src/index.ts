@@ -12,4 +12,5 @@ export * from "./schema/migrate";
 export * from "./schema/migrations";
 export * from "./settings";
 export * from "./time";
+export * from "./timelines";
 export * from "./transaction";
