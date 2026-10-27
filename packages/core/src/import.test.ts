@@ -43,7 +43,7 @@ describe("importData", () => {
   it("refuses a database that already has data, leaving it untouched", async () => {
     await importData(db, doc);
     const before = await dumpAll(db);
-    await expect(importData(db, doc)).rejects.toThrow(/empty database.*timelines/);
+    await expect(importData(db, doc)).rejects.toThrow(/empty database, but \w+ already has rows/);
     expect(await dumpAll(db)).toEqual(before);
   });
 

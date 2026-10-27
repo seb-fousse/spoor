@@ -10,6 +10,7 @@ import type { DB } from "./schema/tables";
  *
  * To add a table:
  * 1. Add an entry, after the tables it references: import inserts in this order.
+ *    A column referencing its own table is declared as `selfReference` instead.
  * 2. Give every column a kind. A trailing `?` marks a nullable column.
  * 3. Extend the fixture in `roundtrip.test.ts` so the table holds live, trashed and,
  *    where it has them, purged rows.
@@ -24,11 +25,11 @@ export const EXPORT_SCHEMA_VERSION = 1;
 /**
  * How a column travels:
  * - `text`: a string. `uuid`: a canonical UUID string.
- * - `int`: a safe integer. `bool`: stored as 0/1, written as true/false.
+ * - `int`: a safe integer. `real`: a finite number. `bool`: stored as 0/1, written as true/false.
  * - `instant`: stored as epoch milliseconds, written as ISO 8601 UTC.
  * - `json`: stored as JSON text, written as the parsed value.
  */
-export type ColumnKind = "text" | "uuid" | "int" | "bool" | "instant" | "json";
+export type ColumnKind = "text" | "uuid" | "int" | "real" | "bool" | "instant" | "json";
 export type ColumnSpec = ColumnKind | `${ColumnKind}?`;
 
 interface TableSpec {
@@ -39,6 +40,11 @@ interface TableSpec {
   readonly orderBy: string;
   /** Import overwrites rows with this key instead of failing, and does not require the table empty. */
   readonly upsertOn?: string;
+  /**
+   * A column referencing this same table. Import inserts each row after the row it
+   * references, whatever their order in the file.
+   */
+  readonly selfReference?: string;
   /** Checked against `TABLE_COLUMNS` by `portable.test.ts`. */
   readonly columns: Readonly<Record<string, ColumnSpec>>;
 }
@@ -51,6 +57,96 @@ export const TABLES = [
     orderBy: "key",
     upsertOn: "key",
     columns: { key: "text", value: "json", updated_at: "instant" },
+  },
+  {
+    key: "thingTypes",
+    table: "thing_types",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      name: "text",
+      description: "text?",
+      title_field_id: "uuid",
+      schema_version: "int",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+      deleted_at: "instant?",
+      deletion_id: "uuid?",
+    },
+  },
+  {
+    key: "thingTypeVersions",
+    table: "thing_type_versions",
+    orderBy: "id",
+    columns: { id: "uuid", thing_type_id: "uuid", version: "int", created_at: "instant" },
+  },
+  {
+    key: "thingFields",
+    table: "thing_fields",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      thing_type_id: "uuid",
+      name: "text",
+      position: "int",
+      option_labels: "json",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "thingFieldVersions",
+    table: "thing_field_versions",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      field_id: "uuid",
+      thing_type_id: "uuid",
+      thing_type_version: "int",
+      value_type: "text",
+      required: "bool",
+      constraints: "json",
+      created_at: "instant",
+    },
+  },
+  {
+    key: "things",
+    table: "things",
+    orderBy: "id",
+    selfReference: "merged_into_id",
+    columns: {
+      id: "uuid",
+      thing_type_id: "uuid",
+      thing_type_version: "int",
+      source: "text?",
+      external_id: "text?",
+      merged_into_id: "uuid?",
+      created_at: "instant",
+      updated_at: "instant",
+      deleted_at: "instant?",
+      deletion_id: "uuid?",
+      purged_at: "instant?",
+    },
+  },
+  {
+    key: "thingFieldValues",
+    table: "thing_field_values",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      thing_id: "uuid",
+      field_id: "uuid",
+      value_bool: "bool?",
+      value_num: "real?",
+      value_enum: "text?",
+      value_text: "text?",
+      value_date: "text?",
+      value_instant: "instant?",
+      value_ref: "uuid?",
+      written_by: "text",
+      written_at: "instant",
+    },
   },
   {
     key: "timelines",
