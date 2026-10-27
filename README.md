@@ -30,7 +30,7 @@ pnpm install
 pnpm typecheck   # TypeScript, all packages
 pnpm lint        # Biome lint + format check
 pnpm test        # Vitest (core logic)
-pnpm build       # build @spoor/core and the desktop frontend
+pnpm build       # build the desktop frontend
 ```
 
 ### Run the desktop app
