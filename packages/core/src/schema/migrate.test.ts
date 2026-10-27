@@ -108,6 +108,10 @@ describe("migrate", () => {
     expect(await db.query("SELECT key, value FROM settings")).toEqual([{ key: "k", value: "1" }]);
     expect(await tables()).toEqual(
       expect.arrayContaining([
+        "observation_metric_versions",
+        "observation_metrics",
+        "observation_selections",
+        "observations",
         "thing_field_values",
         "thing_field_versions",
         "thing_fields",
@@ -121,7 +125,7 @@ describe("migrate", () => {
     );
   });
 
-  // Migration 3 rebuilds the timeline tables to add the foreign keys to things.
+  // Migration 4 rebuilds the timeline tables to add the foreign keys to things.
   it("upgrades a version 2 database, keeping its timelines and adding their thing keys", async () => {
     await migrate(db, MIGRATIONS.slice(0, 2));
     const id = (n: number) => `01900000-0000-7000-8000-${String(n).padStart(12, "0")}`;

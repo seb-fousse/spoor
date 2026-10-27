@@ -1,6 +1,7 @@
 import initial from "./migrations/0001_initial.sql?raw";
 import timelines from "./migrations/0002_timelines.sql?raw";
-import things from "./migrations/0003_things.sql?raw";
+import observations from "./migrations/0003_observations.sql?raw";
+import things from "./migrations/0004_things.sql?raw";
 import { splitStatements } from "./sql";
 
 /** One schema step. `version` is its position in `MIGRATIONS`, starting at 1. */
@@ -29,5 +30,6 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: "initial", statements: splitStatements(initial) },
   { version: 2, name: "timelines", statements: splitStatements(timelines) },
-  { version: 3, name: "things", statements: splitStatements(things) },
+  { version: 3, name: "observations", statements: splitStatements(observations) },
+  { version: 4, name: "things", statements: splitStatements(things) },
 ];

@@ -11,6 +11,7 @@ import {
   setTimelineArchived,
   startInterval,
 } from "../timelines";
+import { populateObservations } from "./sample-observations";
 import { populateThings } from "./sample-things";
 
 /**
@@ -73,6 +74,7 @@ export async function populate(db: Database): Promise<void> {
   await createCategory(db, habits.id, { name: "Read" });
   await setTimelineArchived(db, habits.id, true);
 
+  await populateObservations(db);
   await populateThings(db);
 }
 
