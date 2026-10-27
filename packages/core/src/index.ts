@@ -12,6 +12,7 @@ export * from "./ids";
 export { importData, importJson } from "./import";
 export * from "./logs";
 export * from "./merge";
+export * from "./observations";
 export * from "./platform/index";
 export type { ExportDocument } from "./portable";
 export * from "./schema/migrate";

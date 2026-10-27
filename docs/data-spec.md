@@ -53,8 +53,9 @@ state, and changing one bumps the parent's `updated_at`.
 when deleted and can be restored from it. Seven days after `deleted_at`, or
 when the trash is emptied, an entry is **purged**: its child rows are removed
 and its content columns cleared. The tombstone keeps only `id`, the reference
-to its definition, `created_at`, `updated_at`, `deleted_at`, `purged_at`, and,
-for a thing, `merged_into_id`.
+to its definition, `created_at`, `updated_at`, `deleted_at`, `deletion_id`
+(so its group can no longer be restored), `purged_at`, and, for a thing,
+`merged_into_id`.
 
 Tombstones let a future sync propagate deletions, and keep references to
 purged things resolvable. Content columns are therefore nullable in storage;
@@ -271,6 +272,11 @@ be edited freely. Any other option change creates a new version.
 At most one non-deleted observation per `(metric_id, date)`, enforced by a
 partial unique index; editing revises it. No observation means “not recorded”,
 never `false`, zero, or a default.
+
+Recording a value validates it against the metric's current version, and a
+revision moves the observation to that version. Nothing can be recorded on an
+archived metric. A trashed observation cannot be restored while another is
+recorded for its `(metric_id, date)`.
 
 ### Observation selection
 
@@ -697,7 +703,8 @@ Possible additions, not yet decided:
   fields' values are dropped after a warning; values that no longer fit are
   converted only if lossless, otherwise the user decides; new required fields
   must be filled. A bulk upgrade runs in one transaction and lists entries it
-  could not convert. Applies to things and observations too.
+  could not convert. Applies to things too, and to observations in bulk; an
+  observation already moves to the current version whenever it is recorded again.
 - **Removing a field's past values.** An explicit “remove this field and its
   values” action, with counts and confirmation like a cascading delete.
 - **Changes of meaning in the analytics export.** A rating moving from 1–5 to

@@ -75,4 +75,18 @@ describe("export/import round trip", () => {
     expect(doc.settings?.find((s) => s.key === "time_zone")?.value).toBe("Europe/Paris");
     expect(doc.timelines?.[0]).toMatchObject({ exclusive: expect.any(Boolean) });
   });
+
+  it("exports observations in every state, with typed values", async () => {
+    const doc = await exportData(source);
+    const observations = doc.observations ?? [];
+    expect(observations.map((o) => o.valueNum).filter((n) => n !== null)).toContain(7.5);
+    expect(observations.some((o) => o.valueBool === false)).toBe(true);
+    expect(observations.some((o) => o.writtenBy === "healthkit")).toBe(true);
+    expect(observations.some((o) => o.purgedAt !== null && o.date === null)).toBe(true);
+    expect(doc.observationMetricVersions?.some((v) => v.version === 2)).toBe(true);
+    expect(doc.observationMetrics?.find((m) => m.name === "Mood")?.optionLabels).toEqual({
+      low: "Low",
+      high: "High",
+    });
+  });
 });
