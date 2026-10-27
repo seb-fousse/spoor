@@ -10,6 +10,8 @@
  * `Intl.DateTimeFormat` is used: `Temporal` is not available everywhere we run.
  */
 
+import { addDays, type Instant, type LocalDate } from "./time";
+
 /** How much of a log entry's `occurred_at` is known. */
 export type Precision = "instant" | "day" | "month" | "year";
 
@@ -59,7 +61,7 @@ export function systemTimeZone(): string {
 }
 
 /** The local date of `instant` in `timeZone`. */
-export function dayOf(instant: number, timeZone: string): string {
+export function dayOf(instant: Instant, timeZone: string): LocalDate {
   const [year, month, day] = wallClock(instant, timeZone);
   return formatDate(year, month, day);
 }
@@ -72,7 +74,7 @@ export function dayOf(instant: number, timeZone: string): string {
  * a whole date is skipped (Pacific/Apia, 2011-12-30) it is the start of the next
  * date that exists, so that day is empty.
  */
-export function startOfDay(date: string, timeZone: string): number {
+export function startOfDay(date: LocalDate, timeZone: string): Instant {
   const [year, month, day] = parseDate(date);
   const midnight = utcFromParts(year, month, day);
   // Fast path: guess with the offset at the guess. Correct unless the offset
@@ -93,8 +95,8 @@ export function startOfDay(date: string, timeZone: string): number {
 }
 
 /** The half-open range `[start, end)` of `date` in `timeZone`; 23 or 25 hours long around DST. */
-export function dayRange(date: string, timeZone: string): [start: number, end: number] {
-  return [startOfDay(date, timeZone), startOfDay(nextDate(date), timeZone)];
+export function dayRange(date: LocalDate, timeZone: string): [start: Instant, end: Instant] {
+  return [startOfDay(date, timeZone), startOfDay(addDays(date, 1), timeZone)];
 }
 
 /**
@@ -102,26 +104,26 @@ export function dayRange(date: string, timeZone: string): [start: number, end: n
  * order. An interval ending exactly at midnight does not touch the next day; a
  * zero-length interval touches the day it sits in.
  */
-export function daysSpanned(startAt: number, endAt: number, timeZone: string): string[] {
+export function daysSpanned(startAt: Instant, endAt: Instant, timeZone: string): LocalDate[] {
   if (endAt < startAt) {
     throw new Error(`Interval ends before it starts: [${startAt}, ${endAt})`);
   }
   const last = dayOf(endAt > startAt ? endAt - 1 : endAt, timeZone);
-  const days: string[] = [];
+  const days: LocalDate[] = [];
   for (let day = dayOf(startAt, timeZone); day <= last; ) {
     days.push(day);
     // Step via the next day's start so dates a zone skipped are left out.
-    day = dayOf(startOfDay(nextDate(day), timeZone), timeZone);
+    day = dayOf(startOfDay(addDays(day, 1), timeZone), timeZone);
   }
   return days;
 }
 
 /** `instant` truncated to the start of its day, month, or year in `timeZone`. */
 export function truncateToPrecision(
-  instant: number,
+  instant: Instant,
   precision: Precision,
   timeZone: string,
-): number {
+): Instant {
   const day = dayOf(instant, timeZone);
   switch (precision) {
     case "instant":
@@ -139,10 +141,10 @@ export function truncateToPrecision(
 
 /** The day a log entry belongs to, or `null` for `month` and `year` precision. */
 export function dayOfEntry(
-  occurredAt: number,
+  occurredAt: Instant,
   precision: Precision,
   timeZone: string,
-): string | null {
+): LocalDate | null {
   const day = dayOf(occurredAt, timeZone);
   return precision === "instant" || precision === "day" ? day : null;
 }
@@ -183,11 +185,6 @@ function utcFromParts(year: number, month: number, day: number, h = 0, m = 0, s 
 function civilDate(utc: number): [year: number, month: number, day: number] {
   const date = new Date(utc);
   return [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()];
-}
-
-function nextDate(date: string): string {
-  const [year, month, day] = parseDate(date);
-  return formatDate(...civilDate(utcFromParts(year, month, day + 1)));
 }
 
 function parseDate(date: string): [year: number, month: number, day: number] {

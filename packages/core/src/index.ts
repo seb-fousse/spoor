@@ -10,4 +10,5 @@ export * from "./ids";
 export * from "./platform/index";
 export * from "./schema/migrate";
 export * from "./schema/migrations";
+export * from "./settings";
 export * from "./time";
