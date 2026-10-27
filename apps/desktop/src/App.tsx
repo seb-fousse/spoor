@@ -1,6 +1,7 @@
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { createTauriDatabase } from "./platform/database";
+import { Things } from "./Things";
 import { Timelines } from "./Timelines";
 import "./App.css";
 
@@ -25,6 +26,7 @@ function App() {
         <small>Early development — this is a scaffold, not a usable app yet.</small>
       </p>
       {status === "ready" ? <Timelines db={db} /> : <p>{status}</p>}
+      {status === "ready" && <Things db={db} />}
     </main>
   );
 }

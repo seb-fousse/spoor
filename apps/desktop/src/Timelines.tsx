@@ -278,7 +278,7 @@ function IntervalForm({
   );
 }
 
-function Trash({
+export function Trash({
   items,
   onRestore,
 }: {
