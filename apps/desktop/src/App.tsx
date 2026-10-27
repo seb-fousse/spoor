@@ -1,6 +1,7 @@
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { createTauriDatabase } from "./platform/database";
+import { Timelines } from "./Timelines";
 import "./App.css";
 
 const db = createTauriDatabase();
@@ -9,16 +10,11 @@ const db = createTauriDatabase();
 const migrated = migrate(db);
 
 function App() {
-  // A deliberately trivial query through core's `Database` seam. Its only job
-  // is to prove the frontend reaches SQLite on the Rust side over IPC.
-  // Real features arrive later, behind the platform seams defined in core.
-  const [sqlite, setSqlite] = useState("…");
+  // "migrating", "ready", or the migration error.
+  const [status, setStatus] = useState("migrating");
 
   useEffect(() => {
-    migrated
-      .then(() => db.query<{ v: string }>("SELECT sqlite_version() AS v"))
-      .then(([row]) => setSqlite(row.v))
-      .catch((e: Error) => setSqlite(`error: ${e.message}`));
+    migrated.then(() => setStatus("ready")).catch((e: Error) => setStatus(`error: ${e.message}`));
   }, []);
 
   return (
@@ -26,11 +22,9 @@ function App() {
       <h1>Spoor</h1>
       <p>A local-first personal data tracker. Your data stays on your device.</p>
       <p>
-        SQLite: <strong>{sqlite}</strong>
-      </p>
-      <p>
         <small>Early development — this is a scaffold, not a usable app yet.</small>
       </p>
+      {status === "ready" ? <Timelines db={db} /> : <p>{status}</p>}
     </main>
   );
 }
