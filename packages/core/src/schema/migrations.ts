@@ -9,6 +9,13 @@ export interface Migration {
 /**
  * Every schema change Spoor has ever shipped, oldest first.
  *
+ * Until the first release, migration 1 is the whole schema and is edited in
+ * place as slices add tables. The runner skips a database already at version 1,
+ * so delete your local `spoor.db` after changing it.
+ *
+ * The freeze: from the first release-please release that ships a desktop build,
+ * migration 1 is never edited again and the rules below apply in full.
+ *
  * Rules (a file written by an old version must always open in a newer one):
  * - Append-only. Never edit, reorder, or remove a released migration; fix
  *   mistakes with a new one.
@@ -20,7 +27,7 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
-    name: "create settings",
+    name: "initial schema",
     statements: [
       // Settings are configuration, so `value` is JSON text rather than typed columns.
       `CREATE TABLE settings (
