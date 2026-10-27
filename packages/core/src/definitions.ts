@@ -96,6 +96,13 @@ export const THING_TABLES = {
   recordIdColumn: "thing_id",
 } as const satisfies DefinitionTables;
 
+/**
+ * Every value table whose `ref` and `multi_ref` values point at things, for the
+ * operations that must reach all references to a thing, such as merging. A
+ * slice whose values can reference things adds its descriptor here.
+ */
+export const REFERENCING_TABLES: readonly DefinitionTables[] = [THING_TABLES];
+
 /** The `source` and `written_by` of the user's own edits. */
 export const MANUAL = "manual";
 
@@ -419,6 +426,9 @@ export async function getVersionFields(
  * - a new reference to a thing that does not exist, is deleted, or has another
  *   type than the field's `thingTypeId`. References already stored stay valid
  *   when their thing is deleted.
+ *
+ * A reference to a merged thing is redirected to the thing it was merged into,
+ * following the chain, before it is checked.
  */
 export async function validateValues(
   db: Database,
@@ -437,13 +447,22 @@ export async function validateValues(
         `${label}: not a field of ${typeLabel(tables, record.typeId)} version ${record.typeVersion}`,
       );
     }
-    const value =
+    let value =
       input === null || (Array.isArray(input) && input.length === 0)
         ? null
         : validateValue(label, field.shape, input);
     if (value === null && field.required) throw new Error(`${label}: is required`);
     if (field.shape.valueType === "ref" || field.shape.valueType === "multi_ref") {
       const kept = new Set(stored.filter((r) => r.field_id === fieldId).map((r) => r.value_ref));
+      if (value !== null) {
+        const merged = await resolveMergedThings(
+          db,
+          Array.isArray(value) ? value : [value as string],
+        );
+        value = Array.isArray(value)
+          ? [...new Set(value.map((id) => merged.get(id) as string))]
+          : (merged.get(value as string) as string);
+      }
       const ids = value === null ? [] : Array.isArray(value) ? value : [value as string];
       await assertRefsTo(
         db,
@@ -614,6 +633,97 @@ export async function readValues(
     }
   }
   return values;
+}
+
+// ---------------------------------------------------------------------------
+// References
+
+/**
+ * Each of `ids` mapped to the thing it was merged into, following the chain if
+ * that one was merged too. An id never merged, or unknown, maps to itself.
+ */
+export async function resolveMergedThings(
+  db: Database,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const resolved = new Map(ids.map((id) => [id, id]));
+  for (let hops = 0; resolved.size > 0; hops++) {
+    const merged = await queryBuilder(db)
+      .selectFrom("things")
+      .select(["id", "merged_into_id"])
+      .where("id", "in", [...new Set(resolved.values())])
+      .where("merged_into_id", "is not", null)
+      .execute();
+    if (merged.length === 0) break;
+    // Core never builds a cycle; refuse rather than loop on corrupt data.
+    if (hops === 100) throw new Error(`Thing ${merged[0].id}: its merge chain does not end`);
+    const next = new Map(merged.map((row) => [row.id, row.merged_into_id as string]));
+    for (const [id, target] of resolved) resolved.set(id, next.get(target) ?? target);
+  }
+  return resolved;
+}
+
+/**
+ * A merge trashes the duplicate, and categories and intervals it absorbed, under
+ * one deletion. Its references were moved, so it cannot be undone by a restore.
+ * For `restoreThingRecords` and `restoreTimelineRecords`.
+ */
+export async function assertNotMerge(db: Database, deletionId: string): Promise<void> {
+  const merged = await queryBuilder(db)
+    .selectFrom("things")
+    .select(["id", "merged_into_id"])
+    .where("deletion_id", "=", deletionId)
+    .where("merged_into_id", "is not", null)
+    .executeTakeFirst();
+  if (merged) {
+    throw new Error(
+      `Thing ${merged.id}: merged into thing ${merged.merged_into_id}, cannot be restored`,
+    );
+  }
+}
+
+/**
+ * Points every reference to thing `fromId` in these values at `toId`, as
+ * `writer`, dropping a `multi_ref` row that would then repeat a member. Bumps
+ * each changed record's `updated_at`. For merging.
+ */
+export async function repointRefs(
+  db: Database,
+  tables: DefinitionTables,
+  fromId: string,
+  toId: string,
+  writer: ValueWriter,
+): Promise<void> {
+  const q = builder(db, tables);
+  const rows = await q
+    .selectFrom("def_values")
+    .selectAll()
+    .where("value_ref", "=", fromId)
+    .execute();
+  for (const row of rows) {
+    const repeat = await q
+      .selectFrom("def_values")
+      .select("id")
+      .where("def_record_id", "=", row.def_record_id)
+      .where("field_id", "=", row.field_id)
+      .where("value_ref", "=", toId)
+      .executeTakeFirst();
+    await (repeat
+      ? q.deleteFrom("def_values").where("id", "=", row.id)
+      : q
+          .updateTable("def_values")
+          .set({ value_ref: toId, written_by: writer.writtenBy, written_at: writer.writtenAt })
+          .where("id", "=", row.id)
+    ).execute();
+  }
+  const records = [...new Set(rows.map((row) => row.def_record_id))];
+  if (records.length > 0) {
+    await q
+      .updateTable("def_records")
+      .set({ updated_at: writer.writtenAt })
+      .where("id", "in", records)
+      .execute();
+  }
 }
 
 // ---------------------------------------------------------------------------

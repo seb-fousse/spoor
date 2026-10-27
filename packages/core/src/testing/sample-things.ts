@@ -1,4 +1,5 @@
 import { newId } from "../ids";
+import { mergeThings } from "../merge";
 import type { Database } from "../platform/index";
 import {
   createThing,
@@ -10,6 +11,7 @@ import {
   setThingTypeArchived,
 } from "../things";
 import { now } from "../time";
+import { createCategory, createInterval, createTimeline } from "../timelines";
 
 /**
  * TEST-ONLY. Thing types, things and values for the round-trip test: every value
@@ -17,12 +19,11 @@ import { now } from "../time";
  * live, trashed, merged and purged things, plus a timeline and a category that
  * refer to them.
  *
- * Operations that do not exist yet write raw SQL: the purge's tombstone, the
- * merged duplicate, and the timeline links.
+ * Operations that do not exist yet write raw SQL: the purge's tombstone and a
+ * timeline's default thing type.
  */
 
-/** Below any UUID v7 made today, so the duplicate sorts before the thing it was merged into. */
-const DUPLICATE_ID = "01000000-0000-7000-8000-000000000001";
+const H = 3_600_000;
 
 export async function populateThings(db: Database): Promise<void> {
   const fieldIds = async (typeId: string) =>
@@ -106,32 +107,32 @@ export async function populateThings(db: Database): Promise<void> {
   await createThing(db, { thingTypeId: old.id, values: { [(await fieldIds(old.id))[0]]: "x" } });
   await deleteThingType(db, old.id);
 
+  // A timeline offering people first, with categories that are things, and a
+  // duplicate merged into the survivor: one category moves, one is trashed.
+  const people = await createTimeline(db, { name: "People", exclusive: false });
+  await db.execute("UPDATE timelines SET default_thing_type_id = ? WHERE id = ?", [
+    person.id,
+    people.id,
+  ]);
+  const duplicate = await createThing(db, {
+    thingTypeId: person.id,
+    values: { [nameId]: "alex s" },
+  });
+  const kept = await createCategory(db, people.id, { thingId: survivor.id });
+  const merged = await createCategory(db, people.id, { thingId: duplicate.id });
   const t = now();
-  // Merging does not exist yet, so write the duplicate it leaves.
-  await db.execute(
-    `INSERT INTO things
-       (id, thing_type_id, thing_type_version, source, merged_into_id, created_at, updated_at, deleted_at, deletion_id)
-     VALUES (?, ?, 2, 'manual', ?, ?, ?, ?, ?)`,
-    [DUPLICATE_ID, person.id, survivor.id, t, t, t + 1, newId()],
-  );
+  await createInterval(db, { categoryId: kept.id, startAt: t - 3 * H, endAt: t - 2 * H });
+  await createInterval(db, { categoryId: merged.id, startAt: t - 2 * H, endAt: t - H });
+  await createCategory(db, (await createTimeline(db, { name: "Calls" })).id, {
+    thingId: duplicate.id,
+  });
+  await mergeThings(db, survivor.id, duplicate.id);
+
   // The purge operation does not exist yet, so write the tombstone it will leave.
   await db.execute(
     `INSERT INTO things
        (id, thing_type_id, thing_type_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
      VALUES (?, ?, 2, ?, ?, ?, ?, ?)`,
     [newId(), person.id, t, t, t + 1, newId(), t + 2],
-  );
-
-  // A timeline offering people first, with a category that is a thing.
-  const people = newId();
-  await db.execute(
-    `INSERT INTO timelines (id, name, exclusive, default_thing_type_id, created_at, updated_at)
-     VALUES (?, 'People', 0, ?, ?, ?)`,
-    [people, person.id, t, t],
-  );
-  await db.execute(
-    `INSERT INTO timeline_categories (id, timeline_id, name, thing_id, created_at, updated_at)
-     VALUES (?, ?, 'Alex Smith', ?, ?, ?)`,
-    [newId(), people, survivor.id, t, t],
   );
 }

@@ -1,5 +1,6 @@
 import { type Selectable, sql } from "kysely";
 import {
+  assertNotMerge,
   createFirstVersion,
   draftFields,
   type FieldDefinition,
@@ -9,6 +10,7 @@ import {
   type NewField,
   readValues,
   reorderFields,
+  resolveMergedThings,
   reviseFields,
   setValues,
   THING_TABLES,
@@ -31,7 +33,10 @@ import type { Value } from "./values";
  * log types in `definitions.ts`.
  *
  * Every thing type has a title field: a required `text` field, never retired,
- * whose value names each thing in references, categories and merging.
+ * whose value names each thing in references, categories and merging. A
+ * timeline category linked to a thing stores the title as its name, updated
+ * here whenever the title changes, so it keeps the last title once the thing
+ * is deleted.
  *
  * Reads return only live records unless asked for the trash. Purged things are
  * never returned. Every write runs in one transaction.
@@ -410,6 +415,7 @@ export async function listThings(
  * Sets values by field id (`null` clears an optional one), validated against
  * the thing's own version. The user always wins: a `writtenBy` other than
  * `manual` (the default) skips fields another writer set, which are returned.
+ * A new title renames the thing's timeline categories.
  */
 export async function updateThingValues(
   db: Database,
@@ -419,13 +425,24 @@ export async function updateThingValues(
 ): Promise<{ thing: Thing; skipped: string[] }> {
   const { skipped } = await transaction(db, async () => {
     const thing = await requireLiveThing(db, id);
-    return setValues(
+    const t = now();
+    const result = await setValues(
       db,
       THING_TABLES,
       { id, typeId: thing.thing_type_id, typeVersion: thing.thing_type_version },
       values,
-      { writtenBy: options.writtenBy ?? MANUAL, writtenAt: now() },
+      { writtenBy: options.writtenBy ?? MANUAL, writtenAt: t },
     );
+    const title = await getThingTitle(db, id);
+    if (title !== undefined) {
+      await queryBuilder(db)
+        .updateTable("timeline_categories")
+        .set({ name: title, updated_at: t })
+        .where("thing_id", "=", id)
+        .where("name", "<>", title)
+        .execute();
+    }
+    return result;
   });
   return { thing: (await getThing(db, id)) as Thing, skipped };
 }
@@ -448,6 +465,19 @@ export async function getThingTitle(db: Database, id: string): Promise<string | 
   return row?.value_text ?? undefined;
 }
 
+/**
+ * The thing `id` was merged into, following the chain if that one was merged
+ * too; `id` itself if it was never merged; `undefined` if it is unknown.
+ */
+export async function resolveThing(db: Database, id: string): Promise<string | undefined> {
+  const known = await queryBuilder(db)
+    .selectFrom("things")
+    .select("id")
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return known && (await resolveMergedThings(db, [id])).get(id);
+}
+
 /** Moves the thing to the trash; returns the `deletion_id`. References to it remain. */
 export async function deleteThing(db: Database, id: string): Promise<string> {
   const deletionId = newId();
@@ -468,8 +498,8 @@ export async function deleteThing(db: Database, id: string): Promise<string> {
 
 /**
  * Restores every thing type and thing trashed under `deletionId`. Refuses,
- * restoring nothing, if any of them was purged, or if a restored thing's type is
- * still in the trash under another deletion.
+ * restoring nothing, if any of them was purged or merged into another thing, or
+ * if a restored thing's type is still in the trash under another deletion.
  */
 export async function restoreThingRecords(db: Database, deletionId: string): Promise<void> {
   await transaction(db, async () => {
@@ -490,6 +520,7 @@ export async function restoreThingRecords(db: Database, deletionId: string): Pro
       .executeTakeFirstOrThrow();
     if (counts.n === 0) throw new Error(`Deletion ${deletionId}: nothing in the trash`);
     if (counts.purged > 0) throw new Error(`Deletion ${deletionId}: purged, cannot be restored`);
+    await assertNotMerge(db, deletionId);
 
     // A type trashed by another deletion stays in the trash, so its things cannot return.
     const orphan = await q
