@@ -43,7 +43,8 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # Builds @spoor/core and the desktop *frontend* (Vite). The Tauri/Rust
+      # Builds the desktop *frontend* (Vite). @spoor/core has no build: it ships
+      # as TypeScript source that the app's bundler compiles. The Tauri/Rust
       # side is built and tested by the `tauri` job below.
       - name: Build
         run: pnpm build
