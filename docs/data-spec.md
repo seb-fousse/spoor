@@ -297,11 +297,16 @@ workout, or a diary entry.
 | `id` | |
 | `name` | Such as “Movie watched”. |
 | `description` | Optional. |
-| `parent_type_id` | Nullable. Makes entries of this type [child entries](#child-entries) of that type's entries. |
+| `parent_type_id` | Nullable. Makes entries of this type [child entries](#child-entries) of that type's entries. Set at creation and never changed. |
 | `schema_version` | Current [version](#versioning). |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
 | `deleted_at`, `deletion_id` | |
+
+A `parent_type_id` must name a live log type. Since it never changes and a
+parent always exists before its children, the types form a tree with no
+cycles. A child type can have child types of its own. A log type cannot be
+restored while its parent type is deleted.
 
 ### Log type version
 
@@ -334,6 +339,7 @@ and deleted with its type, so it has no archive or trash state.
 | ----- | ------- |
 | `id` | |
 | `field_id` | |
+| `log_type_id` | The field's type, denormalized so the field and the version belong to the same type. |
 | `log_type_version` | Version of the field's type that includes it. |
 | `value_type` | See below. |
 | `required` | |
@@ -369,7 +375,7 @@ rewatch is a second entry referring to the same movie.
 | `precision` | `instant` (default), `day`, `month`, or `year`. |
 | `time_zone` | IANA ID at creation; see [Days and time zones](#days-and-time-zones). |
 | `parent_entry_id` | Nullable; see [Child entries](#child-entries). |
-| `position` | Order among siblings; null for top-level entries. |
+| `position` | Order among siblings; null for top-level entries. A new child goes after its siblings. |
 | `source`, `external_id` | See [Source](#source). |
 | `created_at`, `updated_at` | |
 | `deleted_at`, `deletion_id`, `purged_at` | |
@@ -383,6 +389,12 @@ For entries without an exact time, such as dates from a Letterboxd export or
 or year in the entry's time zone, and `precision` says which. The UI shows only
 that part (“14 Mar 2019”, “2019”), never an invented time. `day` entries
 belong to that day; `month` and `year` entries are left out of per-day data.
+
+Core truncates rather than refuses: any instant inside the period may be given
+and its start is stored, so an import need not compute it. `ended_at` is
+truncated the same way and must not fall before `occurred_at` once both are.
+Changing an entry's precision truncates its stored times again. An entry's
+`time_zone` never changes.
 
 ### Child entries
 
@@ -404,7 +416,16 @@ ordinary entry with its own values and version. With `occurred_at`,
 `precision`, and `time_zone` null it inherits its parent's, and it always
 belongs to its parent's day. Deleting a parent trashes its children under the
 same `deletion_id`, and purging it purges them, each leaving a tombstone. A
-child can also be deleted alone.
+child can also be deleted alone, and cannot be restored while its parent is
+deleted.
+
+Only a type with a `parent_type_id` has child entries, and its entries are
+always child entries. Archiving the parent type does not stop children being
+added to its existing entries, since archiving never cascades. Core writes a
+child with `occurred_at`, `ended_at`, `precision` and `time_zone` all null. The
+schema also accepts a child with its own `occurred_at`, `precision` and
+`time_zone`, which are then shown in place of the inherited ones, but its day
+is still its parent's.
 
 ### Log field value
 
@@ -469,6 +490,7 @@ Thing definitions mirror log definitions and use the same value types.
 | ----- | ------- |
 | `id` | |
 | `field_id` | |
+| `thing_type_id` | The field's type, denormalized so the field and the version belong to the same type. |
 | `thing_type_version` | Version of the field's type that includes it. |
 | `value_type` | A [log field value type](#log-field-version). |
 | `required` | |

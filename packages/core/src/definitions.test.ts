@@ -4,6 +4,7 @@ import {
   type DefinitionTables,
   draftFields,
   getVersionFields,
+  LOG_TABLES,
   MANUAL,
   type NewField,
   readValues,
@@ -27,7 +28,7 @@ import { transaction } from "./transaction";
 const T = THING_TABLES;
 const AT = 1_000;
 
-describe.each<DefinitionTables>([THING_TABLES])("descriptor $typeKind", (tables) => {
+describe.each<DefinitionTables>([THING_TABLES, LOG_TABLES])("descriptor $typeKind", (tables) => {
   it("names real tables and columns", () => {
     const has = (table: keyof typeof TABLE_COLUMNS, column: string) =>
       expect(Object.keys(TABLE_COLUMNS[table]), `${table}.${column}`).toContain(column);

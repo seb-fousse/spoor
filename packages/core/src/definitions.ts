@@ -96,12 +96,27 @@ export const THING_TABLES = {
   recordIdColumn: "thing_id",
 } as const satisfies DefinitionTables;
 
+export const LOG_TABLES = {
+  typeKind: "Log type",
+  fieldKind: "Log field",
+  recordKind: "Log entry",
+  types: "log_types",
+  typeVersions: "log_type_versions",
+  fields: "log_fields",
+  fieldVersions: "log_field_versions",
+  records: "log_entries",
+  values: "log_field_values",
+  typeIdColumn: "log_type_id",
+  typeVersionColumn: "log_type_version",
+  recordIdColumn: "log_entry_id",
+} as const satisfies DefinitionTables;
+
 /**
  * Every value table whose `ref` and `multi_ref` values point at things, for the
  * operations that must reach all references to a thing, such as merging. A
  * slice whose values can reference things adds its descriptor here.
  */
-export const REFERENCING_TABLES: readonly DefinitionTables[] = [THING_TABLES];
+export const REFERENCING_TABLES: readonly DefinitionTables[] = [THING_TABLES, LOG_TABLES];
 
 /** The `source` and `written_by` of the user's own edits. */
 export const MANUAL = "manual";

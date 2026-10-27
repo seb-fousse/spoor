@@ -59,6 +59,15 @@ describe("export/import round trip", () => {
     expect((doc.timelineCategories ?? []).some((c) => c.archivedAt !== null)).toBe(true);
   });
 
+  it("exports log entries with children, every precision, and a tombstone", async () => {
+    const entries = (await exportData(source)).logEntries ?? [];
+    expect(entries.some((e) => e.parentEntryId !== null && e.occurredAt === null)).toBe(true);
+    expect(new Set(entries.map((e) => e.precision))).toEqual(
+      new Set(["instant", "day", "month", "year", null]),
+    );
+    expect(entries.some((e) => e.purgedAt !== null && e.source === null)).toBe(true);
+  });
+
   it("exports in the documented shape", async () => {
     const doc = await exportData(source);
     expect(doc.schemaVersion).toBe(1);

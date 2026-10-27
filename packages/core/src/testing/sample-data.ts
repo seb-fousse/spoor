@@ -11,6 +11,7 @@ import {
   setTimelineArchived,
   startInterval,
 } from "../timelines";
+import { populateLogs } from "./sample-logs";
 import { populateThings } from "./sample-things";
 
 /**
@@ -74,6 +75,7 @@ export async function populate(db: Database): Promise<void> {
   await setTimelineArchived(db, habits.id, true);
 
   await populateThings(db);
+  await populateLogs(db);
 }
 
 /** Every row of every table, for comparing two databases exactly. */
