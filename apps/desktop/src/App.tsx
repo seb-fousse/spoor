@@ -1,8 +1,12 @@
+import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { createTauriDatabase } from "./platform/database";
 import "./App.css";
 
 const db = createTauriDatabase();
+// Started once at module load, not in the effect: StrictMode runs effects
+// twice, and two migration runs would interleave on the one shared connection.
+const migrated = migrate(db);
 
 function App() {
   // A deliberately trivial query through core's `Database` seam. Its only job
@@ -11,7 +15,8 @@ function App() {
   const [sqlite, setSqlite] = useState("…");
 
   useEffect(() => {
-    db.query<{ v: string }>("SELECT sqlite_version() AS v")
+    migrated
+      .then(() => db.query<{ v: string }>("SELECT sqlite_version() AS v"))
       .then(([row]) => setSqlite(row.v))
       .catch((e: Error) => setSqlite(`error: ${e.message}`));
   }, []);
