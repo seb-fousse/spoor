@@ -1,5 +1,6 @@
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
+import { Logs } from "./Logs";
 import { Observations } from "./Observations";
 import { createTauriDatabase } from "./platform/database";
 import { Things } from "./Things";
@@ -29,6 +30,7 @@ function App() {
       {status === "ready" ? <Timelines db={db} /> : <p>{status}</p>}
       {status === "ready" && <Observations db={db} />}
       {status === "ready" && <Things db={db} />}
+      {status === "ready" && <Logs db={db} />}
     </main>
   );
 }

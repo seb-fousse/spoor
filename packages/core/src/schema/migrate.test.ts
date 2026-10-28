@@ -108,6 +108,12 @@ describe("migrate", () => {
     expect(await db.query("SELECT key, value FROM settings")).toEqual([{ key: "k", value: "1" }]);
     expect(await tables()).toEqual(
       expect.arrayContaining([
+        "log_entries",
+        "log_field_values",
+        "log_field_versions",
+        "log_fields",
+        "log_type_versions",
+        "log_types",
         "observation_metric_versions",
         "observation_metrics",
         "observation_selections",

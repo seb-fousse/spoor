@@ -10,6 +10,7 @@ export { exportData, exportJson } from "./export";
 export * from "./guards";
 export * from "./ids";
 export { importData, importJson } from "./import";
+export * from "./logs";
 export * from "./merge";
 export * from "./observations";
 export * from "./platform/index";

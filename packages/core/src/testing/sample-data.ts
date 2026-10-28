@@ -11,6 +11,7 @@ import {
   setTimelineArchived,
   startInterval,
 } from "../timelines";
+import { populateLogs } from "./sample-logs";
 import { populateObservations } from "./sample-observations";
 import { populateThings } from "./sample-things";
 
@@ -76,6 +77,7 @@ export async function populate(db: Database): Promise<void> {
 
   await populateObservations(db);
   await populateThings(db);
+  await populateLogs(db);
 }
 
 /** Every row of every table, for comparing two databases exactly. */
