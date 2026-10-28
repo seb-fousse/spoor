@@ -1,3 +1,4 @@
+import { Alert, AppShell, Center, Loader, Text, Title } from "@mantine/core";
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { createTauriDatabase } from "./platform/database";
@@ -17,15 +18,31 @@ function App() {
     migrated.then(() => setStatus("ready")).catch((e: Error) => setStatus(`error: ${e.message}`));
   }, []);
 
+  // A navbar for switching screens goes here once there is more than one.
   return (
-    <main className="container">
-      <h1>Spoor</h1>
-      <p>A local-first personal data tracker. Your data stays on your device.</p>
-      <p>
-        <small>Early development — this is a scaffold, not a usable app yet.</small>
-      </p>
-      {status === "ready" ? <Timelines db={db} /> : <p>{status}</p>}
-    </main>
+    <AppShell header={{ height: 56 }} padding="md">
+      <AppShell.Header px="md" style={{ display: "flex", alignItems: "center" }}>
+        <Title order={3}>Spoor</Title>
+      </AppShell.Header>
+
+      <AppShell.Main>
+        <Text c="dimmed" size="sm" mb="md">
+          Early development — this is a scaffold, not a usable app yet. Your data stays on your
+          device.
+        </Text>
+        {status === "ready" ? (
+          <Timelines db={db} />
+        ) : status === "migrating" ? (
+          <Center>
+            <Loader />
+          </Center>
+        ) : (
+          <Alert color="red" title="Could not open the database">
+            {status}
+          </Alert>
+        )}
+      </AppShell.Main>
+    </AppShell>
   );
 }
 

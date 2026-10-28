@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spoor</title>
+    <!--
+      Mantine's ColorSchemeScript, inlined (there is no server render to emit it):
+      sets the color scheme before first paint so dark mode doesn't flash light.
+      Keep in sync with `defaultColorScheme` in src/main.tsx.
+    -->
+    <script data-mantine-script>
+      try {
+        const stored = window.localStorage.getItem("mantine-color-scheme-value");
+        let scheme = stored === "light" || stored === "dark" || stored === "auto" ? stored : "auto";
+        if (scheme === "auto") {
+          scheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-mantine-color-scheme", scheme);
+      } catch {}
+    </script>
   </head>
 
   <body>
