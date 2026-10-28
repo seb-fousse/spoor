@@ -1,3 +1,4 @@
+import { isTimeZone } from "./days";
 import { isUuid } from "./ids";
 import type { Database } from "./platform/index";
 import {
@@ -7,7 +8,7 @@ import {
   EXPORT_SCHEMA_VERSION,
   type TableSpec,
 } from "./portable";
-import { isInstant, isoToInstant } from "./time";
+import { isoToInstant } from "./time";
 import { transaction } from "./transaction";
 
 const TABLES: readonly TableSpec[] = ALL_TABLES;
@@ -16,10 +17,11 @@ const TABLES: readonly TableSpec[] = ALL_TABLES;
  * Import (see docs/data-spec.md § Export and import): restores an export into an
  * empty database, keeping every id, timestamp and state as written.
  *
- * The whole document is validated before the database is touched, and the inserts
- * run in one transaction, so a refused or failed import changes nothing. Invalid
- * data is refused, never dropped or altered. Cross-record rules (foreign keys,
- * trash and purge consistency) are enforced by the database constraints.
+ * Every value is validated before the database is touched. The inserts then run in
+ * one transaction: the database constraints enforce foreign keys and trash and purge
+ * consistency, and each table's `check` enforces the cross-record rules only core
+ * knows, such as interval overlap. A refused or failed import changes nothing.
+ * Invalid data is refused, never dropped or altered.
  */
 
 /** Parses `text` as JSON and imports it. See `importData`. */
@@ -72,6 +74,10 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
           );
         }
       }
+    }
+    for (const spec of TABLES) {
+      const problem = await spec.check?.(db);
+      if (problem !== undefined) throw new Error(`${spec.key}: ${problem}`);
     }
   });
 }
@@ -183,10 +189,17 @@ function checkValue({ kind, nullable }: Column, value: unknown): string | undefi
   switch (kind) {
     case "text":
       return typeof value === "string" ? undefined : "must be a string";
+    case "trimmed":
+      if (typeof value !== "string") return "must be a string";
+      return value !== "" && value === value.trim()
+        ? undefined
+        : "must be non-empty with no leading or trailing whitespace";
+    case "zone":
+      return isTimeZone(value) ? undefined : "must be an IANA time zone";
     case "uuid":
       return isUuid(value) ? undefined : "must be a lowercase UUID";
     case "int":
-      return isInstant(value) ? undefined : "must be an integer";
+      return Number.isSafeInteger(value) ? undefined : "must be an integer";
     case "real":
       return typeof value === "number" && Number.isFinite(value) ? undefined : "must be a number";
     case "bool":

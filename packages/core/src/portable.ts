@@ -1,3 +1,5 @@
+import { findOverlap } from "./overlap";
+import type { Database } from "./platform/index";
 import type { DB } from "./schema/tables";
 
 /**
@@ -12,7 +14,9 @@ import type { DB } from "./schema/tables";
  * 1. Add an entry, after the tables it references: import inserts in this order.
  *    A column referencing its own table is declared as `selfReference` instead.
  * 2. Give every column a kind. A trailing `?` marks a nullable column.
- * 3. Extend the fixture in `roundtrip.test.ts` so the table holds live, trashed and,
+ * 3. Add a `check` for any rule core enforces that the database constraints cannot,
+ *    such as the overlap rule, so import refuses data core would never write.
+ * 4. Extend the fixture in `roundtrip.test.ts` so the table holds live, trashed and,
  *    where it has them, purged rows.
  *
  * Unknown fields from a newer format are refused for now; the spec's rule to preserve
@@ -25,11 +29,23 @@ export const EXPORT_SCHEMA_VERSION = 1;
 /**
  * How a column travels:
  * - `text`: a string. `uuid`: a canonical UUID string.
+ * - `trimmed`: a non-empty string with no surrounding whitespace, as core stores
+ *   names and descriptions.
+ * - `zone`: an IANA time zone ID (see `isTimeZone`).
  * - `int`: a safe integer. `real`: a finite number. `bool`: stored as 0/1, written as true/false.
  * - `instant`: stored as epoch milliseconds, written as ISO 8601 UTC.
  * - `json`: stored as JSON text, written as the parsed value.
  */
-export type ColumnKind = "text" | "uuid" | "int" | "real" | "bool" | "instant" | "json";
+export type ColumnKind =
+  | "text"
+  | "trimmed"
+  | "zone"
+  | "uuid"
+  | "int"
+  | "real"
+  | "bool"
+  | "instant"
+  | "json";
 export type ColumnSpec = ColumnKind | `${ColumnKind}?`;
 
 interface TableSpec {
@@ -47,6 +63,11 @@ interface TableSpec {
   readonly selfReference?: string;
   /** Checked against `TABLE_COLUMNS` by `portable.test.ts`. */
   readonly columns: Readonly<Record<string, ColumnSpec>>;
+  /**
+   * Cross-record rules the database cannot enforce. Import runs it after every
+   * insert, in the same transaction, and refuses the file if it names a problem.
+   */
+  readonly check?: (db: Database) => Promise<string | undefined>;
 }
 
 /** In foreign-key order: parents before the tables that reference them. */
@@ -64,8 +85,8 @@ export const TABLES = [
     orderBy: "id",
     columns: {
       id: "uuid",
-      name: "text",
-      description: "text?",
+      name: "trimmed",
+      description: "trimmed?",
       title_field_id: "uuid",
       schema_version: "int",
       created_at: "instant",
@@ -88,7 +109,7 @@ export const TABLES = [
     columns: {
       id: "uuid",
       thing_type_id: "uuid",
-      name: "text",
+      name: "trimmed",
       position: "int",
       option_labels: "json",
       created_at: "instant",
@@ -154,8 +175,8 @@ export const TABLES = [
     orderBy: "id",
     columns: {
       id: "uuid",
-      name: "text",
-      description: "text?",
+      name: "trimmed",
+      description: "trimmed?",
       exclusive: "bool",
       default_thing_type_id: "uuid?",
       created_at: "instant",
@@ -172,8 +193,8 @@ export const TABLES = [
     columns: {
       id: "uuid",
       timeline_id: "uuid",
-      name: "text",
-      description: "text?",
+      name: "trimmed",
+      description: "trimmed?",
       thing_id: "uuid?",
       created_at: "instant",
       updated_at: "instant",
@@ -192,12 +213,19 @@ export const TABLES = [
       category_id: "uuid",
       start_at: "instant?",
       end_at: "instant?",
-      time_zone: "text?",
+      time_zone: "zone?",
       created_at: "instant",
       updated_at: "instant",
       deleted_at: "instant?",
       deletion_id: "uuid?",
       purged_at: "instant?",
+    },
+    async check(db: Database) {
+      const overlap = await findOverlap(db);
+      return (
+        overlap &&
+        `intervals ${overlap.a} and ${overlap.b} overlap on timeline ${overlap.timelineId}`
+      );
     },
   },
   {
@@ -206,8 +234,8 @@ export const TABLES = [
     orderBy: "id",
     columns: {
       id: "uuid",
-      name: "text",
-      description: "text?",
+      name: "trimmed",
+      description: "trimmed?",
       option_labels: "json",
       schema_version: "int",
       created_at: "instant",

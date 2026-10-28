@@ -112,6 +112,9 @@ describe("importData", () => {
     ["a non-UUID id", "id", "not-a-uuid", /id must be a lowercase UUID/],
     ["a non-boolean flag", "exclusive", 1, /exclusive must be true or false/],
     ["an unknown field", "colour", "red", /unknown field "colour"/],
+    ["a blank name", "name", "   ", /name must be non-empty with no leading/],
+    ["an untrimmed name", "name", " Work", /name must be non-empty with no leading/],
+    ["an empty description", "description", "", /description must be non-empty/],
   ])("refuses %s", async (_, field, value, message) => {
     const timeline = rows(doc, "timelines")[0];
     if (timeline) timeline[field] = value;
@@ -143,4 +146,49 @@ describe("importData", () => {
     if (timeline) timeline.deletedAt = "2026-10-20T08:00:00.000Z";
     await refused(/timelines\[0\]/);
   });
+
+  it("refuses an interval in a time zone the platform does not know", async () => {
+    const work = intervalStartingAt("2026-10-20T08:00:00.000Z");
+    work.timeZone = "Mars/Olympus";
+    await refused(/timeZone must be an IANA time zone/);
+  });
+
+  describe("the overlap rule", () => {
+    // On "Activities" (exclusive): Sleep 00:00-08:00, Work 08:00-12:00, a trashed
+    // Work 13:00-14:00, and an ongoing Work from 15:00, all on 2026-10-20 UTC.
+    const activities = () => {
+      const timeline = rows(doc, "timelines").find((t) => t.name === "Activities");
+      if (!timeline) throw new Error("fixture has no Activities timeline");
+      return timeline;
+    };
+    const OVERLAP = /timelineIntervals: intervals \S+ and \S+ overlap on timeline \S+/;
+
+    it("refuses intervals that overlap on an exclusive timeline", async () => {
+      intervalStartingAt("2026-10-20T00:00:00.000Z").endAt = "2026-10-20T09:00:00.000Z";
+      await refused(OVERLAP);
+    });
+
+    it("refuses intervals of one category that overlap on a non-exclusive timeline", async () => {
+      activities().exclusive = false;
+      intervalStartingAt("2026-10-20T08:00:00.000Z").endAt = "2026-10-20T16:00:00.000Z";
+      await refused(OVERLAP);
+    });
+
+    it("accepts intervals of different categories that overlap on a non-exclusive timeline", async () => {
+      activities().exclusive = false;
+      intervalStartingAt("2026-10-20T00:00:00.000Z").endAt = "2026-10-20T09:00:00.000Z";
+      await expect(importData(db, doc)).resolves.toBeUndefined();
+    });
+
+    it("ignores trashed intervals", async () => {
+      intervalStartingAt("2026-10-20T13:00:00.000Z").startAt = "2026-10-20T10:00:00.000Z";
+      await expect(importData(db, doc)).resolves.toBeUndefined();
+    });
+  });
+
+  function intervalStartingAt(startAt: string): Record<string, unknown> {
+    const interval = rows(doc, "timelineIntervals").find((i) => i.startAt === startAt);
+    if (!interval) throw new Error(`fixture has no interval starting at ${startAt}`);
+    return interval;
+  }
 });
