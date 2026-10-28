@@ -58,7 +58,13 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
     for (const spec of TABLES) {
       const columns = columnsOf(spec);
       const sql = insertSql(spec, columns);
-      for (const [i, values] of (rows.get(spec) ?? []).entries()) {
+      const records = rows.get(spec) ?? [];
+      const order =
+        spec.selfReference === undefined
+          ? records.keys()
+          : referencedFirst(columns, records, spec.selfReference);
+      for (const i of order) {
+        const values = records[i];
         try {
           await db.execute(sql, values);
         } catch (cause) {
@@ -74,6 +80,29 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
       if (problem !== undefined) throw new Error(`${spec.key}: ${problem}`);
     }
   });
+}
+
+/**
+ * The indexes of `records`, each after the record its `column` references, so a
+ * self-referencing table imports whatever the file's order. A cycle is left for
+ * the foreign key to refuse.
+ */
+function referencedFirst(columns: readonly Column[], records: unknown[][], column: string) {
+  const idAt = columns.findIndex((c) => c.sql === "id");
+  const refAt = columns.findIndex((c) => c.sql === column);
+  const indexOf = new Map(records.map((values, i) => [values[idAt], i]));
+  const order: number[] = [];
+  const placed = new Set<number>();
+  const place = (i: number, path: Set<number>) => {
+    if (placed.has(i) || path.has(i)) return;
+    path.add(i);
+    const parent = indexOf.get(records[i][refAt]);
+    if (parent !== undefined) place(parent, path);
+    placed.add(i);
+    order.push(i);
+  };
+  for (const i of records.keys()) place(i, new Set());
+  return order;
 }
 
 function insertSql(spec: TableSpec, columns: readonly Column[]): string {

@@ -43,7 +43,7 @@ describe("importData", () => {
   it("refuses a database that already has data, leaving it untouched", async () => {
     await importData(db, doc);
     const before = await dumpAll(db);
-    await expect(importData(db, doc)).rejects.toThrow(/empty database.*timelines/);
+    await expect(importData(db, doc)).rejects.toThrow(/empty database, but \w+ already has rows/);
     expect(await dumpAll(db)).toEqual(before);
   });
 
@@ -59,6 +59,17 @@ describe("importData", () => {
     delete doc.timelineIntervals;
     await importData(db, doc);
     expect((await dumpAll(db)).timeline_intervals).toEqual([]);
+  });
+
+  it("inserts a self-referencing row after the row it references", async () => {
+    // A merged thing references its survivor: list it first and the survivor last.
+    const things = rows(doc, "things");
+    const duplicate = things.find((t) => t.mergedIntoId !== null);
+    const survivor = things.find((t) => t.id === duplicate?.mergedIntoId);
+    expect(survivor).toBeDefined();
+    doc.things = [duplicate, ...things.filter((t) => t !== duplicate && t !== survivor), survivor];
+    await importData(db, doc);
+    expect(await dumpAll(db)).toEqual(await dumpAll(source));
   });
 
   it("refuses a newer format version", async () => {

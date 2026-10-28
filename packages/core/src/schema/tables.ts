@@ -99,6 +99,76 @@ export interface DB {
     observation_id: string;
     option_key: string;
   };
+  thing_types: {
+    id: string;
+    name: string;
+    description: string | null;
+    /** A `thing_fields` id; no foreign key, core enforces it. */
+    title_field_id: string;
+    schema_version: number;
+    created_at: number;
+    updated_at: number;
+    archived_at: number | null;
+    deleted_at: number | null;
+    deletion_id: string | null;
+  };
+  thing_type_versions: {
+    id: string;
+    thing_type_id: string;
+    version: number;
+    created_at: number;
+  };
+  thing_fields: {
+    id: string;
+    thing_type_id: string;
+    name: string;
+    position: number;
+    /** JSON text: option key to label. */
+    option_labels: string;
+    created_at: number;
+    updated_at: number;
+  };
+  thing_field_versions: {
+    id: string;
+    field_id: string;
+    thing_type_id: string;
+    thing_type_version: number;
+    value_type: string;
+    /** 0 or 1. */
+    required: number;
+    /** JSON text. */
+    constraints: string;
+    created_at: number;
+  };
+  things: {
+    id: string;
+    thing_type_id: string;
+    thing_type_version: number;
+    /** Null only once purged, as is `external_id`. */
+    source: string | null;
+    external_id: string | null;
+    merged_into_id: string | null;
+    created_at: number;
+    updated_at: number;
+    deleted_at: number | null;
+    deletion_id: string | null;
+    purged_at: number | null;
+  };
+  thing_field_values: {
+    id: string;
+    thing_id: string;
+    field_id: string;
+    /** 0 or 1. */
+    value_bool: number | null;
+    value_num: number | null;
+    value_enum: string | null;
+    value_text: string | null;
+    value_date: string | null;
+    value_instant: number | null;
+    value_ref: string | null;
+    written_by: string;
+    written_at: number;
+  };
 }
 
 /**
@@ -184,4 +254,63 @@ export const TABLE_COLUMNS: { readonly [T in keyof DB]: Record<keyof DB[T], true
     purged_at: true,
   },
   observation_selections: { id: true, observation_id: true, option_key: true },
+  thing_types: {
+    id: true,
+    name: true,
+    description: true,
+    title_field_id: true,
+    schema_version: true,
+    created_at: true,
+    updated_at: true,
+    archived_at: true,
+    deleted_at: true,
+    deletion_id: true,
+  },
+  thing_type_versions: { id: true, thing_type_id: true, version: true, created_at: true },
+  thing_fields: {
+    id: true,
+    thing_type_id: true,
+    name: true,
+    position: true,
+    option_labels: true,
+    created_at: true,
+    updated_at: true,
+  },
+  thing_field_versions: {
+    id: true,
+    field_id: true,
+    thing_type_id: true,
+    thing_type_version: true,
+    value_type: true,
+    required: true,
+    constraints: true,
+    created_at: true,
+  },
+  things: {
+    id: true,
+    thing_type_id: true,
+    thing_type_version: true,
+    source: true,
+    external_id: true,
+    merged_into_id: true,
+    created_at: true,
+    updated_at: true,
+    deleted_at: true,
+    deletion_id: true,
+    purged_at: true,
+  },
+  thing_field_values: {
+    id: true,
+    thing_id: true,
+    field_id: true,
+    value_bool: true,
+    value_num: true,
+    value_enum: true,
+    value_text: true,
+    value_date: true,
+    value_instant: true,
+    value_ref: true,
+    written_by: true,
+    written_at: true,
+  },
 };
