@@ -1,4 +1,17 @@
 import {
+  Alert,
+  Button,
+  Checkbox,
+  Group,
+  NativeSelect,
+  NumberInput,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import {
   createMetric,
   type Database,
   dayOf,
@@ -30,7 +43,7 @@ type Run = (action: () => Promise<unknown>) => void;
 
 /**
  * Proof-of-concept Observations screen: every core read and write, wired to
- * plain HTML controls. Constraints and option labels are typed as JSON. Its
+ * basic Mantine controls. Constraints and option labels are typed as JSON. Its
  * only job is to show the slice works end to end over IPC; the real UI
  * replaces it.
  */
@@ -62,9 +75,9 @@ export function Observations({ db }: { db: Database }) {
   const selected = metrics.find((m) => m.id === selectedId);
 
   return (
-    <section className="timelines">
-      <h2>Observations</h2>
-      {error && <p className="error">{error}</p>}
+    <Stack component="section" gap="sm">
+      <Title order={2}>Observations</Title>
+      {error && <Alert color="red">{error}</Alert>}
 
       <ShapeForm
         withName
@@ -73,26 +86,38 @@ export function Observations({ db }: { db: Database }) {
           run(() => createMetric(db, { ...shape, name, optionLabels: parseJson(labels) as never }))
         }
       />
-      <ul>
+      <Stack gap={4}>
         {metrics.map((m) => (
-          <li key={m.id}>
-            <button type="button" onClick={() => setSelectedId(m.id)}>
-              {m.id === selectedId ? <strong>{m.name}</strong> : m.name}
-            </button>{" "}
-            v{m.schemaVersion}
-            {m.archivedAt !== null && " · archived"}{" "}
-            <button
-              type="button"
+          <Group key={m.id} gap="xs">
+            <Button
+              size="xs"
+              variant={m.id === selectedId ? "light" : "subtle"}
+              onClick={() => setSelectedId(m.id)}
+            >
+              {m.name}
+            </Button>
+            <Text size="sm" c="dimmed">
+              v{m.schemaVersion}
+              {m.archivedAt !== null && " · archived"}
+            </Text>
+            <Button
+              size="xs"
+              variant="default"
               onClick={() => run(() => setMetricArchived(db, m.id, m.archivedAt === null))}
             >
               {m.archivedAt === null ? "Archive" : "Unarchive"}
-            </button>{" "}
-            <button type="button" onClick={() => run(() => deleteMetric(db, m.id))}>
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => run(() => deleteMetric(db, m.id))}
+            >
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
       <Trash
         items={trashed.map((m) => ({ id: m.id, label: m.name, deletionId: m.deletionId }))}
         onRestore={(deletionId) => run(() => restoreObservationRecords(db, deletionId))}
@@ -101,7 +126,7 @@ export function Observations({ db }: { db: Database }) {
       {selected && (
         <MetricDetail key={selected.id} db={db} metric={selected} version={version} run={run} />
       )}
-    </section>
+    </Stack>
   );
 }
 
@@ -129,27 +154,44 @@ function ShapeForm({
   };
   return (
     <form onSubmit={submit}>
-      {withName && (
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New metric" />
-      )}{" "}
-      <select value={valueType} onChange={(e) => setValueType(e.target.value as MetricValueType)}>
-        {METRIC_VALUE_TYPES.map((t) => (
-          <option key={t}>{t}</option>
-        ))}
-      </select>{" "}
-      <input
-        value={constraints}
-        onChange={(e) => setConstraints(e.target.value)}
-        placeholder='Constraints, e.g. {"min": 0}'
-      />{" "}
-      {withName && (
-        <input
-          value={labels}
-          onChange={(e) => setLabels(e.target.value)}
-          placeholder='Labels, e.g. {"low": "Low"}'
+      <Group gap="xs" align="flex-end">
+        {withName && (
+          <TextInput
+            size="xs"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            placeholder="New metric"
+            aria-label="New metric"
+          />
+        )}
+        <Select
+          size="xs"
+          data={METRIC_VALUE_TYPES}
+          value={valueType}
+          onChange={(v) => v && setValueType(v as MetricValueType)}
+          allowDeselect={false}
+          aria-label="Value type"
         />
-      )}{" "}
-      <button type="submit">{submitLabel}</button>
+        <TextInput
+          size="xs"
+          value={constraints}
+          onChange={(e) => setConstraints(e.currentTarget.value)}
+          placeholder='Constraints, e.g. {"min": 0}'
+          aria-label="Constraints"
+        />
+        {withName && (
+          <TextInput
+            size="xs"
+            value={labels}
+            onChange={(e) => setLabels(e.currentTarget.value)}
+            placeholder='Labels, e.g. {"low": "Low"}'
+            aria-label="Labels"
+          />
+        )}
+        <Button type="submit" size="xs">
+          {submitLabel}
+        </Button>
+      </Group>
     </form>
   );
 }
@@ -209,28 +251,43 @@ function MetricDetail({
   };
 
   return (
-    <div>
-      <h3>{metric.name}</h3>
+    <Stack gap="sm">
+      <Title order={3}>{metric.name}</Title>
       <form onSubmit={rename}>
-        <input value={name} onChange={(e) => setName(e.target.value)} />{" "}
-        <input value={labels} onChange={(e) => setLabels(e.target.value)} title="Option labels" />{" "}
-        <button type="submit">Save</button>
+        <Group gap="xs" align="flex-end">
+          <TextInput
+            size="xs"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            aria-label="Name"
+          />
+          <TextInput
+            size="xs"
+            value={labels}
+            onChange={(e) => setLabels(e.currentTarget.value)}
+            title="Option labels"
+            aria-label="Option labels"
+          />
+          <Button type="submit" size="xs">
+            Save
+          </Button>
+        </Group>
       </form>
 
-      <h4>Versions</h4>
-      <ul>
+      <Title order={4}>Versions</Title>
+      <Stack gap={4}>
         {versions.map((v) => (
-          <li key={v.id}>
+          <Text key={v.id} size="sm">
             v{v.version}: {v.valueType} {JSON.stringify(v.constraints)}
-          </li>
+          </Text>
         ))}
-      </ul>
+      </Stack>
       <ShapeForm
         submitLabel="Revise"
         onSubmit={(shape) => run(() => reviseMetric(db, metric.id, shape))}
       />
 
-      <h4>Observations</h4>
+      <Title order={4}>Observations</Title>
       {current && (
         <ValueForm
           key={current.id}
@@ -246,20 +303,25 @@ function MetricDetail({
           }
         />
       )}
-      {notice && <p>{notice}</p>}
-      <ul>
+      {notice && <Text size="sm">{notice}</Text>}
+      <Stack gap={4}>
         {observations.map((o) => (
-          <li key={o.id}>
-            {show(o)}{" "}
-            <small>
+          <Group key={o.id} gap="xs">
+            <Text size="sm">{show(o)}</Text>
+            <Text size="sm" c="dimmed">
               (v{o.metricVersion}, by {o.writtenBy})
-            </small>{" "}
-            <button type="button" onClick={() => run(() => deleteObservation(db, o.id))}>
+            </Text>
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => run(() => deleteObservation(db, o.id))}
+            >
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
       <Trash
         items={trashedObservations.map((o) => ({
           id: o.id,
@@ -268,7 +330,7 @@ function MetricDetail({
         }))}
         onRestore={(deletionId) => run(() => restoreObservationRecords(db, deletionId))}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -305,45 +367,57 @@ function ValueForm({
 
   return (
     <form onSubmit={submit}>
-      <input type="date" value={date} onChange={(e) => onDate(e.target.value)} required />{" "}
-      {version.valueType === "number" && (
-        <input
-          type="number"
-          step="any"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+      <Group gap="xs" align="flex-end">
+        <TextInput
+          size="xs"
+          type="date"
+          value={date}
+          onChange={(e) => onDate(e.currentTarget.value)}
           required
+          aria-label="Date"
         />
-      )}
-      {(version.valueType === "boolean" || version.valueType === "enum") && (
-        <select value={text} onChange={(e) => setText(e.target.value)} required>
-          <option value="">Value…</option>
-          {version.valueType === "boolean" ? (
-            <>
-              <option value="true">yes</option>
-              <option value="false">no</option>
-            </>
-          ) : (
-            options.map((o) => (
-              <option key={o.key} value={o.key}>
-                {optionLabel(labels, o.key)}
-              </option>
-            ))
-          )}
-        </select>
-      )}
-      {version.valueType === "multi_enum" &&
-        options.map((o) => (
-          <label key={o.key}>
-            <input
-              type="checkbox"
+        {version.valueType === "number" && (
+          <NumberInput
+            size="xs"
+            value={text}
+            onChange={(v) => setText(String(v))}
+            required
+            aria-label="Value"
+          />
+        )}
+        {/* NativeSelect, not Select: Mantine's Select input is read-only, so `required` would not stop an empty submit. */}
+        {(version.valueType === "boolean" || version.valueType === "enum") && (
+          <NativeSelect
+            size="xs"
+            value={text}
+            onChange={(e) => setText(e.currentTarget.value)}
+            required
+            aria-label="Value"
+            data={[
+              { value: "", label: "Value…" },
+              ...(version.valueType === "boolean"
+                ? [
+                    { value: "true", label: "yes" },
+                    { value: "false", label: "no" },
+                  ]
+                : options.map((o) => ({ value: o.key, label: optionLabel(labels, o.key) }))),
+            ]}
+          />
+        )}
+        {version.valueType === "multi_enum" &&
+          options.map((o) => (
+            <Checkbox
+              key={o.key}
+              size="xs"
+              label={optionLabel(labels, o.key)}
               checked={checked.includes(o.key)}
               onChange={() => toggle(o.key)}
-            />{" "}
-            {optionLabel(labels, o.key)}{" "}
-          </label>
-        ))}{" "}
-      <button type="submit">Record</button>
+            />
+          ))}
+        <Button type="submit" size="xs">
+          Record
+        </Button>
+      </Group>
     </form>
   );
 }
