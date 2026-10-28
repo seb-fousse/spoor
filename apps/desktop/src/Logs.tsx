@@ -1,4 +1,17 @@
 import {
+  Alert,
+  Button,
+  Checkbox,
+  Group,
+  MultiSelect,
+  NumberInput,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import {
   createLogEntry,
   createLogType,
   type Database,
@@ -36,9 +49,9 @@ import { Trash } from "./Timelines";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a
- * value of every field type, and child entries, wired to plain HTML controls.
- * Its only job is to show the slice works end to end over IPC; the real UI
- * replaces it.
+ * value of every field type, and child entries, built from plain Mantine
+ * components. Its only job is to show the slice works end to end over IPC;
+ * the real UI replaces it.
  */
 
 type Run = (action: () => Promise<unknown>) => void;
@@ -77,9 +90,9 @@ export function Logs({ db }: { db: Database }) {
     run(async () => setPending({ type, preview: await previewLogTypeDeletion(db, type.id) }));
 
   return (
-    <section className="logs">
-      <h2>Logs</h2>
-      {error && <p className="error">{error}</p>}
+    <Stack component="section" gap="sm">
+      <Title order={2}>Logs</Title>
+      {error && <Alert color="red">{error}</Alert>}
 
       <LogTypeForm
         db={db}
@@ -88,45 +101,56 @@ export function Logs({ db }: { db: Database }) {
           run(() => createLogType(db, { name, parentTypeId, fields }))
         }
       />
-      <ul>
+      <Stack gap={4}>
         {types.map((t) => (
-          <li key={t.id}>
-            <button type="button" onClick={() => setSelectedId(t.id)}>
-              {t.id === selectedId ? <strong>{t.name}</strong> : t.name}
-            </button>{" "}
-            v{t.schemaVersion}
-            {t.parentTypeId !== null && ` · inside ${nameOf(t.parentTypeId)}`}
-            {t.archivedAt !== null && " · archived"}{" "}
-            <button
-              type="button"
+          <Group key={t.id} gap="xs">
+            <Button
+              size="xs"
+              variant={t.id === selectedId ? "light" : "subtle"}
+              onClick={() => setSelectedId(t.id)}
+            >
+              {t.name}
+            </Button>
+            <Text size="sm" c="dimmed">
+              v{t.schemaVersion}
+              {t.parentTypeId !== null && ` · inside ${nameOf(t.parentTypeId)}`}
+              {t.archivedAt !== null && " · archived"}
+            </Text>
+            <Button
+              size="xs"
+              variant="default"
               onClick={() => run(() => setLogTypeArchived(db, t.id, t.archivedAt === null))}
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
-            </button>{" "}
-            <button type="button" onClick={() => askDelete(t)}>
+            </Button>
+            <Button size="xs" variant="light" color="red" onClick={() => askDelete(t)}>
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
       {pending && (
-        <p>
-          This deletes the {pending.type.name} log type
-          {pending.preview.types > 1 && `, ${pending.preview.types - 1} child type(s)`} and{" "}
-          {pending.preview.entries} entries.{" "}
-          <button
-            type="button"
+        <Group gap="xs">
+          <Text size="sm">
+            This deletes the {pending.type.name} log type
+            {pending.preview.types > 1 && `, ${pending.preview.types - 1} child type(s)`} and{" "}
+            {pending.preview.entries} entries.
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
             onClick={() => {
               setPending(null);
               run(() => deleteLogType(db, pending.type.id));
             }}
           >
             Confirm
-          </button>{" "}
-          <button type="button" onClick={() => setPending(null)}>
+          </Button>
+          <Button size="xs" variant="default" onClick={() => setPending(null)}>
             Cancel
-          </button>
-        </p>
+          </Button>
+        </Group>
       )}
       <Trash
         items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
@@ -136,7 +160,7 @@ export function Logs({ db }: { db: Database }) {
       {selected && (
         <LogTypeDetail db={db} type={selected} types={types} version={version} run={run} />
       )}
-    </section>
+    </Stack>
   );
 }
 
@@ -198,17 +222,34 @@ function LogTypeForm({
   };
   return (
     <form onSubmit={submit}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New log type" />{" "}
-      <select value={parentTypeId} onChange={(e) => setParentTypeId(e.target.value)}>
-        <option value="">Top level</option>
-        {types.map((t) => (
-          <option key={t.id} value={t.id}>
-            Inside {t.name}
-          </option>
-        ))}
-      </select>
-      <FieldsEditor db={db} rows={rows} setRows={setRows} />
-      <button type="submit">Add type</button>
+      <Stack gap="xs">
+        <Group gap="xs" align="flex-end">
+          <TextInput
+            size="xs"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            placeholder="New log type"
+            aria-label="New log type"
+          />
+          <Select
+            size="xs"
+            aria-label="Parent type"
+            allowDeselect={false}
+            value={parentTypeId}
+            onChange={(v) => setParentTypeId(v ?? "")}
+            data={[
+              { value: "", label: "Top level" },
+              ...types.map((t) => ({ value: t.id, label: `Inside ${t.name}` })),
+            ]}
+          />
+        </Group>
+        <FieldsEditor db={db} rows={rows} setRows={setRows} />
+        <Group gap="xs">
+          <Button type="submit" size="xs">
+            Add type
+          </Button>
+        </Group>
+      </Stack>
     </form>
   );
 }
@@ -226,69 +267,71 @@ function FieldsEditor({
   const change = (i: number, patch: Partial<FieldRow>) =>
     setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
-    <ol>
+    <Stack gap={4}>
       {rows.map((row, i) => (
         // New rows have no id yet; the inputs are controlled, so an index key is safe.
-        <li key={row.id ?? i}>
-          <input
+        <Group key={row.id ?? i} gap="xs" align="flex-end">
+          <TextInput
+            size="xs"
             value={row.name}
-            onChange={(e) => change(i, { name: e.target.value })}
+            onChange={(e) => change(i, { name: e.currentTarget.value })}
             placeholder="Field name"
-          />{" "}
-          <select
+            aria-label="Field name"
+          />
+          <Select
+            size="xs"
+            aria-label="Value type"
+            allowDeselect={false}
             value={row.valueType}
-            onChange={(e) =>
-              change(i, { valueType: e.target.value as FieldValueType, constraints: "" })
-            }
-          >
-            {FIELD_VALUE_TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>{" "}
-          <label>
-            <input
-              type="checkbox"
-              checked={row.required}
-              onChange={(e) => change(i, { required: e.target.checked })}
-            />{" "}
-            required
-          </label>{" "}
+            onChange={(v) => change(i, { valueType: v as FieldValueType, constraints: "" })}
+            data={[...FIELD_VALUE_TYPES]}
+          />
+          <Checkbox
+            size="xs"
+            label="required"
+            checked={row.required}
+            onChange={(e) => change(i, { required: e.currentTarget.checked })}
+          />
           {row.valueType === "ref" || row.valueType === "multi_ref" ? (
-            <select
+            <Select
+              size="xs"
+              aria-label="Thing type"
+              allowDeselect={false}
               value={thingTypeOf(row.constraints)}
-              onChange={(e) =>
-                change(i, { constraints: JSON.stringify({ thingTypeId: e.target.value }) })
-              }
-            >
-              <option value="">Thing type…</option>
-              {thingTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => change(i, { constraints: JSON.stringify({ thingTypeId: v ?? "" }) })}
+              data={[
+                { value: "", label: "Thing type…" },
+                ...thingTypes.map((t) => ({ value: t.id, label: t.name })),
+              ]}
+            />
           ) : (
-            <input
+            <TextInput
+              size="xs"
               value={row.constraints}
-              onChange={(e) => change(i, { constraints: e.target.value })}
+              onChange={(e) => change(i, { constraints: e.currentTarget.value })}
+              aria-label="Constraints (JSON)"
               placeholder={
                 row.valueType === "enum"
                   ? '{"options":[{"key":"a","order":1}]}'
                   : "Constraints (JSON)"
               }
             />
-          )}{" "}
-          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+          )}
+          <Button
+            size="xs"
+            variant="default"
+            onClick={() => setRows(rows.filter((_, j) => j !== i))}
+          >
             Remove
-          </button>
-        </li>
+          </Button>
+        </Group>
       ))}
-      <li>
-        <button type="button" onClick={() => setRows([...rows, newRow()])}>
+      <Group gap="xs">
+        <Button size="xs" variant="default" onClick={() => setRows([...rows, newRow()])}>
           Add field
-        </button>
-      </li>
-    </ol>
+        </Button>
+      </Group>
+    </Stack>
   );
 }
 
@@ -328,31 +371,43 @@ function LogTypeDetail({
   const parent = types.find((t) => t.id === type.parentTypeId);
 
   return (
-    <div>
-      <h3>
-        {type.name} <small>(version {type.schemaVersion})</small>
-      </h3>
+    <Stack gap="sm">
+      <Title order={3}>
+        {type.name}{" "}
+        <Text span size="sm" c="dimmed">
+          (version {type.schemaVersion})
+        </Text>
+      </Title>
 
-      <h4>Fields</h4>
+      <Title order={4}>Fields</Title>
       {rows === null ? (
         <>
-          <ol>
+          <Stack gap={4}>
             {fields.map((f, i) => (
-              <li key={f.id}>
-                {f.name}: {f.shape.valueType}
-                {f.required && " (required)"}{" "}
-                <button type="button" disabled={i === 0} onClick={() => move(i, -1)}>
+              <Group key={f.id} gap="xs">
+                <Text size="sm">
+                  {f.name}: {f.shape.valueType}
+                  {f.required && " (required)"}
+                </Text>
+                <Button size="xs" variant="default" disabled={i === 0} onClick={() => move(i, -1)}>
                   ↑
-                </button>
-                <button type="button" disabled={i === fields.length - 1} onClick={() => move(i, 1)}>
+                </Button>
+                <Button
+                  size="xs"
+                  variant="default"
+                  disabled={i === fields.length - 1}
+                  onClick={() => move(i, 1)}
+                >
                   ↓
-                </button>
-              </li>
+                </Button>
+              </Group>
             ))}
-          </ol>
-          <button type="button" onClick={() => setRows(fields.map(toRow))}>
-            Revise fields
-          </button>
+          </Stack>
+          <Group gap="xs">
+            <Button size="xs" variant="default" onClick={() => setRows(fields.map(toRow))}>
+              Revise fields
+            </Button>
+          </Group>
         </>
       ) : (
         <form
@@ -362,19 +417,25 @@ function LogTypeDetail({
             setRows(null);
           }}
         >
-          <FieldsEditor db={db} rows={rows} setRows={setRows} />
-          <button type="submit">Save</button>{" "}
-          <button type="button" onClick={() => setRows(null)}>
-            Cancel
-          </button>
+          <Stack gap="xs">
+            <FieldsEditor db={db} rows={rows} setRows={setRows} />
+            <Group gap="xs">
+              <Button type="submit" size="xs">
+                Save
+              </Button>
+              <Button size="xs" variant="default" onClick={() => setRows(null)}>
+                Cancel
+              </Button>
+            </Group>
+          </Stack>
         </form>
       )}
 
-      <h4>Entries</h4>
+      <Title order={4}>Entries</Title>
       {parent ? (
-        <p>
-          <small>Entries of this type are added inside a {parent.name} entry.</small>
-        </p>
+        <Text size="sm" c="dimmed">
+          Entries of this type are added inside a {parent.name} entry.
+        </Text>
       ) : (
         type.archivedAt === null && (
           <EntryForm
@@ -387,7 +448,7 @@ function LogTypeDetail({
           />
         )
       )}
-      <ul>
+      <Stack gap={4}>
         {entries.map((entry) => (
           <EntryItem
             key={entry.id}
@@ -398,7 +459,7 @@ function LogTypeDetail({
             run={run}
           />
         ))}
-      </ul>
+      </Stack>
       <Trash
         items={trashedEntries.map((e) => ({
           id: e.id,
@@ -407,7 +468,7 @@ function LogTypeDetail({
         }))}
         onRestore={(deletionId) => run(() => restoreLogRecords(db, deletionId))}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -464,39 +525,52 @@ function EntryItem({
   };
 
   return (
-    <li>
-      {place && `#${place.index} `}
-      {formatTime(entry)}{" "}
-      <small>
-        ({entry.resolved.timeZone}, day {entry.day ?? "none"})
-      </small>{" "}
-      {fields
-        .filter((f) => f.id in entry.values)
-        .map((f) => `${f.name}: ${show(f, entry.values[f.id])}`)
-        .join(" · ")}{" "}
-      {place && (
-        <>
-          <button
-            type="button"
-            disabled={place.index === 1}
-            onClick={() => run(() => moveChildEntry(db, entry.id, place.index - 1))}
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            disabled={place.index === place.count}
-            onClick={() => run(() => moveChildEntry(db, entry.id, place.index + 1))}
-          >
-            ↓
-          </button>{" "}
-        </>
-      )}
-      <button type="button" onClick={() => run(() => deleteLogEntry(db, entry.id))}>
-        Delete
-      </button>
+    <Stack gap={4}>
+      <Group gap="xs">
+        <Text size="sm">
+          {place && `#${place.index} `}
+          {formatTime(entry)}
+        </Text>
+        <Text size="sm" c="dimmed">
+          ({entry.resolved.timeZone}, day {entry.day ?? "none"})
+        </Text>
+        <Text size="sm">
+          {fields
+            .filter((f) => f.id in entry.values)
+            .map((f) => `${f.name}: ${show(f, entry.values[f.id])}`)
+            .join(" · ")}
+        </Text>
+        {place && (
+          <>
+            <Button
+              size="xs"
+              variant="default"
+              disabled={place.index === 1}
+              onClick={() => run(() => moveChildEntry(db, entry.id, place.index - 1))}
+            >
+              ↑
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
+              disabled={place.index === place.count}
+              onClick={() => run(() => moveChildEntry(db, entry.id, place.index + 1))}
+            >
+              ↓
+            </Button>
+          </>
+        )}
+        <Button
+          size="xs"
+          variant="light"
+          color="red"
+          onClick={() => run(() => deleteLogEntry(db, entry.id))}
+        >
+          Delete
+        </Button>
+      </Group>
       {(children.length > 0 || childTypes.length > 0) && (
-        <ul>
+        <Stack gap={4} pl="md">
           {children.map((child, i) => (
             <EntryItem
               key={child.id}
@@ -511,19 +585,18 @@ function EntryItem({
           {childTypes
             .filter((t) => t.archivedAt === null)
             .map((t) => (
-              <li key={t.id}>
-                <ChildEntryForm
-                  db={db}
-                  type={t}
-                  parentEntryId={entry.id}
-                  run={run}
-                  version={version}
-                />
-              </li>
+              <ChildEntryForm
+                key={t.id}
+                db={db}
+                type={t}
+                parentEntryId={entry.id}
+                run={run}
+                version={version}
+              />
             ))}
-        </ul>
+        </Stack>
       )}
-    </li>
+    </Stack>
   );
 }
 
@@ -542,8 +615,8 @@ function ChildEntryForm({
 }) {
   const fields = useVersionFields(db, type.id, type.schemaVersion, version);
   return (
-    <>
-      {type.name}:{" "}
+    <Group gap="xs" align="flex-end">
+      <Text size="sm">{type.name}:</Text>
       <EntryForm
         db={db}
         fields={fields}
@@ -552,7 +625,7 @@ function ChildEntryForm({
           run(() => createLogEntry(db, { logTypeId: type.id, parentEntryId, values }))
         }
       />
-    </>
+    </Group>
   );
 }
 
@@ -596,42 +669,50 @@ function EntryForm({
   };
 
   return (
-    <form onSubmit={submit} style={{ display: "inline" }}>
-      {!child && (
-        <>
-          <input
-            type="datetime-local"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            required
-          />{" "}
-          →{" "}
-          <input
-            type="datetime-local"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            title="Optional end"
-          />{" "}
-          <select value={precision} onChange={(e) => setPrecision(e.target.value as Precision)}>
-            {PRECISIONS.map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>{" "}
-        </>
-      )}
-      {fields.map((field) => (
-        <span key={field.id}>
-          {field.name}
-          {field.required && "*"}{" "}
+    <form onSubmit={submit}>
+      <Group gap="xs" align="flex-end">
+        {!child && (
+          <>
+            <TextInput
+              size="xs"
+              type="datetime-local"
+              aria-label="Start"
+              value={start}
+              onChange={(e) => setStart(e.currentTarget.value)}
+              required
+            />
+            <Text size="sm">→</Text>
+            <TextInput
+              size="xs"
+              type="datetime-local"
+              aria-label="Optional end"
+              value={end}
+              onChange={(e) => setEnd(e.currentTarget.value)}
+              title="Optional end"
+            />
+            <Select
+              size="xs"
+              aria-label="Precision"
+              allowDeselect={false}
+              value={precision}
+              onChange={(v) => setPrecision(v as Precision)}
+              data={[...PRECISIONS]}
+            />
+          </>
+        )}
+        {fields.map((field) => (
           <ValueInput
+            key={field.id}
             db={db}
             field={field}
             value={inputs[field.id] ?? (field.shape.valueType === "multi_ref" ? [] : "")}
             onChange={(v) => setInputs({ ...inputs, [field.id]: v })}
-          />{" "}
-        </span>
-      ))}
-      <button type="submit">Add</button>
+          />
+        ))}
+        <Button type="submit" size="xs">
+          Add
+        </Button>
+      </Group>
     </form>
   );
 }
@@ -655,63 +736,88 @@ function ValueInput({
       : null,
   );
   const text = value as string;
+  // The field's name labels its input; "*" marks a required one.
+  const common = { size: "xs", label: field.name, withAsterisk: field.required } as const;
+  // Selects keep "" as an explicit "–" option, so an empty value stays a string.
+  const pick = (v: string | null) => onChange(v ?? "");
   switch (shape.valueType) {
     case "boolean":
       return (
-        <select value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">–</option>
-          <option value="true">yes</option>
-          <option value="false">no</option>
-        </select>
+        <Select
+          {...common}
+          allowDeselect={false}
+          value={text}
+          onChange={pick}
+          data={[
+            { value: "", label: "–" },
+            { value: "true", label: "yes" },
+            { value: "false", label: "no" },
+          ]}
+        />
       );
     case "number":
-      return (
-        <input type="number" step="any" value={text} onChange={(e) => onChange(e.target.value)} />
-      );
+      // Kept as text, like the plain input it replaces; `parseInput` makes it a number.
+      return <NumberInput {...common} value={text} onChange={(v) => onChange(String(v))} />;
     case "enum":
       return (
-        <select value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">–</option>
-          {shape.constraints.options.map((o) => (
-            <option key={o.key} value={o.key}>
-              {optionLabel(field.optionLabels, o.key)}
-            </option>
-          ))}
-        </select>
+        <Select
+          {...common}
+          allowDeselect={false}
+          value={text}
+          onChange={pick}
+          data={[
+            { value: "", label: "–" },
+            ...shape.constraints.options.map((o) => ({
+              value: o.key,
+              label: optionLabel(field.optionLabels, o.key),
+            })),
+          ]}
+        />
       );
     case "date":
-      return <input type="date" value={text} onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <TextInput
+          {...common}
+          type="date"
+          value={text}
+          onChange={(e) => onChange(e.currentTarget.value)}
+        />
+      );
     case "datetime":
       return (
-        <input type="datetime-local" value={text} onChange={(e) => onChange(e.target.value)} />
+        <TextInput
+          {...common}
+          type="datetime-local"
+          value={text}
+          onChange={(e) => onChange(e.currentTarget.value)}
+        />
       );
     case "ref":
       return (
-        <select value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">–</option>
-          {things.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.title}
-            </option>
-          ))}
-        </select>
+        <Select
+          {...common}
+          allowDeselect={false}
+          value={text}
+          onChange={pick}
+          data={[
+            { value: "", label: "–" },
+            ...things.map((t) => ({ value: t.id, label: t.title })),
+          ]}
+        />
       );
     case "multi_ref":
       return (
-        <select
-          multiple
+        <MultiSelect
+          {...common}
           value={value as string[]}
-          onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}
-        >
-          {things.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.title}
-            </option>
-          ))}
-        </select>
+          onChange={onChange}
+          data={things.map((t) => ({ value: t.id, label: t.title }))}
+        />
       );
     default:
-      return <input value={text} onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <TextInput {...common} value={text} onChange={(e) => onChange(e.currentTarget.value)} />
+      );
   }
 }
 
