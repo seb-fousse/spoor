@@ -107,7 +107,15 @@ describe("migrate", () => {
     expect(await migrate(db)).toEqual({ from: 1, to: MIGRATIONS.length });
     expect(await db.query("SELECT key, value FROM settings")).toEqual([{ key: "k", value: "1" }]);
     expect(await tables()).toEqual(
-      expect.arrayContaining(["timeline_categories", "timeline_intervals", "timelines"]),
+      expect.arrayContaining([
+        "timeline_categories",
+        "timeline_intervals",
+        "timelines",
+        "observation_metrics",
+        "observation_metric_versions",
+        "observations",
+        "observation_selections",
+      ]),
     );
   });
 });

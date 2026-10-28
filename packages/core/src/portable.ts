@@ -31,11 +31,20 @@ export const EXPORT_SCHEMA_VERSION = 1;
  * - `trimmed`: a non-empty string with no surrounding whitespace, as core stores
  *   names and descriptions.
  * - `zone`: an IANA time zone ID (see `isTimeZone`).
- * - `int`: a safe integer. `bool`: stored as 0/1, written as true/false.
+ * - `int`: a safe integer. `real`: a finite number. `bool`: stored as 0/1, written as true/false.
  * - `instant`: stored as epoch milliseconds, written as ISO 8601 UTC.
  * - `json`: stored as JSON text, written as the parsed value.
  */
-export type ColumnKind = "text" | "trimmed" | "zone" | "uuid" | "int" | "bool" | "instant" | "json";
+export type ColumnKind =
+  | "text"
+  | "trimmed"
+  | "zone"
+  | "uuid"
+  | "int"
+  | "real"
+  | "bool"
+  | "instant"
+  | "json";
 export type ColumnSpec = ColumnKind | `${ColumnKind}?`;
 
 interface TableSpec {
@@ -122,6 +131,65 @@ export const TABLES = [
         `intervals ${overlap.a} and ${overlap.b} overlap on timeline ${overlap.timelineId}`
       );
     },
+  },
+  {
+    key: "observationMetrics",
+    table: "observation_metrics",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      option_labels: "json",
+      schema_version: "int",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+      deleted_at: "instant?",
+      deletion_id: "uuid?",
+    },
+  },
+  {
+    key: "observationMetricVersions",
+    table: "observation_metric_versions",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      metric_id: "uuid",
+      version: "int",
+      value_type: "text",
+      constraints: "json",
+      created_at: "instant",
+    },
+  },
+  {
+    key: "observations",
+    table: "observations",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      metric_id: "uuid",
+      metric_version: "int",
+      date: "text?",
+      value_bool: "bool?",
+      value_num: "real?",
+      value_enum: "text?",
+      source: "text?",
+      external_id: "text?",
+      written_by: "text?",
+      written_at: "instant?",
+      created_at: "instant",
+      updated_at: "instant",
+      deleted_at: "instant?",
+      deletion_id: "uuid?",
+      purged_at: "instant?",
+    },
+  },
+  {
+    key: "observationSelections",
+    table: "observation_selections",
+    orderBy: "id",
+    columns: { id: "uuid", observation_id: "uuid", option_key: "text" },
   },
 ] as const satisfies readonly TableSpec[];
 

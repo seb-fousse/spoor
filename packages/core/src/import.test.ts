@@ -110,6 +110,12 @@ describe("importData", () => {
     await refused(message);
   });
 
+  it("refuses a non-number in a real column", async () => {
+    const observation = rows(doc, "observations").find((o) => o.valueNum !== null);
+    if (observation) observation.valueNum = "7.5";
+    await refused(/valueNum must be a number/);
+  });
+
   it("refuses a missing field", async () => {
     const timeline = rows(doc, "timelines")[0];
     if (timeline) delete timeline.archivedAt;
