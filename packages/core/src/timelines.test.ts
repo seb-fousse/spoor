@@ -4,12 +4,21 @@ import { migrate } from "./schema/migrate";
 import { setTimeZone } from "./settings";
 import { createInMemoryDatabase } from "./testing/in-memory-database";
 import {
+  createThing,
+  createThingType,
+  deleteThing,
+  getThingTypeVersionFields,
+  restoreThingRecords,
+  updateThingValues,
+} from "./things";
+import {
   createCategory,
   createInterval,
   createTimeline,
   deleteCategory,
   deleteInterval,
   deleteTimeline,
+  getCategory,
   getInterval,
   getTimeline,
   listCategories,
@@ -476,5 +485,90 @@ describe("timelines", () => {
       await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(/purged/);
       expect(await getInterval(db, created.id)).toBeUndefined();
     });
+  });
+});
+
+describe("categories linked to things", () => {
+  let db: Database & { close(): void };
+
+  beforeEach(async () => {
+    db = createInMemoryDatabase();
+    await migrate(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /** A non-exclusive People timeline and a person named `title`. */
+  const setup = async (title = "Alex") => {
+    const timeline = await createTimeline(db, { name: "People", exclusive: false });
+    const type = await createThingType(db, {
+      name: "Person",
+      fields: [{ name: "Name", valueType: "text", required: true }],
+    });
+    const [name] = (await getThingTypeVersionFields(db, type.id)).map((f) => f.id);
+    const thing = await createThing(db, { thingTypeId: type.id, values: { [name]: title } });
+    return { timeline, type, name, thing };
+  };
+
+  it("takes the thing's title as its name", async () => {
+    const { timeline, thing } = await setup();
+    const category = await createCategory(db, timeline.id, {
+      thingId: thing.id,
+      description: "Friend",
+    });
+    expect(category).toMatchObject({ name: "Alex", thingId: thing.id, description: "Friend" });
+    await expect(
+      createCategory(db, timeline.id, { name: "Al", thingId: thing.id }),
+    ).rejects.toThrow(/takes its name from thing/);
+    await expect(createCategory(db, timeline.id, {})).rejects.toThrow(/name is required/);
+  });
+
+  it("follows the title, keeping the last one once the thing is deleted", async () => {
+    const { timeline, name, thing } = await setup();
+    const category = await createCategory(db, timeline.id, { thingId: thing.id });
+    await updateThingValues(db, thing.id, { [name]: "Alex Smith" });
+    expect((await getCategory(db, category.id))?.name).toBe("Alex Smith");
+    await deleteThing(db, thing.id);
+    expect(await getCategory(db, category.id)).toMatchObject({
+      name: "Alex Smith",
+      deletedAt: null,
+    });
+    await expect(updateCategory(db, category.id, { name: "Alex" })).rejects.toThrow(
+      /takes its name from thing .*, so cannot be renamed/,
+    );
+    await updateCategory(db, category.id, { description: "Old friend" });
+  });
+
+  it("requires a live thing", async () => {
+    const { timeline, thing } = await setup();
+    await deleteThing(db, thing.id);
+    await expect(createCategory(db, timeline.id, { thingId: thing.id })).rejects.toThrow(
+      `Thing ${thing.id}: not found`,
+    );
+  });
+
+  it("allows one live category per thing per timeline", async () => {
+    const { timeline, thing } = await setup();
+    const first = await createCategory(db, timeline.id, { thingId: thing.id });
+    await expect(createCategory(db, timeline.id, { thingId: thing.id })).rejects.toThrow(
+      `Thing ${thing.id}: already has category ${first.id} on timeline ${timeline.id}`,
+    );
+    const other = await createTimeline(db, { name: "Calls" });
+    await createCategory(db, other.id, { thingId: thing.id });
+
+    const deletionId = await deleteCategory(db, first.id);
+    const second = await createCategory(db, timeline.id, { thingId: thing.id });
+    await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(
+      `Timeline category ${first.id}: thing ${thing.id} already has category ${second.id} on its timeline`,
+    );
+  });
+
+  it("restores a thing without touching its categories", async () => {
+    const { timeline, thing } = await setup();
+    const category = await createCategory(db, timeline.id, { thingId: thing.id });
+    await restoreThingRecords(db, await deleteThing(db, thing.id));
+    expect((await listCategories(db, timeline.id)).map((c) => c.id)).toEqual([category.id]);
   });
 });

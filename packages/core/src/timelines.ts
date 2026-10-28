@@ -1,11 +1,14 @@
 import { type Selectable, sql } from "kysely";
 import { isTimeZone } from "./days";
-import { isNonEmptyString } from "./guards";
+import { assertNotMerge } from "./definitions";
+import { optionalText, requireName } from "./guards";
 import { newId } from "./ids";
+import { findOverlap } from "./overlap";
 import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { getTimeZone } from "./settings";
+import { getThingTitle } from "./things";
 import { type Instant, instantToIso, isInstant, now } from "./time";
 import { transaction } from "./transaction";
 
@@ -128,23 +131,7 @@ export async function updateTimeline(
     const q = queryBuilder(db);
     const timeline = await requireLiveTimeline(db, id);
     if (patch.exclusive && !timeline.exclusive) {
-      const overlap = await q
-        .selectFrom("timeline_intervals as a")
-        .innerJoin("timeline_intervals as b", (join) =>
-          join.onRef("b.timeline_id", "=", "a.timeline_id").onRef("b.id", ">", "a.id"),
-        )
-        .select(["a.id as a", "b.id as b"])
-        .where("a.timeline_id", "=", id)
-        .where("a.deleted_at", "is", null)
-        .where("b.deleted_at", "is", null)
-        .where((eb) =>
-          eb.or([eb("a.end_at", "is", null), eb("a.end_at", ">", eb.ref("b.start_at"))]),
-        )
-        .where((eb) =>
-          eb.or([eb("b.end_at", "is", null), eb("b.end_at", ">", eb.ref("a.start_at"))]),
-        )
-        .limit(1)
-        .executeTakeFirst();
+      const overlap = await findOverlap(db, { timelineId: id, assumeExclusive: true });
       if (overlap) {
         throw new Error(
           `Timeline ${id}: cannot become exclusive, intervals ${overlap.a} and ${overlap.b} overlap`,
@@ -214,25 +201,65 @@ export async function deleteTimeline(db: Database, id: string): Promise<string> 
 // ---------------------------------------------------------------------------
 // Categories
 
+/**
+ * Adds a category, named by `name`, or one representing the live thing
+ * `thingId`, named by its title. A thing has at most one live category per
+ * timeline. A linked category's name follows the thing's title (the things
+ * repository renames it) and keeps the last one if the thing is deleted.
+ */
 export async function createCategory(
   db: Database,
   timelineId: string,
-  input: { name: string; description?: string | null },
+  input: { name?: string; description?: string | null; thingId?: string | null },
 ): Promise<TimelineCategory> {
   const id = newId();
+  const label = `Timeline category ${id}`;
+  const thingId = input.thingId ?? null;
+  if (thingId !== null && input.name !== undefined) {
+    throw new Error(`${label}: takes its name from thing ${thingId}, so cannot be given one`);
+  }
   await transaction(db, async () => {
+    const q = queryBuilder(db);
     const timeline = await requireLiveTimeline(db, timelineId);
     if (timeline.archivedAt !== null) {
       throw new Error(`Timeline ${timelineId}: archived, cannot add categories`);
     }
+    let name: string;
+    if (thingId === null) {
+      name = requireName(label, input.name ?? "");
+    } else {
+      const thing = await q
+        .selectFrom("things")
+        .select("id")
+        .where("id", "=", thingId)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst();
+      const title = thing && (await getThingTitle(db, thingId));
+      if (title === undefined) throw new Error(`Thing ${thingId}: not found`);
+      name = title;
+      // Backed by a partial unique index; checked first for a clear error.
+      const existing = await q
+        .selectFrom("timeline_categories")
+        .select("id")
+        .where("timeline_id", "=", timelineId)
+        .where("thing_id", "=", thingId)
+        .where("deleted_at", "is", null)
+        .executeTakeFirst();
+      if (existing) {
+        throw new Error(
+          `Thing ${thingId}: already has category ${existing.id} on timeline ${timelineId}`,
+        );
+      }
+    }
     const t = now();
-    await queryBuilder(db)
+    await q
       .insertInto("timeline_categories")
       .values({
         id,
         timeline_id: timelineId,
-        name: requireName(`Timeline category ${id}`, input.name),
+        name,
         description: optionalText(input.description),
+        thing_id: thingId,
         created_at: t,
         updated_at: t,
       })
@@ -271,7 +298,11 @@ export async function listCategories(
   return rows.map(toCategory);
 }
 
-/** Renames or redescribes. Intervals refer to the category by id, so their meaning is kept. */
+/**
+ * Renames or redescribes. Intervals refer to the category by id, so their
+ * meaning is kept. A category linked to a thing takes its name from the thing,
+ * so cannot be renamed.
+ */
 export async function updateCategory(
   db: Database,
   id: string,
@@ -279,6 +310,11 @@ export async function updateCategory(
 ): Promise<TimelineCategory> {
   await transaction(db, async () => {
     const category = await requireLiveCategory(db, id);
+    if (patch.name !== undefined && category.thingId !== null) {
+      throw new Error(
+        `Timeline category ${id}: takes its name from thing ${category.thingId}, so cannot be renamed`,
+      );
+    }
     await queryBuilder(db)
       .updateTable("timeline_categories")
       .set({
@@ -506,9 +542,10 @@ export async function deleteInterval(db: Database, id: string): Promise<string> 
 
 /**
  * Restores every timeline, category, and interval trashed under `deletionId`.
- * Refuses, restoring nothing, if any of them was purged, if a restored record's
- * timeline or category is still in the trash, or if a restored interval would
- * overlap a live one.
+ * Refuses, restoring nothing, if any of them was purged, if the deletion was a
+ * merge of things, if a restored record's timeline or category is still in the
+ * trash, if a restored category's thing already has another live category on
+ * its timeline, or if a restored interval would overlap a live one.
  */
 export async function restoreTimelineRecords(db: Database, deletionId: string): Promise<void> {
   await transaction(db, async () => {
@@ -537,6 +574,7 @@ export async function restoreTimelineRecords(db: Database, deletionId: string): 
       .executeTakeFirstOrThrow();
     if (counts.n === 0) throw new Error(`Deletion ${deletionId}: nothing in the trash`);
     if (counts.purged > 0) throw new Error(`Deletion ${deletionId}: purged, cannot be restored`);
+    await assertNotMerge(db, deletionId);
 
     // A parent trashed by another deletion stays in the trash, so its children cannot return.
     const orphan = await q
@@ -558,6 +596,25 @@ export async function restoreTimelineRecords(db: Database, deletionId: string): 
     if (orphan) {
       throw new Error(
         `${orphan.kind} ${orphan.id}: cannot be restored while its parent is deleted`,
+      );
+    }
+
+    // Backed by a partial unique index; checked first for a clear error.
+    const taken = await q
+      .selectFrom("timeline_categories as c")
+      .innerJoin("timeline_categories as live", (join) =>
+        join
+          .onRef("live.timeline_id", "=", "c.timeline_id")
+          .onRef("live.thing_id", "=", "c.thing_id")
+          .on("live.deleted_at", "is", null),
+      )
+      .select(["c.id", "c.thing_id", "live.id as live"])
+      .where("c.deletion_id", "=", deletionId)
+      .limit(1)
+      .executeTakeFirst();
+    if (taken) {
+      throw new Error(
+        `Timeline category ${taken.id}: thing ${taken.thing_id} already has category ${taken.live} on its timeline`,
       );
     }
 
@@ -696,15 +753,6 @@ async function requireLiveInterval(db: Database, id: string): Promise<TimelineIn
     .executeTakeFirst();
   if (!row) throw new Error(`Timeline interval ${id}: not found`);
   return toInterval(row);
-}
-
-function requireName(label: string, name: string): string {
-  if (!isNonEmptyString(name)) throw new Error(`${label}: name is required`);
-  return name.trim();
-}
-
-function optionalText(text: string | null | undefined): string | null {
-  return isNonEmptyString(text) ? text.trim() : null;
 }
 
 function toTimeline(row: TimelineRow): Timeline {

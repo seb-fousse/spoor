@@ -1,3 +1,4 @@
+import { isTimeZone } from "./days";
 import { isUuid } from "./ids";
 import type { Database } from "./platform/index";
 import {
@@ -7,7 +8,7 @@ import {
   EXPORT_SCHEMA_VERSION,
   type TableSpec,
 } from "./portable";
-import { isInstant, isoToInstant } from "./time";
+import { isoToInstant } from "./time";
 import { transaction } from "./transaction";
 
 const TABLES: readonly TableSpec[] = ALL_TABLES;
@@ -16,10 +17,11 @@ const TABLES: readonly TableSpec[] = ALL_TABLES;
  * Import (see docs/data-spec.md § Export and import): restores an export into an
  * empty database, keeping every id, timestamp and state as written.
  *
- * The whole document is validated before the database is touched, and the inserts
- * run in one transaction, so a refused or failed import changes nothing. Invalid
- * data is refused, never dropped or altered. Cross-record rules (foreign keys,
- * trash and purge consistency) are enforced by the database constraints.
+ * Every value is validated before the database is touched. The inserts then run in
+ * one transaction: the database constraints enforce foreign keys and trash and purge
+ * consistency, and each table's `check` enforces the cross-record rules only core
+ * knows, such as interval overlap. A refused or failed import changes nothing.
+ * Invalid data is refused, never dropped or altered.
  */
 
 /** Parses `text` as JSON and imports it. See `importData`. */
@@ -56,7 +58,13 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
     for (const spec of TABLES) {
       const columns = columnsOf(spec);
       const sql = insertSql(spec, columns);
-      for (const [i, values] of (rows.get(spec) ?? []).entries()) {
+      const records = rows.get(spec) ?? [];
+      const order =
+        spec.selfReference === undefined
+          ? records.keys()
+          : referencedFirst(columns, records, spec.selfReference);
+      for (const i of order) {
+        const values = records[i];
         try {
           await db.execute(sql, values);
         } catch (cause) {
@@ -67,7 +75,34 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
         }
       }
     }
+    for (const spec of TABLES) {
+      const problem = await spec.check?.(db);
+      if (problem !== undefined) throw new Error(`${spec.key}: ${problem}`);
+    }
   });
+}
+
+/**
+ * The indexes of `records`, each after the record its `column` references, so a
+ * self-referencing table imports whatever the file's order. A cycle is left for
+ * the foreign key to refuse.
+ */
+function referencedFirst(columns: readonly Column[], records: unknown[][], column: string) {
+  const idAt = columns.findIndex((c) => c.sql === "id");
+  const refAt = columns.findIndex((c) => c.sql === column);
+  const indexOf = new Map(records.map((values, i) => [values[idAt], i]));
+  const order: number[] = [];
+  const placed = new Set<number>();
+  const place = (i: number, path: Set<number>) => {
+    if (placed.has(i) || path.has(i)) return;
+    path.add(i);
+    const parent = indexOf.get(records[i][refAt]);
+    if (parent !== undefined) place(parent, path);
+    placed.add(i);
+    order.push(i);
+  };
+  for (const i of records.keys()) place(i, new Set());
+  return order;
 }
 
 function insertSql(spec: TableSpec, columns: readonly Column[]): string {
@@ -154,10 +189,19 @@ function checkValue({ kind, nullable }: Column, value: unknown): string | undefi
   switch (kind) {
     case "text":
       return typeof value === "string" ? undefined : "must be a string";
+    case "trimmed":
+      if (typeof value !== "string") return "must be a string";
+      return value !== "" && value === value.trim()
+        ? undefined
+        : "must be non-empty with no leading or trailing whitespace";
+    case "zone":
+      return isTimeZone(value) ? undefined : "must be an IANA time zone";
     case "uuid":
       return isUuid(value) ? undefined : "must be a lowercase UUID";
     case "int":
-      return isInstant(value) ? undefined : "must be an integer";
+      return Number.isSafeInteger(value) ? undefined : "must be an integer";
+    case "real":
+      return typeof value === "number" && Number.isFinite(value) ? undefined : "must be a number";
     case "bool":
       return typeof value === "boolean" ? undefined : "must be true or false";
     case "instant":

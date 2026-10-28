@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "./platform/index";
-import { columnsOf, TABLES } from "./portable";
+import { columnsOf, TABLES, type TableSpec } from "./portable";
 import { migrate } from "./schema/migrate";
 import { TABLE_COLUMNS } from "./schema/tables";
 import { createInMemoryDatabase } from "./testing/in-memory-database";
@@ -51,9 +51,17 @@ describe("the export registry matches the schema", () => {
 
   it("lists parents before the tables that reference them", async () => {
     const order = TABLES.map((t) => t.table as string);
-    for (const { table } of TABLES) {
-      const fks = await db.query<{ table: string }>(`PRAGMA foreign_key_list(${table})`);
+    for (const spec of TABLES as readonly TableSpec[]) {
+      const { table } = spec;
+      const fks = await db.query<{ table: string; from: string }>(
+        `PRAGMA foreign_key_list(${table})`,
+      );
       for (const fk of fks) {
+        // Import orders a self-referencing table's rows itself, if the registry says so.
+        if (fk.table === table) {
+          expect(spec.selfReference, `${table}.${fk.from}`).toBe(fk.from);
+          continue;
+        }
         expect(order.indexOf(fk.table), `${table} -> ${fk.table}`).toBeLessThan(
           order.indexOf(table),
         );

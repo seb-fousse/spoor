@@ -1,7 +1,10 @@
 import { Alert, AppShell, Center, Loader, Text, Title } from "@mantine/core";
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
+import { Logs } from "./Logs";
+import { Observations } from "./Observations";
 import { createTauriDatabase } from "./platform/database";
+import { Things } from "./Things";
 import { Timelines } from "./Timelines";
 import "./App.css";
 
