@@ -1,3 +1,4 @@
+import { Alert, AppShell, Center, Loader, Stack, Text, Title } from "@mantine/core";
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { Logs } from "./Logs";
@@ -20,18 +21,36 @@ function App() {
     migrated.then(() => setStatus("ready")).catch((e: Error) => setStatus(`error: ${e.message}`));
   }, []);
 
+  // The screens are stacked for now; a navbar to switch between them comes with the Mantine ports.
   return (
-    <main className="container">
-      <h1>Spoor</h1>
-      <p>A local-first personal data tracker. Your data stays on your device.</p>
-      <p>
-        <small>Early development — this is a scaffold, not a usable app yet.</small>
-      </p>
-      {status === "ready" ? <Timelines db={db} /> : <p>{status}</p>}
-      {status === "ready" && <Observations db={db} />}
-      {status === "ready" && <Things db={db} />}
-      {status === "ready" && <Logs db={db} />}
-    </main>
+    <AppShell header={{ height: 56 }} padding="md">
+      <AppShell.Header px="md" style={{ display: "flex", alignItems: "center" }}>
+        <Title order={3}>Spoor</Title>
+      </AppShell.Header>
+
+      <AppShell.Main>
+        <Text c="dimmed" size="sm" mb="md">
+          Early development — this is a scaffold, not a usable app yet. Your data stays on your
+          device.
+        </Text>
+        {status === "ready" ? (
+          <Stack gap="xl">
+            <Timelines db={db} />
+            <Observations db={db} />
+            <Things db={db} />
+            <Logs db={db} />
+          </Stack>
+        ) : status === "migrating" ? (
+          <Center>
+            <Loader />
+          </Center>
+        ) : (
+          <Alert color="red" title="Could not open the database">
+            {status}
+          </Alert>
+        )}
+      </AppShell.Main>
+    </AppShell>
   );
 }
 
