@@ -1,4 +1,4 @@
-import { Alert, AppShell, Center, Loader, Text, Title } from "@mantine/core";
+import { Alert, AppShell, Center, Loader, Stack, Text, Title } from "@mantine/core";
 import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 import { Logs } from "./Logs";
@@ -21,7 +21,7 @@ function App() {
     migrated.then(() => setStatus("ready")).catch((e: Error) => setStatus(`error: ${e.message}`));
   }, []);
 
-  // A navbar for switching screens goes here once there is more than one.
+  // The screens are stacked for now; a navbar to switch between them comes with the Mantine ports.
   return (
     <AppShell header={{ height: 56 }} padding="md">
       <AppShell.Header px="md" style={{ display: "flex", alignItems: "center" }}>
@@ -34,7 +34,12 @@ function App() {
           device.
         </Text>
         {status === "ready" ? (
-          <Timelines db={db} />
+          <Stack gap="xl">
+            <Timelines db={db} />
+            <Observations db={db} />
+            <Things db={db} />
+            <Logs db={db} />
+          </Stack>
         ) : status === "migrating" ? (
           <Center>
             <Loader />
