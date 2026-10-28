@@ -2,6 +2,7 @@ import { type Selectable, sql } from "kysely";
 import { isTimeZone } from "./days";
 import { optionalText, requireName } from "./guards";
 import { newId } from "./ids";
+import { findOverlap } from "./overlap";
 import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
@@ -128,23 +129,7 @@ export async function updateTimeline(
     const q = queryBuilder(db);
     const timeline = await requireLiveTimeline(db, id);
     if (patch.exclusive && !timeline.exclusive) {
-      const overlap = await q
-        .selectFrom("timeline_intervals as a")
-        .innerJoin("timeline_intervals as b", (join) =>
-          join.onRef("b.timeline_id", "=", "a.timeline_id").onRef("b.id", ">", "a.id"),
-        )
-        .select(["a.id as a", "b.id as b"])
-        .where("a.timeline_id", "=", id)
-        .where("a.deleted_at", "is", null)
-        .where("b.deleted_at", "is", null)
-        .where((eb) =>
-          eb.or([eb("a.end_at", "is", null), eb("a.end_at", ">", eb.ref("b.start_at"))]),
-        )
-        .where((eb) =>
-          eb.or([eb("b.end_at", "is", null), eb("b.end_at", ">", eb.ref("a.start_at"))]),
-        )
-        .limit(1)
-        .executeTakeFirst();
+      const overlap = await findOverlap(db, { timelineId: id, assumeExclusive: true });
       if (overlap) {
         throw new Error(
           `Timeline ${id}: cannot become exclusive, intervals ${overlap.a} and ${overlap.b} overlap`,
