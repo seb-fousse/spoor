@@ -11,6 +11,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import {
   createLogEntry,
   createLogType,
@@ -44,6 +45,7 @@ import {
   type ThingType,
   type Value,
 } from "@spoor/core";
+import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
 import { Trash } from "./Timelines";
 
@@ -641,8 +643,8 @@ function EntryForm({
   child: boolean;
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }) {
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [start, setStart] = useState<string | null>(null);
+  const [end, setEnd] = useState<string | null>(null);
   const [precision, setPrecision] = useState<Precision>("instant");
   const [inputs, setInputs] = useState<Record<string, string | string[]>>({});
 
@@ -656,12 +658,12 @@ function EntryForm({
       }
       values[field.id] = parseInput(field.shape.valueType, input);
     }
-    // `datetime-local` values parse as device-local time.
+    // DateTimePicker values are "YYYY-MM-DD HH:mm:ss" strings, which dayjs parses as device-local time.
     const time = child
       ? {}
       : {
-          occurredAt: new Date(start).getTime(),
-          endedAt: end ? new Date(end).getTime() : null,
+          occurredAt: dayjs(start).valueOf(),
+          endedAt: end ? dayjs(end).valueOf() : null,
           precision,
         };
     onCreate(time, values);
@@ -673,21 +675,21 @@ function EntryForm({
       <Group gap="xs" align="flex-end">
         {!child && (
           <>
-            <TextInput
+            <DateTimePicker
               size="xs"
-              type="datetime-local"
               aria-label="Start"
+              placeholder="Start"
               value={start}
-              onChange={(e) => setStart(e.currentTarget.value)}
-              required
+              onChange={setStart}
             />
             <Text size="sm">→</Text>
-            <TextInput
+            <DateTimePicker
               size="xs"
-              type="datetime-local"
               aria-label="Optional end"
+              placeholder="Optional end"
+              clearable
               value={end}
-              onChange={(e) => setEnd(e.currentTarget.value)}
+              onChange={setEnd}
               title="Optional end"
             />
             <Select
@@ -709,7 +711,8 @@ function EntryForm({
             onChange={(v) => setInputs({ ...inputs, [field.id]: v })}
           />
         ))}
-        <Button type="submit" size="xs">
+        {/* The pickers are not native inputs, so `required` cannot stop an empty start. */}
+        <Button type="submit" size="xs" disabled={!child && !start}>
           Add
         </Button>
       </Group>
@@ -738,7 +741,7 @@ function ValueInput({
   const text = value as string;
   // The field's name labels its input; "*" marks a required one.
   const common = { size: "xs", label: field.name, withAsterisk: field.required } as const;
-  // Selects keep "" as an explicit "–" option, so an empty value stays a string.
+  // Selects keep "" as an explicit "–" option and a cleared picker gives "", so an empty value stays a string.
   const pick = (v: string | null) => onChange(v ?? "");
   switch (shape.valueType) {
     case "boolean":
@@ -775,23 +778,9 @@ function ValueInput({
         />
       );
     case "date":
-      return (
-        <TextInput
-          {...common}
-          type="date"
-          value={text}
-          onChange={(e) => onChange(e.currentTarget.value)}
-        />
-      );
+      return <DatePickerInput {...common} clearable value={text || null} onChange={pick} />;
     case "datetime":
-      return (
-        <TextInput
-          {...common}
-          type="datetime-local"
-          value={text}
-          onChange={(e) => onChange(e.currentTarget.value)}
-        />
-      );
+      return <DateTimePicker {...common} clearable value={text || null} onChange={pick} />;
     case "ref":
       return (
         <Select
@@ -829,7 +818,8 @@ function parseInput(valueType: string, input: string | string[]): Value {
     case "number":
       return Number(input);
     case "datetime":
-      return new Date(input as string).getTime();
+      // A DateTimePicker value, parsed as device-local time.
+      return dayjs(input as string).valueOf();
     default:
       return input;
   }

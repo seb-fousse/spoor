@@ -11,6 +11,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import {
   createThing,
   createThingType,
@@ -37,6 +38,7 @@ import {
   type Value,
   type ValuePatch,
 } from "@spoor/core";
+import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
 import { Trash } from "./Timelines";
 
@@ -583,17 +585,12 @@ function ValueInput({
     case "number":
       // Kept as text like the other inputs; `fromDraft` parses it.
       return <NumberInput {...label} value={text} onChange={(v) => onChange(String(v))} />;
-    default: {
-      const type = { date: "date", datetime: "datetime-local" }[shape.valueType as string];
-      return (
-        <TextInput
-          {...label}
-          type={type ?? "text"}
-          value={text}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      );
-    }
+    case "date":
+      return <DatePickerInput {...choice} />;
+    case "datetime":
+      return <DateTimePicker {...choice} />;
+    default:
+      return <TextInput {...label} value={text} onChange={(e) => onChange(e.target.value)} />;
   }
 }
 
@@ -689,9 +686,8 @@ function toDraft(field: FieldDefinition, value: Value | undefined): string | str
   if (value === undefined) return field.shape.valueType === "multi_ref" ? [] : "";
   if (Array.isArray(value)) return value;
   if (field.shape.valueType === "datetime") {
-    // `datetime-local` shows device-local time.
-    const date = new Date(value as number);
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    // DateTimePicker shows device-local time.
+    return dayjs(value as number).format("YYYY-MM-DD HH:mm:ss");
   }
   return String(value);
 }
@@ -706,7 +702,8 @@ function fromDraft(field: FieldDefinition, draft: string | string[] | undefined)
     case "number":
       return Number(draft);
     case "datetime":
-      return new Date(draft).getTime();
+      // A DateTimePicker value, parsed as device-local time.
+      return dayjs(draft).valueOf();
     default:
       return draft;
   }
