@@ -1,4 +1,17 @@
 import {
+  Alert,
+  Button,
+  Checkbox,
+  Group,
+  MultiSelect,
+  NumberInput,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import {
   createThing,
   createThingType,
   type Database,
@@ -31,7 +44,7 @@ type Run = (action: () => Promise<unknown>) => void;
 
 /**
  * Proof-of-concept Things screen: thing types and their fields, things and
- * their values, merging and the trash, wired to plain HTML controls. Its only
+ * their values, merging and the trash, wired to stock Mantine controls. Its only
  * job is to show the slice works end to end over IPC; the real UI replaces it.
  */
 export function Things({ db }: { db: Database }) {
@@ -80,55 +93,72 @@ export function Things({ db }: { db: Database }) {
   const selected = types.find((t) => t.id === selectedId);
 
   return (
-    <section className="timelines">
-      <h2>Things</h2>
-      {error && <p className="error">{error}</p>}
+    <Stack component="section" gap="sm">
+      <Title order={2}>Things</Title>
+      {error && <Alert color="red">{error}</Alert>}
 
       <form onSubmit={addType}>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="New thing type"
-        />{" "}
-        <button type="submit">Add</button>
+        <Group gap="xs" align="flex-end">
+          <TextInput
+            size="xs"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="New thing type"
+            aria-label="New thing type"
+          />
+          <Button type="submit" size="xs">
+            Add
+          </Button>
+        </Group>
       </form>
       {confirming && (
-        <p>
-          This deletes the {confirming.type.name} type and its {confirming.things} things.{" "}
-          <button
-            type="button"
+        <Group gap="xs">
+          <Text size="sm">
+            This deletes the {confirming.type.name} type and its {confirming.things} things.
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="red"
             onClick={() => {
               setConfirming(null);
               run(() => deleteThingType(db, confirming.type.id));
             }}
           >
             Delete
-          </button>{" "}
-          <button type="button" onClick={() => setConfirming(null)}>
+          </Button>
+          <Button size="xs" variant="default" onClick={() => setConfirming(null)}>
             Cancel
-          </button>
-        </p>
+          </Button>
+        </Group>
       )}
-      <ul>
+      <Stack gap={4}>
         {types.map((t) => (
-          <li key={t.id}>
-            <button type="button" onClick={() => setSelectedId(t.id)}>
-              {t.id === selectedId ? <strong>{t.name}</strong> : t.name}
-            </button>{" "}
-            v{t.schemaVersion}
-            {t.archivedAt !== null && " · archived"}{" "}
-            <button
-              type="button"
+          <Group key={t.id} gap="xs">
+            <Button
+              size="xs"
+              variant={t.id === selectedId ? "light" : "subtle"}
+              onClick={() => setSelectedId(t.id)}
+            >
+              {t.name}
+            </Button>
+            <Text size="sm" c="dimmed">
+              v{t.schemaVersion}
+              {t.archivedAt !== null && " · archived"}
+            </Text>
+            <Button
+              size="xs"
+              variant="default"
               onClick={() => run(() => setThingTypeArchived(db, t.id, t.archivedAt === null))}
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
-            </button>{" "}
-            <button type="button" onClick={() => askDelete(t)}>
+            </Button>
+            <Button size="xs" variant="light" color="red" onClick={() => askDelete(t)}>
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
       <Trash
         items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
         onRestore={(deletionId) => run(() => restoreThingRecords(db, deletionId))}
@@ -137,7 +167,7 @@ export function Things({ db }: { db: Database }) {
       {selected && (
         <ThingTypeDetail db={db} type={selected} types={types} version={version} run={run} />
       )}
-    </section>
+    </Stack>
   );
 }
 
@@ -176,29 +206,27 @@ function ThingTypeDetail({
   const editing = things.find((t) => t.id === editingId);
 
   return (
-    <div>
-      <h3>
-        {type.name} <small>(version {type.schemaVersion})</small>
-      </h3>
+    <Stack gap="sm">
+      <Title order={3}>
+        {type.name}{" "}
+        <Text span size="sm" c="dimmed">
+          (version {type.schemaVersion})
+        </Text>
+      </Title>
 
-      <h4>Fields</h4>
-      <label>
-        Title field{" "}
-        <select
+      <Title order={4}>Fields</Title>
+      <Group gap="xs">
+        <Select
+          size="xs"
+          label="Title field"
+          allowDeselect={false}
           value={type.titleFieldId}
-          onChange={(e) =>
-            run(() => updateThingType(db, type.id, { titleFieldId: e.target.value }))
-          }
-        >
-          {fields
+          onChange={(v) => v && run(() => updateThingType(db, type.id, { titleFieldId: v }))}
+          data={fields
             .filter((f) => f.shape.valueType === "text" && f.required)
-            .map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-        </select>
-      </label>
+            .map((f) => ({ value: f.id, label: f.name }))}
+        />
+      </Group>
       <FieldEditor
         key={`${type.id}:${version}`}
         fields={fields}
@@ -206,7 +234,7 @@ function ThingTypeDetail({
         onSave={(inputs) => run(() => reviseThingTypeFields(db, type.id, inputs))}
       />
 
-      <h4>Things</h4>
+      <Title order={4}>Things</Title>
       {type.archivedAt === null && (
         <ValuesForm
           key={`new:${version}`}
@@ -216,34 +244,44 @@ function ThingTypeDetail({
           onSubmit={(values) => run(() => createThing(db, { thingTypeId: type.id, values }))}
         />
       )}
-      <ul>
+      <Stack gap={4}>
         {things.map((thing) => (
-          <li key={thing.id}>
-            <strong>{title(thing)}</strong> <small>v{thing.thingTypeVersion}</small>{" "}
-            <button type="button" onClick={() => setEditingId(thing.id)}>
-              Edit
-            </button>{" "}
-            <select
-              value=""
-              onChange={(e) => run(() => mergeThings(db, e.target.value, thing.id))}
-              title="Merge this thing into another, which keeps its references"
-            >
-              <option value="">Merge into…</option>
-              {things
-                .filter((other) => other.id !== thing.id)
-                .map((other) => (
-                  <option key={other.id} value={other.id}>
-                    {title(other)}
-                  </option>
-                ))}
-            </select>{" "}
-            <button type="button" onClick={() => run(() => deleteThing(db, thing.id))}>
-              Delete
-            </button>
+          <div key={thing.id}>
+            <Group gap="xs">
+              <Text size="sm" fw={700}>
+                {title(thing)}
+              </Text>
+              <Text size="sm" c="dimmed">
+                v{thing.thingTypeVersion}
+              </Text>
+              <Button size="xs" variant="default" onClick={() => setEditingId(thing.id)}>
+                Edit
+              </Button>
+              {/* Never holds a value: picking a target merges at once. */}
+              <Select
+                size="xs"
+                value={null}
+                onChange={(v) => v && run(() => mergeThings(db, v, thing.id))}
+                placeholder="Merge into…"
+                aria-label="Merge into"
+                title="Merge this thing into another, which keeps its references"
+                data={things
+                  .filter((other) => other.id !== thing.id)
+                  .map((other) => ({ value: other.id, label: title(other) }))}
+              />
+              <Button
+                size="xs"
+                variant="light"
+                color="red"
+                onClick={() => run(() => deleteThing(db, thing.id))}
+              >
+                Delete
+              </Button>
+            </Group>
             <ValuesList db={db} thing={thing} />
-          </li>
+          </div>
         ))}
-      </ul>
+      </Stack>
       {editing && (
         <EditThing
           key={`${editing.id}:${version}`}
@@ -266,7 +304,7 @@ function ThingTypeDetail({
         }))}
         onRestore={(deletionId) => run(() => restoreThingRecords(db, deletionId))}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -289,7 +327,7 @@ function EditThing({
   if (fields === null) return null;
   return (
     <>
-      <h4>Edit {title}</h4>
+      <Title order={4}>Edit {title}</Title>
       <ValuesForm
         db={db}
         fields={fields}
@@ -349,67 +387,82 @@ function FieldEditor({
 
   return (
     <form onSubmit={save}>
-      <ul>
-        {drafts.map((d, i) => (
-          <li key={d.id ?? i}>
-            <input value={d.name} onChange={(e) => change(i, { name: e.target.value })} />{" "}
-            <select
-              value={d.valueType}
-              onChange={(e) =>
-                change(i, { valueType: e.target.value as FieldValueType, constraints: "" })
-              }
-            >
-              {FIELD_VALUE_TYPES.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>{" "}
-            <label>
-              <input
-                type="checkbox"
-                checked={d.required}
-                onChange={(e) => change(i, { required: e.target.checked })}
-              />{" "}
-              required
-            </label>{" "}
-            {isRef(d) ? (
-              <select
-                value={d.constraints ? (JSON.parse(d.constraints).thingTypeId ?? "") : ""}
-                onChange={(e) =>
-                  change(i, { constraints: JSON.stringify({ thingTypeId: e.target.value }) })
-                }
-              >
-                <option value="">Refers to…</option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={d.constraints}
-                onChange={(e) => change(i, { constraints: e.target.value })}
-                placeholder='Constraints, e.g. {"options":[{"key":"a","order":1}]}'
+      <Stack gap="xs">
+        <Stack gap={4}>
+          {drafts.map((d, i) => (
+            <Group key={d.id ?? i} gap="xs">
+              <TextInput
+                size="xs"
+                aria-label="Field name"
+                value={d.name}
+                onChange={(e) => change(i, { name: e.target.value })}
               />
-            )}{" "}
-            <button type="button" onClick={() => setDrafts((ds) => ds.filter((_, j) => j !== i))}>
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        onClick={() =>
-          setDrafts((ds) => [
-            ...ds,
-            { name: "", valueType: "text", required: false, constraints: "" },
-          ])
-        }
-      >
-        Add field
-      </button>{" "}
-      <button type="submit">Save fields</button>
+              <Select
+                size="xs"
+                aria-label="Value type"
+                allowDeselect={false}
+                value={d.valueType}
+                onChange={(v) =>
+                  v && change(i, { valueType: v as FieldValueType, constraints: "" })
+                }
+                data={FIELD_VALUE_TYPES}
+              />
+              <Checkbox
+                size="xs"
+                label="required"
+                checked={d.required}
+                onChange={(e) => change(i, { required: e.currentTarget.checked })}
+              />
+              {isRef(d) ? (
+                // No target shows the placeholder, as the old empty option did.
+                <Select
+                  size="xs"
+                  clearable
+                  placeholder="Refers to…"
+                  aria-label="Refers to"
+                  value={(d.constraints ? JSON.parse(d.constraints).thingTypeId : null) || null}
+                  onChange={(v) =>
+                    change(i, { constraints: JSON.stringify({ thingTypeId: v ?? "" }) })
+                  }
+                  data={types.map((t) => ({ value: t.id, label: t.name }))}
+                />
+              ) : (
+                <TextInput
+                  size="xs"
+                  value={d.constraints}
+                  onChange={(e) => change(i, { constraints: e.target.value })}
+                  placeholder='Constraints, e.g. {"options":[{"key":"a","order":1}]}'
+                  aria-label="Constraints"
+                />
+              )}
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => setDrafts((ds) => ds.filter((_, j) => j !== i))}
+              >
+                Remove
+              </Button>
+            </Group>
+          ))}
+        </Stack>
+        <Group gap="xs">
+          <Button
+            size="xs"
+            variant="default"
+            onClick={() =>
+              setDrafts((ds) => [
+                ...ds,
+                { name: "", valueType: "text", required: false, constraints: "" },
+              ])
+            }
+          >
+            Add field
+          </Button>
+          <Button type="submit" size="xs">
+            Save fields
+          </Button>
+        </Group>
+      </Stack>
     </form>
   );
 }
@@ -453,15 +506,20 @@ function ValuesForm({
 
   return (
     <form onSubmit={submit}>
-      {fields.map((f) => (
-        // The input is a component, which a <label> cannot be seen to wrap.
-        <div key={f.id}>
-          {f.name}
-          {f.required && " *"}{" "}
-          <ValueInput db={db} field={f} value={draft[f.id] ?? ""} onChange={(v) => set(f.id, v)} />
-        </div>
-      ))}
-      <button type="submit">{submitLabel}</button>
+      <Group gap="xs" align="flex-end">
+        {fields.map((f) => (
+          <ValueInput
+            key={f.id}
+            db={db}
+            field={f}
+            value={draft[f.id] ?? ""}
+            onChange={(v) => set(f.id, v)}
+          />
+        ))}
+        <Button type="submit" size="xs">
+          {submitLabel}
+        </Button>
+      </Group>
     </form>
   );
 }
@@ -479,30 +537,42 @@ function ValueInput({
 }) {
   const { shape } = field;
   const text = typeof value === "string" ? value : "";
+  // The asterisk only marks a required field; the core validates, not the form.
+  const label: InputLabel = { label: field.name, withAsterisk: field.required, size: "xs" };
+  // "—" stands for no value, which the draft keeps as an empty string.
+  const choice = {
+    ...label,
+    clearable: true,
+    placeholder: "—",
+    value: text || null,
+    onChange: (v: string | null) => onChange(v ?? ""),
+  };
   switch (shape.valueType) {
     case "boolean":
       return (
-        <select value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">—</option>
-          <option value="true">yes</option>
-          <option value="false">no</option>
-        </select>
+        <Select
+          {...choice}
+          data={[
+            { value: "true", label: "yes" },
+            { value: "false", label: "no" },
+          ]}
+        />
       );
     case "enum":
       return (
-        <select value={text} onChange={(e) => onChange(e.target.value)}>
-          <option value="">—</option>
-          {shape.constraints.options.map((o) => (
-            <option key={o.key} value={o.key}>
-              {field.optionLabels[o.key] ?? o.key}
-            </option>
-          ))}
-        </select>
+        <Select
+          {...choice}
+          data={shape.constraints.options.map((o) => ({
+            value: o.key,
+            label: field.optionLabels[o.key] ?? o.key,
+          }))}
+        />
       );
     case "ref":
     case "multi_ref":
       return (
         <ThingSelect
+          {...label}
           db={db}
           thingTypeId={shape.constraints.thingTypeId}
           multiple={shape.valueType === "multi_ref"}
@@ -510,20 +580,28 @@ function ValueInput({
           onChange={onChange}
         />
       );
+    case "number":
+      // Kept as text like the other inputs; `fromDraft` parses it.
+      return <NumberInput {...label} value={text} onChange={(v) => onChange(String(v))} />;
     default: {
-      const type = { number: "number", date: "date", datetime: "datetime-local" }[
-        shape.valueType as string
-      ];
+      const type = { date: "date", datetime: "datetime-local" }[shape.valueType as string];
       return (
-        <input
+        <TextInput
+          {...label}
           type={type ?? "text"}
-          step={type === "number" ? "any" : undefined}
           value={text}
           onChange={(e) => onChange(e.target.value)}
         />
       );
     }
   }
+}
+
+/** The label props every value input takes. */
+interface InputLabel {
+  label: string;
+  withAsterisk: boolean;
+  size: "xs";
 }
 
 /** Live things of one type to refer to, by title. */
@@ -533,7 +611,8 @@ function ThingSelect({
   multiple,
   value,
   onChange,
-}: {
+  ...label
+}: InputLabel & {
   db: Database;
   thingTypeId: string;
   multiple: boolean;
@@ -550,30 +629,23 @@ function ThingSelect({
       )
       .then(setOptions);
   }, [db, thingTypeId]);
+  const data = options.map((o) => ({ value: o.id, label: o.title }));
   return multiple ? (
-    <select
-      multiple
+    <MultiSelect
+      {...label}
       value={Array.isArray(value) ? value : []}
-      onChange={(e) => onChange(Array.from(e.target.selectedOptions, (o) => o.value))}
-    >
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.title}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      data={data}
+    />
   ) : (
-    <select
-      value={typeof value === "string" ? value : ""}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">—</option>
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.title}
-        </option>
-      ))}
-    </select>
+    <Select
+      {...label}
+      clearable
+      placeholder="—"
+      value={(typeof value === "string" ? value : "") || null}
+      onChange={(v) => onChange(v ?? "")}
+      data={data}
+    />
   );
 }
 
@@ -601,15 +673,15 @@ function ValuesList({ db, thing }: { db: Database; thing: Thing }) {
     return String(v);
   };
   return (
-    <ul>
+    <Stack gap={0} pl="md">
       {fields
         .filter((f) => f.id in thing.values)
         .map((f) => (
-          <li key={f.id}>
+          <Text key={f.id} size="sm" c="dimmed">
             {f.name}: {show(f, thing.values[f.id])}
-          </li>
+          </Text>
         ))}
-    </ul>
+    </Stack>
   );
 }
 
