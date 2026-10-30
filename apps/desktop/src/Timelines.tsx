@@ -2,7 +2,6 @@ import {
   Alert,
   Button,
   Checkbox,
-  Collapse,
   Group,
   NativeSelect,
   Stack,
@@ -11,7 +10,6 @@ import {
   Title,
 } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
-import { useDisclosure } from "@mantine/hooks";
 import {
   createCategory,
   createInterval,
@@ -34,6 +32,7 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
+import { Trash } from "./Trash";
 
 /**
  * Proof-of-concept Timelines screen: every core read and write, built from
@@ -346,42 +345,6 @@ function IntervalForm({
         </Button>
       </Group>
     </form>
-  );
-}
-
-export function Trash({
-  items,
-  onRestore,
-}: {
-  items: { id: string; label: string; deletionId: string | null }[];
-  onRestore: (deletionId: string) => void;
-}) {
-  const [opened, { toggle }] = useDisclosure(false);
-  if (items.length === 0) return null;
-  return (
-    <Stack gap={4}>
-      <Group gap="xs">
-        <Button size="xs" variant="subtle" color="gray" onClick={toggle} aria-expanded={opened}>
-          {opened ? "▾" : "▸"} Trash ({items.length})
-        </Button>
-      </Group>
-      <Collapse expanded={opened}>
-        <Stack gap={4} pl="md">
-          {items.map((item) => (
-            <Group key={item.id} gap="xs">
-              <Text size="sm">{item.label}</Text>
-              <Button
-                size="xs"
-                variant="default"
-                onClick={() => item.deletionId && onRestore(item.deletionId)}
-              >
-                Restore
-              </Button>
-            </Group>
-          ))}
-        </Stack>
-      </Collapse>
-    </Stack>
   );
 }
 
