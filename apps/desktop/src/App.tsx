@@ -6,7 +6,6 @@ import { Observations } from "./Observations";
 import { createTauriDatabase } from "./platform/database";
 import { Things } from "./Things";
 import { Timelines } from "./Timelines";
-import "./App.css";
 
 const db = createTauriDatabase();
 // Started once at module load, not in the effect: StrictMode runs effects
