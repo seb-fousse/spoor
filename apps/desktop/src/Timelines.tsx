@@ -1,4 +1,18 @@
 import {
+  Alert,
+  Button,
+  Checkbox,
+  Collapse,
+  Group,
+  NativeSelect,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import { DateTimePicker } from "@mantine/dates";
+import { useDisclosure } from "@mantine/hooks";
+import {
   createCategory,
   createInterval,
   createTimeline,
@@ -18,12 +32,13 @@ import {
   type TimelineCategory,
   type TimelineInterval,
 } from "@spoor/core";
+import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
 
 /**
- * Proof-of-concept Timelines screen: every core read and write, wired to plain
- * HTML controls. Its only job is to show the slice works end to end over IPC;
- * the real UI replaces it.
+ * Proof-of-concept Timelines screen: every core read and write, built from
+ * plain Mantine components. Its only job is to show the slice works end to end
+ * over IPC; the real UI replaces it.
  */
 export function Timelines({ db }: { db: Database }) {
   const [timelines, setTimelines] = useState<Timeline[]>([]);
@@ -53,40 +68,52 @@ export function Timelines({ db }: { db: Database }) {
   const selected = timelines.find((t) => t.id === selectedId);
 
   return (
-    <section className="timelines">
-      <h2>Timelines</h2>
-      {error && <p className="error">{error}</p>}
+    <Stack component="section" gap="sm">
+      <Title order={2}>Timelines</Title>
+      {error && <Alert color="red">{error}</Alert>}
 
       <TimelineForm
         onCreate={(name, exclusive) => run(() => createTimeline(db, { name, exclusive }))}
       />
-      <ul>
+      <Stack gap={4}>
         {timelines.map((t) => (
-          <li key={t.id}>
-            <button type="button" onClick={() => setSelectedId(t.id)}>
-              {t.id === selectedId ? <strong>{t.name}</strong> : t.name}
-            </button>{" "}
-            {t.exclusive ? "exclusive" : "non-exclusive"}
-            {t.archivedAt !== null && " · archived"}{" "}
-            <button
-              type="button"
+          <Group key={t.id} gap="xs">
+            <Button
+              size="xs"
+              variant={t.id === selectedId ? "light" : "subtle"}
+              onClick={() => setSelectedId(t.id)}
+            >
+              {t.name}
+            </Button>
+            <Text size="sm" c="dimmed">
+              {t.exclusive ? "exclusive" : "non-exclusive"}
+              {t.archivedAt !== null && " · archived"}
+            </Text>
+            <Button
+              size="xs"
+              variant="default"
               onClick={() => run(() => setTimelineArchived(db, t.id, t.archivedAt === null))}
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
-            </button>{" "}
-            <button type="button" onClick={() => run(() => deleteTimeline(db, t.id))}>
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => run(() => deleteTimeline(db, t.id))}
+            >
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
       <Trash
         items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
         onRestore={(deletionId) => run(() => restoreTimelineRecords(db, deletionId))}
       />
 
       {selected && <TimelineDetail db={db} timeline={selected} version={version} run={run} />}
-    </section>
+    </Stack>
   );
 }
 
@@ -100,16 +127,24 @@ function TimelineForm({ onCreate }: { onCreate: (name: string, exclusive: boolea
   };
   return (
     <form onSubmit={submit}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New timeline" />
-      <label>
-        <input
-          type="checkbox"
+      <Group gap="xs" align="center">
+        <TextInput
+          size="xs"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          placeholder="New timeline"
+          aria-label="New timeline"
+        />
+        <Checkbox
+          size="xs"
+          label="exclusive"
           checked={exclusive}
-          onChange={(e) => setExclusive(e.target.checked)}
-        />{" "}
-        exclusive
-      </label>{" "}
-      <button type="submit">Add</button>
+          onChange={(e) => setExclusive(e.currentTarget.checked)}
+        />
+        <Button type="submit" size="xs">
+          Add
+        </Button>
+      </Group>
     </form>
   );
 }
@@ -158,61 +193,85 @@ function TimelineDetail({
   };
 
   return (
-    <div>
-      <h3>{timeline.name}</h3>
+    <Stack gap="sm">
+      <Title order={3}>{timeline.name}</Title>
 
-      <h4>Categories</h4>
+      <Title order={4}>Categories</Title>
       <form onSubmit={addCategory}>
-        <input
-          value={categoryName}
-          onChange={(e) => setCategoryName(e.target.value)}
-          placeholder="New category"
-        />{" "}
-        <button type="submit">Add</button>
+        <Group gap="xs" align="flex-end">
+          <TextInput
+            size="xs"
+            value={categoryName}
+            onChange={(e) => setCategoryName(e.currentTarget.value)}
+            placeholder="New category"
+            aria-label="New category"
+          />
+          <Button type="submit" size="xs">
+            Add
+          </Button>
+        </Group>
       </form>
-      <ul>
+      <Stack gap={4}>
         {categories.map((c) => (
-          <li key={c.id}>
-            {c.name}
-            {c.archivedAt !== null && " · archived"}{" "}
-            <button type="button" onClick={() => run(() => startInterval(db, c.id))}>
+          <Group key={c.id} gap="xs">
+            <Text size="sm">{c.name}</Text>
+            {c.archivedAt !== null && (
+              <Text size="sm" c="dimmed">
+                archived
+              </Text>
+            )}
+            <Button size="xs" variant="default" onClick={() => run(() => startInterval(db, c.id))}>
               Start now
-            </button>{" "}
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
               onClick={() => run(() => setCategoryArchived(db, c.id, c.archivedAt === null))}
             >
               {c.archivedAt === null ? "Archive" : "Unarchive"}
-            </button>{" "}
-            <button type="button" onClick={() => run(() => deleteCategory(db, c.id))}>
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => run(() => deleteCategory(db, c.id))}
+            >
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
 
-      <h4>Intervals</h4>
+      <Title order={4}>Intervals</Title>
       <IntervalForm
         categories={categories}
         onCreate={(categoryId, startAt, endAt) =>
           run(() => createInterval(db, { categoryId, startAt, endAt }))
         }
       />
-      <ul>
+      <Stack gap={4}>
         {intervals.map((i) => (
-          <li key={i.id}>
-            {describe(i)} <small>({i.timeZone})</small>{" "}
+          <Group key={i.id} gap="xs">
+            <Text size="sm">{describe(i)}</Text>
+            <Text size="sm" c="dimmed">
+              ({i.timeZone})
+            </Text>
             {i.endAt === null && (
-              <button type="button" onClick={() => run(() => stopInterval(db, i.id))}>
+              <Button size="xs" variant="default" onClick={() => run(() => stopInterval(db, i.id))}>
                 Stop
-              </button>
-            )}{" "}
-            <button type="button" onClick={() => run(() => deleteInterval(db, i.id))}>
+              </Button>
+            )}
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              onClick={() => run(() => deleteInterval(db, i.id))}
+            >
               Delete
-            </button>
-          </li>
+            </Button>
+          </Group>
         ))}
-      </ul>
+      </Stack>
 
       <Trash
         items={[
@@ -229,7 +288,7 @@ function TimelineDetail({
         ]}
         onRestore={(deletionId) => run(() => restoreTimelineRecords(db, deletionId))}
       />
-    </div>
+    </Stack>
   );
 }
 
@@ -241,39 +300,51 @@ function IntervalForm({
   onCreate: (categoryId: string, startAt: number, endAt: number | null) => void;
 }) {
   const [categoryId, setCategoryId] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [start, setStart] = useState<string | null>(null);
+  const [end, setEnd] = useState<string | null>(null);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    // `datetime-local` values parse as device-local time.
-    onCreate(categoryId, new Date(start).getTime(), end ? new Date(end).getTime() : null);
+    // DateTimePicker values are "YYYY-MM-DD HH:mm:ss" strings, which dayjs parses as device-local time.
+    onCreate(categoryId, dayjs(start).valueOf(), end ? dayjs(end).valueOf() : null);
   };
   return (
     <form onSubmit={submit}>
-      <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-        <option value="">Category…</option>
-        {categories
-          .filter((c) => c.archivedAt === null)
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-      </select>{" "}
-      <input
-        type="datetime-local"
-        value={start}
-        onChange={(e) => setStart(e.target.value)}
-        required
-      />{" "}
-      →{" "}
-      <input
-        type="datetime-local"
-        value={end}
-        onChange={(e) => setEnd(e.target.value)}
-        title="Empty: ongoing"
-      />{" "}
-      <button type="submit">Add</button>
+      <Group gap="xs" align="flex-end">
+        {/* NativeSelect, not Select: Mantine's Select input is read-only, so `required` would not stop an empty submit. */}
+        <NativeSelect
+          size="xs"
+          aria-label="Category"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.currentTarget.value)}
+          required
+          data={[
+            { value: "", label: "Category…" },
+            ...categories
+              .filter((c) => c.archivedAt === null)
+              .map((c) => ({ value: c.id, label: c.name })),
+          ]}
+        />
+        <DateTimePicker
+          size="xs"
+          aria-label="Start"
+          placeholder="Start"
+          value={start}
+          onChange={setStart}
+        />
+        <Text size="sm">→</Text>
+        <DateTimePicker
+          size="xs"
+          aria-label="Optional end"
+          placeholder="Empty: ongoing"
+          clearable
+          value={end}
+          onChange={setEnd}
+        />
+        {/* The pickers are not native inputs, so `required` cannot stop an empty start. */}
+        <Button type="submit" size="xs" disabled={!start}>
+          Add
+        </Button>
+      </Group>
     </form>
   );
 }
@@ -285,21 +356,32 @@ export function Trash({
   items: { id: string; label: string; deletionId: string | null }[];
   onRestore: (deletionId: string) => void;
 }) {
+  const [opened, { toggle }] = useDisclosure(false);
   if (items.length === 0) return null;
   return (
-    <details>
-      <summary>Trash ({items.length})</summary>
-      <ul>
-        {items.map((item) => (
-          <li key={item.id}>
-            {item.label}{" "}
-            <button type="button" onClick={() => item.deletionId && onRestore(item.deletionId)}>
-              Restore
-            </button>
-          </li>
-        ))}
-      </ul>
-    </details>
+    <Stack gap={4}>
+      <Group gap="xs">
+        <Button size="xs" variant="subtle" color="gray" onClick={toggle} aria-expanded={opened}>
+          {opened ? "▾" : "▸"} Trash ({items.length})
+        </Button>
+      </Group>
+      <Collapse expanded={opened}>
+        <Stack gap={4} pl="md">
+          {items.map((item) => (
+            <Group key={item.id} gap="xs">
+              <Text size="sm">{item.label}</Text>
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => item.deletionId && onRestore(item.deletionId)}
+              >
+                Restore
+              </Button>
+            </Group>
+          ))}
+        </Stack>
+      </Collapse>
+    </Stack>
   );
 }
 
