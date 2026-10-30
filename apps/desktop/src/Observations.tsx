@@ -11,6 +11,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import {
   createMetric,
   type Database,
@@ -368,13 +369,13 @@ function ValueForm({
   return (
     <form onSubmit={submit}>
       <Group gap="xs" align="flex-end">
-        <TextInput
+        {/* DatePickerInput values are "YYYY-MM-DD" strings, the day format core expects. */}
+        <DatePickerInput
           size="xs"
-          type="date"
-          value={date}
-          onChange={(e) => onDate(e.currentTarget.value)}
-          required
+          value={date || null}
+          onChange={(v) => onDate(v ?? "")}
           aria-label="Date"
+          placeholder="Date"
         />
         {version.valueType === "number" && (
           <NumberInput
@@ -414,7 +415,8 @@ function ValueForm({
               onChange={() => toggle(o.key)}
             />
           ))}
-        <Button type="submit" size="xs">
+        {/* The picker is not a native input, so `required` cannot stop an empty date. */}
+        <Button type="submit" size="xs" disabled={!date}>
           Record
         </Button>
       </Group>
