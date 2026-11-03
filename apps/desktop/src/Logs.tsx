@@ -45,7 +45,7 @@ import {
   type Value,
 } from "@spoor/core";
 import { type FormEvent, useEffect, useState } from "react";
-import { Trash } from "./Timelines";
+import { Trash } from "./Trash";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a
