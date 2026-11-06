@@ -1,13 +1,12 @@
-import { createFirstVersion, draftFields, LOG_TABLES, MANUAL, setValues } from "../definitions";
-
+import { createFields, draftFields, LOG_TABLES, MANUAL, setValues } from "../definitions";
 import {
+  addLogField,
   createLogEntry,
   createLogType,
   deleteLogEntry,
+  deleteLogField,
   deleteLogType,
-  getLogTypeVersionFields,
-  logFieldInput,
-  reviseLogTypeFields,
+  getLogTypeFields,
   setLogTypeArchived,
 } from "../logs";
 import type { Database } from "../platform/index";
@@ -17,8 +16,8 @@ import { transaction } from "../transaction";
 
 /**
  * TEST-ONLY. Log types, entries and values for the round-trip test: every value
- * column, references to the things `populateThings` made, an archived type, two
- * versions, a parent and child type, a workout with child sets, and `day`,
+ * column, references to the things `populateThings` made, an archived type, a
+ * field added and one deleted, a parent and child type, a workout with child sets, and `day`,
  * `month` and `year` precision. A deleted type, a deleted entry with its child,
  * and a child deleted alone leave nothing behind.
  *
@@ -44,7 +43,7 @@ export async function populateLogs(db: Database): Promise<void> {
   const alex = await thingOf("Person", "Alex Smith");
   const sam = await thingOf("Person", "Sam");
 
-  // Movie watched: every value type. Version 2 retires the booking time and adds a seat.
+  // Movie watched: every value type. Later the booking time is deleted and a seat added.
   const movieWatched = await createLogType(db, {
     name: "Movie watched",
     description: "Films",
@@ -74,8 +73,9 @@ export async function populateLogs(db: Database): Promise<void> {
       { name: "With", valueType: "multi_ref", constraints: { thingTypeId: alex.thing_type_id } },
     ],
   });
-  const v1 = await getLogTypeVersionFields(db, movieWatched.id, 1);
-  const [film, rating, format, review, rewatch, released, booked, withPeople] = v1.map((f) => f.id);
+  const [film, rating, format, review, rewatch, released, booked, withPeople] = (
+    await getLogTypeFields(db, movieWatched.id)
+  ).map((f) => f.id);
   await createLogEntry(db, {
     logTypeId: movieWatched.id,
     occurredAt: T0,
@@ -94,11 +94,8 @@ export async function populateLogs(db: Database): Promise<void> {
       [withPeople]: [alex.id, sam.id],
     },
   });
-  await reviseLogTypeFields(db, movieWatched.id, [
-    ...v1.filter((f) => f.id !== booked).map(logFieldInput),
-    { name: "Seat", valueType: "text" },
-  ]);
-  const seat = (await getLogTypeVersionFields(db, movieWatched.id)).at(-1)?.id as string;
+  await deleteLogField(db, booked);
+  const seat = await addLogField(db, movieWatched.id, { name: "Seat", valueType: "text" });
   await createLogEntry(db, {
     logTypeId: movieWatched.id,
     occurredAt: T0,
@@ -116,7 +113,7 @@ export async function populateLogs(db: Database): Promise<void> {
     logTypeId: book.id,
     occurredAt: Date.UTC(2019, 5, 1),
     precision: "year",
-    values: { [(await getLogTypeVersionFields(db, book.id))[0].id]: "Dune" },
+    values: { [(await getLogTypeFields(db, book.id))[0].id]: "Dune" },
   });
 
   // Workout and its child Set type, the parent written with a late-sorting id.
@@ -124,22 +121,21 @@ export async function populateLogs(db: Database): Promise<void> {
     const t = now();
     const drafts = draftFields(LOG_TABLES, [{ name: "Notes", valueType: "text" }]);
     await db.execute(
-      `INSERT INTO log_types (id, name, schema_version, created_at, updated_at)
-       VALUES (?, 'Workout', 1, ?, ?)`,
+      `INSERT INTO log_types (id, name, created_at, updated_at) VALUES (?, 'Workout', ?, ?)`,
       [WORKOUT_TYPE_ID, t, t],
     );
-    await createFirstVersion(db, LOG_TABLES, WORKOUT_TYPE_ID, drafts, t);
+    await createFields(db, LOG_TABLES, WORKOUT_TYPE_ID, drafts, t);
     await db.execute(
       `INSERT INTO log_entries
-         (id, log_type_id, log_type_version, occurred_at, ended_at, precision, time_zone,
+         (id, log_type_id, occurred_at, ended_at, precision, time_zone,
           source, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?, 'instant', 'Europe/Paris', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'instant', 'Europe/Paris', ?, ?, ?)`,
       [WORKOUT_ID, WORKOUT_TYPE_ID, T0, T0 + H, MANUAL, t, t],
     );
     await setValues(
       db,
       LOG_TABLES,
-      { id: WORKOUT_ID, typeId: WORKOUT_TYPE_ID, typeVersion: 1 },
+      { id: WORKOUT_ID, typeId: WORKOUT_TYPE_ID },
       { [drafts[0].id]: "Leg day" },
       { writtenBy: MANUAL, writtenAt: t },
     );
@@ -152,7 +148,7 @@ export async function populateLogs(db: Database): Promise<void> {
       { name: "Weight", valueType: "number", constraints: { unit: "kg" } },
     ],
   });
-  const [reps, weight] = (await getLogTypeVersionFields(db, set.id)).map((f) => f.id);
+  const [reps, weight] = (await getLogTypeFields(db, set.id)).map((f) => f.id);
   const addSet = (parentEntryId: string, n: number, kg: number) =>
     createLogEntry(db, {
       logTypeId: set.id,

@@ -1,12 +1,13 @@
 import { mergeThings } from "../merge";
 import type { Database } from "../platform/index";
 import {
+  addThingField,
   createThing,
   createThingType,
   deleteThing,
+  deleteThingField,
   deleteThingType,
-  getThingTypeVersionFields,
-  reviseThingTypeFields,
+  getThingTypeFields,
   setThingTypeArchived,
 } from "../things";
 import { now } from "../time";
@@ -14,8 +15,8 @@ import { createCategory, createInterval, createTimeline } from "../timelines";
 
 /**
  * TEST-ONLY. Thing types, things and values for the round-trip test: every value
- * column, an archived type, two versions with a retired field, and things
- * merged and deleted, plus a timeline and categories that refer to them.
+ * column, an archived type, a field added and one deleted, and things merged
+ * and deleted, plus a timeline and categories that refer to them.
  *
  * Setting a timeline's default thing type has no operation yet, so it is raw SQL.
  */
@@ -24,9 +25,9 @@ const H = 3_600_000;
 
 export async function populateThings(db: Database): Promise<void> {
   const fieldIds = async (typeId: string) =>
-    (await getThingTypeVersionFields(db, typeId)).map((f) => f.id);
+    (await getThingTypeFields(db, typeId)).map((f) => f.id);
 
-  // Person: version 1 has a birth date; version 2 retires it and adds friends.
+  // Person: starts with a birth date, which is deleted, and gains friends.
   const name = {
     name: "Name",
     valueType: "text",
@@ -43,11 +44,12 @@ export async function populateThings(db: Database): Promise<void> {
     thingTypeId: person.id,
     values: { [nameId]: "Alex", [bornId]: "1990-04-01" },
   });
-  await reviseThingTypeFields(db, person.id, [
-    { ...name, id: nameId },
-    { name: "Friends", valueType: "multi_ref", constraints: { thingTypeId: person.id } },
-  ]);
-  const [, friendsId] = await fieldIds(person.id);
+  await deleteThingField(db, person.id, bornId);
+  const friendsId = await addThingField(db, person.id, {
+    name: "Friends",
+    valueType: "multi_ref",
+    constraints: { thingTypeId: person.id },
+  });
   const survivor = await createThing(db, {
     thingTypeId: person.id,
     values: { [nameId]: "Alex Smith" },

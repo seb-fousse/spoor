@@ -1,17 +1,19 @@
 import type { Selectable } from "kysely";
 import { dayOfEntry, isTimeZone, type Precision, truncateToPrecision } from "./days";
 import {
-  createFirstVersion,
+  addField,
+  countFieldValues,
+  createFields,
+  deleteField,
   draftFields,
   type FieldDefinition,
-  type FieldInput,
-  getVersionFields,
+  type FieldPatch,
+  getFields,
   LOG_TABLES,
   MANUAL,
   type NewField,
   readValues,
   reorderFields,
-  reviseFields,
   setValues,
   updateField,
   type ValuePatch,
@@ -23,15 +25,14 @@ import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { getTimeZone } from "./settings";
 import { type Instant, instantToIso, isInstant, type LocalDate, now } from "./time";
-
 import { transaction } from "./transaction";
-import type { FieldValueType, Value } from "./values";
+import type { Value } from "./values";
 
 /**
- * Logs (see docs/data-spec.md § 3. Logs): log types with versioned fields, and
- * entries holding values for them, at a point in time or over a period.
+ * Logs (see docs/data-spec.md § 3. Logs): log types with fields, and entries
+ * holding values for them, at a point in time or over a period.
  *
- * Fields, versions and values go through `definitions.ts`, shared with things.
+ * Fields and values go through `definitions.ts`, shared with things.
  * A type with a `parentTypeId` is for child entries of that type's entries: a
  * child inherits its parent's time and belongs to its parent's day.
  *
@@ -53,8 +54,6 @@ export interface LogType {
   description: string | null;
   /** Entries of this type are child entries of that type's entries. Never changes. */
   parentTypeId: string | null;
-  /** The current version, which new entries are validated against. */
-  schemaVersion: number;
   createdAt: Instant;
   updatedAt: Instant;
   archivedAt: Instant | null;
@@ -62,9 +61,6 @@ export interface LogType {
 
 /** A field to add to a log type. */
 export type NewLogField = NewField;
-/** A field in a revised field list: an existing one by `id`, or a new one without. */
-export type LogFieldInput = FieldInput;
-/** A log field as it is in one version of its type. */
 export type LogField = FieldDefinition;
 
 /** When an entry happened, as stored on a top-level entry. */
@@ -78,8 +74,6 @@ export interface EntryTime {
 export interface LogEntry {
   id: string;
   logTypeId: string;
-  /** The version its values were validated against. */
-  logTypeVersion: number;
   /** As stored: `null` on a child entry, which inherits its parent's (see `resolved`). */
   occurredAt: Instant | null;
   endedAt: Instant | null;
@@ -146,8 +140,8 @@ type EntryRow = Selectable<DB["log_entries"]>;
 // Log types
 
 /**
- * Creates a log type with `fields` as version 1. A `parentTypeId` must name a
- * log type, and can never change afterwards, so types cannot form a cycle.
+ * Creates a log type with `fields`, positioned in order. A `parentTypeId` must
+ * name a log type, and can never change afterwards, so types cannot form a cycle.
  */
 export async function createLogType(
   db: Database,
@@ -171,12 +165,11 @@ export async function createLogType(
         name: requireName(`Log type ${id}`, input.name),
         description: optionalText(input.description),
         parent_type_id: parentTypeId,
-        schema_version: 1,
         created_at: t,
         updated_at: t,
       })
       .execute();
-    await createFirstVersion(db, LOG_TABLES, id, drafts, t);
+    await createFields(db, LOG_TABLES, id, drafts, t);
   });
   return (await getLogType(db, id)) as LogType;
 }
@@ -224,57 +217,37 @@ export async function updateLogType(
   return (await getLogType(db, id)) as LogType;
 }
 
-/**
- * Replaces the type's field list, in display order; see `reviseFields`. A
- * change of shape, required flag or field set creates a new version, which new
- * entries use; existing entries keep theirs.
- */
-export async function reviseLogTypeFields(
-  db: Database,
-  id: string,
-  fields: readonly LogFieldInput[],
-): Promise<{ version: number; created: boolean }> {
+/** Adds a field after the type's others; existing entries have no value for it. Returns its id. */
+export async function addLogField(db: Database, id: string, field: NewLogField): Promise<string> {
   return transaction(db, async () => {
     await requireLogType(db, id);
-    return reviseFields(db, LOG_TABLES, id, fields, now());
+    return addField(db, LOG_TABLES, id, field, now());
   });
 }
 
-/**
- * `field` as an entry of a revised field list, unchanged, so a caller can
- * revise a type by editing its current fields.
- */
-export function logFieldInput(field: LogField): LogFieldInput {
-  return {
-    id: field.id,
-    name: field.name,
-    // A field's shape is always one of the field value types; `parseShape` checked it.
-    valueType: field.shape.valueType as FieldValueType,
-    required: field.required,
-    constraints: field.shape.constraints,
-    optionLabels: field.optionLabels,
-  };
-}
-
-/** Renames or relabels a field, without a version. */
+/** Changes a field; see `FieldPatch`. Its value type never changes. */
 export async function updateLogField(
   db: Database,
   fieldId: string,
-  patch: { name?: string; optionLabels?: Record<string, string> },
+  patch: FieldPatch,
 ): Promise<void> {
-  await transaction(db, async () => {
-    const field = await queryBuilder(db)
-      .selectFrom("log_fields")
-      .select("log_type_id")
-      .where("id", "=", fieldId)
-      .executeTakeFirst();
-    if (!field) throw new Error(`Log field ${fieldId}: not found`);
-    await requireLogType(db, field.log_type_id);
-    await updateField(db, LOG_TABLES, fieldId, patch, now());
-  });
+  await transaction(db, () => updateField(db, LOG_TABLES, fieldId, patch, now()));
 }
 
-/** Puts the current version's fields in the order of `fieldIds`, without a version. */
+/** How many entries hold a value for the field, for the user to confirm its deletion. */
+export async function previewLogFieldDeletion(
+  db: Database,
+  fieldId: string,
+): Promise<{ values: number }> {
+  return { values: await countFieldValues(db, LOG_TABLES, fieldId) };
+}
+
+/** Deletes a field with its values. See `previewLogFieldDeletion`. */
+export async function deleteLogField(db: Database, fieldId: string): Promise<void> {
+  await transaction(db, () => deleteField(db, LOG_TABLES, fieldId));
+}
+
+/** Puts the type's fields in the order of `fieldIds`. */
 export async function reorderLogFields(
   db: Database,
   id: string,
@@ -286,18 +259,10 @@ export async function reorderLogFields(
   });
 }
 
-/**
- * The fields of one version of the type (default: its current one), by
- * position. Empty for an unknown version.
- */
-export async function getLogTypeVersionFields(
-  db: Database,
-  id: string,
-  version?: number,
-): Promise<LogField[]> {
-  const type = await getLogType(db, id);
-  if (!type) throw new Error(`Log type ${id}: not found`);
-  return getVersionFields(db, LOG_TABLES, id, version ?? type.schemaVersion);
+/** The type's fields, by position. */
+export async function getLogTypeFields(db: Database, id: string): Promise<LogField[]> {
+  await requireLogType(db, id);
+  return getFields(db, LOG_TABLES, id);
 }
 
 /** Archives or unarchives. An archived type is not offered for new entries. */
@@ -339,7 +304,7 @@ export async function previewLogTypeDeletion(db: Database, id: string): Promise<
 
 /**
  * Deletes the type with every type below it (whose `parentTypeId` is it,
- * recursively), and all their fields, versions and entries. See
+ * recursively), and all their fields and entries. See
  * `previewLogTypeDeletion`.
  */
 export async function deleteLogType(db: Database, id: string): Promise<void> {
@@ -354,7 +319,7 @@ export async function deleteLogType(db: Database, id: string): Promise<void> {
 
 /**
  * Records an entry of an unarchived type, validating `values` against the
- * type's current version.
+ * type's fields.
  *
  * A top-level entry needs `occurredAt`. With `day`, `month` or `year`
  * precision, `occurredAt` and `endedAt` are stored as the start of their day,
@@ -453,7 +418,6 @@ export async function createLogEntry(db: Database, input: NewLogEntry): Promise<
       .values({
         id,
         log_type_id: type.id,
-        log_type_version: type.schemaVersion,
         ...time,
         parent_entry_id: parentEntryId,
         position,
@@ -463,13 +427,10 @@ export async function createLogEntry(db: Database, input: NewLogEntry): Promise<
         updated_at: t,
       })
       .execute();
-    await setValues(
-      db,
-      LOG_TABLES,
-      { id, typeId: type.id, typeVersion: type.schemaVersion },
-      input.values ?? {},
-      { writtenBy: input.writtenBy ?? source, writtenAt: t },
-    );
+    await setValues(db, LOG_TABLES, { id, typeId: type.id }, input.values ?? {}, {
+      writtenBy: input.writtenBy ?? source,
+      writtenAt: t,
+    });
   });
   return (await getLogEntry(db, id)) as LogEntry;
 }
@@ -532,8 +493,8 @@ export async function listChildEntries(db: Database, parentEntryId: string): Pro
 
 /**
  * Changes a top-level entry's time, normalised as by `createLogEntry` (a new
- * precision re-truncates the stored time), and writes `values` against the
- * entry's own version as `writtenBy`, returning the fields an automated writer
+ * precision re-truncates the stored time), and writes `values` against its
+ * type's fields as `writtenBy`, returning the fields an automated writer
  * skipped. The time zone and source never change; a child entry's time is its
  * parent's.
  */
@@ -567,7 +528,7 @@ export async function updateLogEntry(
         .execute();
     }
     if (patch.values === undefined) return [];
-    const record = { id, typeId: row.log_type_id, typeVersion: row.log_type_version };
+    const record = { id, typeId: row.log_type_id };
     const result = await setValues(db, LOG_TABLES, record, patch.values, {
       writtenBy: patch.writtenBy ?? MANUAL,
       writtenAt: t,
@@ -742,7 +703,6 @@ function toLogType(row: LogTypeRow): LogType {
     name: row.name,
     description: row.description,
     parentTypeId: row.parent_type_id,
-    schemaVersion: row.schema_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
@@ -790,11 +750,10 @@ async function toEntries(db: Database, rows: readonly EntryRow[]): Promise<LogEn
 
   const entries: LogEntry[] = [];
   for (const row of rows) {
-    const record = { id: row.id, typeId: row.log_type_id, typeVersion: row.log_type_version };
+    const record = { id: row.id, typeId: row.log_type_id };
     entries.push({
       id: row.id,
       logTypeId: row.log_type_id,
-      logTypeVersion: row.log_type_version,
       occurredAt: row.occurred_at,
       endedAt: row.ended_at,
       precision: row.precision as Precision | null,

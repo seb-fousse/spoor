@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createFirstVersion,
+  addField,
+  countFieldValues,
+  createFields,
   type DefinitionTables,
+  deleteField,
   draftFields,
-  getVersionFields,
+  getFields,
   LOG_TABLES,
   MANUAL,
   type NewField,
   readValues,
   reorderFields,
-  reviseFields,
   setValues,
   THING_TABLES,
   updateField,
@@ -32,18 +34,12 @@ describe.each<DefinitionTables>([THING_TABLES, LOG_TABLES])("descriptor $typeKin
   it("names real tables and columns", () => {
     const has = (table: keyof typeof TABLE_COLUMNS, column: string) =>
       expect(Object.keys(TABLE_COLUMNS[table]), `${table}.${column}`).toContain(column);
-    for (const table of [
-      tables.typeVersions,
-      tables.fields,
-      tables.fieldVersions,
-      tables.records,
-    ]) {
-      has(table, tables.typeIdColumn);
+    for (const table of [tables.fields, tables.records]) has(table, tables.typeIdColumn);
+    for (const column of ["value_type", "required", "constraints", "option_labels"]) {
+      has(tables.fields, column);
     }
-    has(tables.fieldVersions, tables.typeVersionColumn);
-    has(tables.records, tables.typeVersionColumn);
     has(tables.values, tables.recordIdColumn);
-    has(tables.types, "schema_version");
+    has(tables.types, "updated_at");
   });
 });
 
@@ -59,36 +55,28 @@ describe("definitions", () => {
     db.close();
   });
 
-  /** A thing type with `fields` at version 1, as the things repository will create one. */
+  /** A thing type with `fields`, as the things repository creates one. */
   const createType = async (fields: readonly NewField[], name = "Person") => {
     const id = newId();
     const drafts = draftFields(T, fields);
     await db.execute(
-      `INSERT INTO thing_types (id, name, title_field_id, schema_version, created_at, updated_at)
-       VALUES (?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO thing_types (id, name, title_field_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
       [id, name, drafts[0]?.id ?? newId(), AT, AT],
     );
-    await createFirstVersion(db, T, id, drafts, AT);
+    await createFields(db, T, id, drafts, AT);
     return { id, fieldIds: drafts.map((d) => d.id) };
   };
 
-  const createThing = async (typeId: string, version = 1): Promise<ValueRecord> => {
+  const createThing = async (typeId: string): Promise<ValueRecord> => {
     const id = newId();
     await db.execute(
-      `INSERT INTO things (id, thing_type_id, thing_type_version, source, created_at, updated_at)
-       VALUES (?, ?, ?, 'manual', ?, ?)`,
-      [id, typeId, version, AT, AT],
+      `INSERT INTO things (id, thing_type_id, source, created_at, updated_at)
+       VALUES (?, ?, 'manual', ?, ?)`,
+      [id, typeId, AT, AT],
     );
-    return { id, typeId, typeVersion: version };
+    return { id, typeId };
   };
-
-  const schemaVersion = async (typeId: string) =>
-    (
-      await db.query<{ schema_version: number }>(
-        "SELECT schema_version FROM thing_types WHERE id = ?",
-        [typeId],
-      )
-    )[0].schema_version;
 
   const valueRows = (thingId: string) =>
     db.query<Record<string, unknown>>(
@@ -106,7 +94,7 @@ describe("definitions", () => {
   const manual = (writtenAt = 2_000) => ({ writtenBy: MANUAL, writtenAt });
 
   describe("creating a type", () => {
-    it("writes version 1 with fields in input order and canonical shapes", async () => {
+    it("writes fields in input order with canonical shapes", async () => {
       const { id, fieldIds } = await createType([
         { name: " Name ", valueType: "text", required: true },
         {
@@ -121,7 +109,7 @@ describe("definitions", () => {
           optionLabels: { a: " Happy " },
         },
       ]);
-      expect(await getVersionFields(db, T, id, 1)).toEqual([
+      expect(await getFields(db, T, id)).toEqual([
         {
           id: fieldIds[0],
           typeId: id,
@@ -149,11 +137,8 @@ describe("definitions", () => {
           required: false,
         }),
       ]);
-      expect(await schemaVersion(id)).toBe(1);
       expect(
-        await db.query("SELECT constraints FROM thing_field_versions WHERE field_id = ?", [
-          fieldIds[1],
-        ]),
+        await db.query("SELECT constraints FROM thing_fields WHERE id = ?", [fieldIds[1]]),
       ).toEqual([{ constraints: '{"options":[{"key":"a","order":1},{"key":"b","order":2}]}' }]);
     });
 
@@ -189,18 +174,12 @@ describe("definitions", () => {
         { name: "Friends", valueType: "multi_ref", constraints: { thingTypeId: id } },
       ]);
       await db.execute(
-        `INSERT INTO thing_types (id, name, title_field_id, schema_version, created_at, updated_at)
-         VALUES (?, 'Person', ?, 1, 0, 0)`,
+        `INSERT INTO thing_types (id, name, title_field_id, created_at, updated_at)
+         VALUES (?, 'Person', ?, 0, 0)`,
         [id, drafts[0].id],
       );
-      await createFirstVersion(db, T, id, drafts, AT);
-      expect(await getVersionFields(db, T, id, 1)).toHaveLength(2);
-    });
-
-    it("refuses a type that already has versions", async () => {
-      const { id } = await createType([{ name: "Name", valueType: "text" }]);
-      await db.execute("UPDATE thing_types SET schema_version = 2 WHERE id = ?", [id]);
-      await expect(createFirstVersion(db, T, id, [], AT)).rejects.toThrow(/already has version 2/);
+      await createFields(db, T, id, drafts, AT);
+      expect(await getFields(db, T, id)).toHaveLength(2);
     });
 
     it("runs inside the caller's transaction", async () => {
@@ -210,272 +189,120 @@ describe("definitions", () => {
     });
   });
 
-  describe("revising fields", () => {
+  describe("adding fields", () => {
     const fields: NewField[] = [
       { name: "Name", valueType: "text", required: true },
       { name: "Rating", valueType: "number", constraints: { min: 1, max: 5 } },
     ];
 
-    it("creates no version when only names, labels and order change", async () => {
+    it("adds a field after the others", async () => {
       const { id, fieldIds } = await createType(fields);
-      const [name, rating] = fieldIds;
-      const result = await reviseFields(
-        db,
-        T,
-        id,
-        [
-          { ...fields[1], id: rating, name: "Score", optionLabels: { x: "X" } },
-          { ...fields[0], id: name },
-        ],
-        2_000,
-      );
-      expect(result).toEqual({ version: 1, created: false });
-      expect(await schemaVersion(id)).toBe(1);
-      expect(
-        (await getVersionFields(db, T, id, 1)).map((f) => [f.name, f.position, f.updatedAt]),
-      ).toEqual([
-        ["Score", 0, 2_000],
-        ["Name", 1, 2_000],
+      const seen = await addField(db, T, id, { name: "Seen", valueType: "boolean" }, 2_000);
+      expect((await getFields(db, T, id)).map((f) => [f.id, f.position, f.createdAt])).toEqual([
+        [fieldIds[0], 0, AT],
+        [fieldIds[1], 1, AT],
+        [seen, 2, 2_000],
       ]);
-    });
-
-    it("keeps option labels a revision leaves out, and clears them with {}", async () => {
-      const mood: NewField = {
-        name: "Mood",
-        valueType: "enum",
-        constraints: { options: [{ key: "a", order: 1 }] },
-        optionLabels: { a: "Happy" },
-      };
-      const { id, fieldIds } = await createType([fields[0], mood]);
-      const labels = async () => (await getVersionFields(db, T, id, 1))[1].optionLabels;
-      const { optionLabels: _, ...unlabelled } = mood;
-      await reviseFields(
-        db,
-        T,
-        id,
-        [
-          { ...fields[0], id: fieldIds[0] },
-          { ...unlabelled, id: fieldIds[1] },
-        ],
-        2_000,
-      );
-      expect(await labels()).toEqual({ a: "Happy" });
-      await reviseFields(
-        db,
-        T,
-        id,
-        [
-          { ...fields[0], id: fieldIds[0] },
-          { ...unlabelled, id: fieldIds[1], optionLabels: {} },
-        ],
-        3_000,
-      );
-      expect(await labels()).toEqual({});
-    });
-
-    it("leaves untouched fields' rows alone", async () => {
-      const { id, fieldIds } = await createType(fields);
-      await reviseFields(
-        db,
-        T,
-        id,
-        [
-          { ...fields[0], id: fieldIds[0] },
-          { ...fields[1], id: fieldIds[1] },
-        ],
-        2_000,
-      );
-      expect((await getVersionFields(db, T, id, 1)).map((f) => f.updatedAt)).toEqual([AT, AT]);
-    });
-
-    it.each([
-      [
-        "a shape changes",
-        (ids: string[]) => [
-          { ...fields[0], id: ids[0] },
-          { ...fields[1], id: ids[1], constraints: { min: 1, max: 10 } },
-        ],
-      ],
-      [
-        "a required flag changes",
-        (ids: string[]) => [
-          { ...fields[0], id: ids[0], required: false },
-          { ...fields[1], id: ids[1] },
-        ],
-      ],
-      [
-        "a field is added",
-        (ids: string[]) => [
-          { ...fields[0], id: ids[0] },
-          { ...fields[1], id: ids[1] },
-          { name: "Seen", valueType: "boolean" as const },
-        ],
-      ],
-      ["a field is left out", (ids: string[]) => [{ ...fields[0], id: ids[0] }]],
-    ])("creates version 2 when %s, keeping version 1", async (_, revise) => {
-      const { id, fieldIds } = await createType(fields);
-      const v1 = await getVersionFields(db, T, id, 1);
-      const inputs = revise(fieldIds);
-      expect(await reviseFields(db, T, id, inputs, 2_000)).toEqual({ version: 2, created: true });
-      expect(await schemaVersion(id)).toBe(2);
-      // Version 1 still reads the same shapes; names and positions are not versioned.
-      expect(
-        (await getVersionFields(db, T, id, 1)).map((f) => [f.id, f.shape, f.required]),
-      ).toEqual(v1.map((f) => [f.id, f.shape, f.required]));
-      const v2 = await getVersionFields(db, T, id, 2);
-      expect(v2).toHaveLength(inputs.length);
-      expect(v2.map((f) => f.position)).toEqual(inputs.map((_, i) => i));
-      const versionRows = await db.query(
-        "SELECT * FROM thing_field_versions WHERE thing_type_version = 2",
-      );
-      expect(versionRows).toHaveLength(inputs.length);
-    });
-
-    it("retires a left-out field, keeping its row, and can bring it back", async () => {
-      const { id, fieldIds } = await createType(fields);
-      const [name, rating] = fieldIds;
-      await reviseFields(db, T, id, [{ ...fields[0], id: name }], 2_000);
-      expect(await db.query("SELECT id FROM thing_fields WHERE id = ?", [rating])).toHaveLength(1);
-
-      const result = await reviseFields(
-        db,
-        T,
-        id,
-        [
-          { ...fields[0], id: name },
-          { ...fields[1], id: rating },
-        ],
-        3_000,
-      );
-      expect(result).toEqual({ version: 3, created: true });
-      expect((await getVersionFields(db, T, id, 3)).map((f) => f.id)).toEqual([name, rating]);
-    });
-
-    it("refuses a field of another type, or one listed twice", async () => {
-      const { id, fieldIds } = await createType(fields);
-      const other = await createType(fields, "Other");
-      await expect(
-        reviseFields(db, T, id, [{ ...fields[0], id: other.fieldIds[0] }], 2_000),
-      ).rejects.toThrow(
-        new RegExp(`Thing field ${other.fieldIds[0]}: not a field of thing type ${id}`),
-      );
-      await expect(
-        reviseFields(
-          db,
-          T,
-          id,
-          [
-            { ...fields[0], id: fieldIds[0] },
-            { ...fields[0], id: fieldIds[0] },
-          ],
-          2_000,
-        ),
-      ).rejects.toThrow(/listed twice/);
-    });
-
-    it("refuses a new reference to a deleted thing type", async () => {
-      const { id, fieldIds } = await createType(fields);
-      const gone = await createType(fields, "Gone");
-      await db.execute("DELETE FROM thing_types WHERE id = ?", [gone.id]);
-      await expect(
-        reviseFields(
-          db,
-          T,
-          id,
-          [
-            { ...fields[0], id: fieldIds[0] },
-            { name: "Ref", valueType: "ref", constraints: { thingTypeId: gone.id } },
-          ],
-          2_000,
-        ),
-      ).rejects.toThrow(/thing type .* not found/);
-    });
-
-    it("refuses a new reference to an archived thing type, keeping existing ones", async () => {
-      const target = await createType(fields, "Target");
-      const ref = {
-        name: "Ref",
-        valueType: "ref" as const,
-        constraints: { thingTypeId: target.id },
-      };
-      const { id, fieldIds } = await createType([...fields, ref]);
-      await db.execute("UPDATE thing_types SET archived_at = 1 WHERE id = ?", [target.id]);
-      const [name, rating, existing] = fieldIds;
-      const kept = [
-        { ...fields[0], id: name },
-        { ...fields[1], id: rating },
-      ];
-
-      // The existing field keeps its target, even when its required flag changes.
-      await expect(
-        reviseFields(db, T, id, [...kept, { ...ref, id: existing, required: true }], 2_000),
-      ).resolves.toEqual({ version: 2, created: true });
-      await expect(
-        reviseFields(
-          db,
-          T,
-          id,
-          [...kept, { ...ref, id: existing }, { ...ref, name: "Ref 2" }],
-          2_000,
-        ),
-      ).rejects.toThrow(new RegExp(`thing type ${target.id} is archived`));
-      await expect(createType([ref], "New")).rejects.toThrow(/is archived/);
     });
 
     it("requires unique names, ignoring case and surrounding spaces", async () => {
       const { id, fieldIds } = await createType(fields);
       await expect(
-        reviseFields(
-          db,
-          T,
-          id,
-          [
-            { ...fields[0], id: fieldIds[0] },
-            { name: " name ", valueType: "text" },
-          ],
-          2_000,
-        ),
+        addField(db, T, id, { name: " name ", valueType: "text" }, 2_000),
       ).rejects.toThrow(new RegExp(`name "name" is already used by field ${fieldIds[0]}`));
+      // A deleted field's name is free again.
+      await deleteField(db, T, fieldIds[1]);
+      await addField(db, T, id, { name: "Rating", valueType: "text" }, 2_000);
+    });
 
-      // A retired field's name is free for a new field.
-      await reviseFields(db, T, id, [{ ...fields[0], id: fieldIds[0] }], 2_000);
-      await expect(
-        reviseFields(
-          db,
-          T,
-          id,
-          [
-            { ...fields[0], id: fieldIds[0] },
-            { name: "Rating", valueType: "text" },
-          ],
-          3_000,
-        ),
-      ).resolves.toEqual({ version: 3, created: true });
+    it("refuses a reference to a deleted or archived thing type", async () => {
+      const { id } = await createType(fields);
+      const gone = await createType(fields, "Gone");
+      await db.execute("DELETE FROM thing_types WHERE id = ?", [gone.id]);
+      const ref = (thingTypeId: string) => ({
+        name: "Ref",
+        valueType: "ref" as const,
+        constraints: { thingTypeId },
+      });
+      await expect(addField(db, T, id, ref(gone.id), 2_000)).rejects.toThrow(
+        /thing type .* not found/,
+      );
+      const target = await createType(fields, "Target");
+      await db.execute("UPDATE thing_types SET archived_at = 1 WHERE id = ?", [target.id]);
+      await expect(addField(db, T, id, ref(target.id), 2_000)).rejects.toThrow(
+        new RegExp(`thing type ${target.id} is archived`),
+      );
+      await expect(createType([ref(target.id)], "New")).rejects.toThrow(/is archived/);
     });
 
     it("refuses an unknown type", async () => {
-      await expect(reviseFields(db, T, newId(), [], 2_000)).rejects.toThrow(
+      await expect(addField(db, T, newId(), fields[0], 2_000)).rejects.toThrow(
         /Thing type .*: not found/,
       );
     });
   });
 
-  describe("updating and reordering fields", () => {
-    it("renames and relabels without a version", async () => {
+  describe("updating, reordering and deleting fields", () => {
+    it("renames and relabels", async () => {
       const { id, fieldIds } = await createType([{ name: "Name", valueType: "text" }]);
       await updateField(db, T, fieldIds[0], { name: " Title ", optionLabels: { a: "A" } }, 2_000);
-      expect((await getVersionFields(db, T, id, 1))[0]).toMatchObject({
+      expect((await getFields(db, T, id))[0]).toMatchObject({
         name: "Title",
         optionLabels: { a: "A" },
         updatedAt: 2_000,
       });
-      expect(await schemaVersion(id)).toBe(1);
       await expect(updateField(db, T, fieldIds[0], { name: "" }, 2_000)).rejects.toThrow(
         /name is required/,
       );
       await expect(updateField(db, T, newId(), {}, 2_000)).rejects.toThrow(
         /Thing field .*: not found/,
       );
+    });
+
+    it("keeps option labels a patch leaves out, and clears them with {}", async () => {
+      const { id, fieldIds } = await createType([
+        {
+          name: "Mood",
+          valueType: "enum",
+          constraints: { options: [{ key: "a", order: 1 }] },
+          optionLabels: { a: "Happy" },
+        },
+      ]);
+      const labels = async () => (await getFields(db, T, id))[0].optionLabels;
+      await updateField(db, T, fieldIds[0], { required: true }, 2_000);
+      expect(await labels()).toEqual({ a: "Happy" });
+      await updateField(db, T, fieldIds[0], { optionLabels: {} }, 3_000);
+      expect(await labels()).toEqual({});
+    });
+
+    it("changes the required flag and constraints for the same value type", async () => {
+      const { id, fieldIds } = await createType([
+        { name: "Rating", valueType: "number", constraints: { min: 1, max: 5 } },
+      ]);
+      await updateField(db, T, fieldIds[0], { required: true, constraints: { max: 10 } }, 2_000);
+      expect((await getFields(db, T, id))[0]).toMatchObject({
+        required: true,
+        shape: { valueType: "number", constraints: { max: 10 } },
+      });
+      await expect(
+        updateField(db, T, fieldIds[0], { constraints: { options: [] } }, 2_000),
+      ).rejects.toThrow(/options/);
+      await expect(
+        updateField(db, T, fieldIds[0], { required: "yes" as never }, 2_000),
+      ).rejects.toThrow(/required must be true or false/);
+    });
+
+    it("keeps the thing type a reference field refers to", async () => {
+      const person = await createType([{ name: "Name", valueType: "text" }]);
+      const other = await createType([{ name: "Name", valueType: "text" }], "Other");
+      const { fieldIds } = await createType(
+        [{ name: "Friend", valueType: "ref", constraints: { thingTypeId: person.id } }],
+        "Group",
+      );
+      await expect(
+        updateField(db, T, fieldIds[0], { constraints: { thingTypeId: other.id } }, 2_000),
+      ).rejects.toThrow(`Thing field ${fieldIds[0]}: cannot change the thing type it refers to`);
+      await updateField(db, T, fieldIds[0], { constraints: { thingTypeId: person.id } }, 2_000);
     });
 
     it("refuses a rename to another field's name, but not to its own in another case", async () => {
@@ -489,7 +316,7 @@ describe("definitions", () => {
       await updateField(db, T, fieldIds[0], { name: "TITLE" }, 2_000);
     });
 
-    it("reorders the current version's fields, each listed once", async () => {
+    it("reorders the type's fields, each listed once", async () => {
       const { id, fieldIds } = await createType([
         { name: "A", valueType: "text" },
         { name: "B", valueType: "text" },
@@ -497,14 +324,46 @@ describe("definitions", () => {
       ]);
       const [a, b, c] = fieldIds;
       await reorderFields(db, T, id, [c, a, b], 2_000);
-      expect((await getVersionFields(db, T, id, 1)).map((f) => f.name)).toEqual(["C", "A", "B"]);
-      expect(await schemaVersion(id)).toBe(1);
+      expect((await getFields(db, T, id)).map((f) => f.name)).toEqual(["C", "A", "B"]);
       await expect(reorderFields(db, T, id, [c, a], 2_000)).rejects.toThrow(
         /each of its fields once/,
       );
       await expect(reorderFields(db, T, id, [c, a, a], 2_000)).rejects.toThrow(
         /each of its fields once/,
       );
+    });
+
+    it("counts, then deletes a field's values with it", async () => {
+      const person = await createType([{ name: "Name", valueType: "text" }]);
+      const { id, fieldIds } = await createType(
+        [
+          { name: "Title", valueType: "text" },
+          { name: "Cast", valueType: "multi_ref", constraints: { thingTypeId: person.id } },
+        ],
+        "Movie",
+      );
+      const [title, cast] = fieldIds;
+      const people = [await createThing(person.id), await createThing(person.id)];
+      for (const t of ["Alien", "Heat"]) {
+        const movie = await createThing(id);
+        await setValues(
+          db,
+          T,
+          movie,
+          { [title]: t, [cast]: t === "Alien" ? people.map((p) => p.id) : [] },
+          manual(),
+        );
+      }
+      // Two rows for one movie: records are counted, not rows.
+      expect(await countFieldValues(db, T, cast)).toBe(1);
+      expect(await countFieldValues(db, T, title)).toBe(2);
+      await deleteField(db, T, cast);
+      expect((await getFields(db, T, id)).map((f) => f.id)).toEqual([title]);
+      expect(
+        await db.query("SELECT id FROM thing_field_values WHERE field_id = ?", [cast]),
+      ).toEqual([]);
+      await expect(deleteField(db, T, cast)).rejects.toThrow(/not found/);
+      await expect(countFieldValues(db, T, cast)).rejects.toThrow(/not found/);
     });
   });
 
@@ -635,12 +494,12 @@ describe("definitions", () => {
       expect(await updatedAt(thing.id)).toBe(2_000);
     });
 
-    it("refuses a field not in the record's version, naming the record and field", async () => {
+    it("refuses a field not of the record's type, naming the record and field", async () => {
       const { movie, person } = await setup();
       const thing = await createThing(movie.id);
       const foreign = person.fieldIds[0];
       await expect(validateValues(db, T, thing, { [foreign]: "x" })).rejects.toThrow(
-        `Thing ${thing.id}, field ${foreign}: not a field of thing type ${movie.id} version 1`,
+        `Thing ${thing.id}, field ${foreign}: not a field of thing type ${movie.id}`,
       );
     });
 
@@ -748,21 +607,15 @@ describe("definitions", () => {
       ).rejects.toThrow(/a writer is required/);
     });
 
-    it("reads values against the record's own version", async () => {
-      const { person, people } = await setup();
-      const [name] = person.fieldIds;
-      await reviseFields(
-        db,
-        T,
-        person.id,
-        [{ id: name, name: "Name", valueType: "text", required: false }],
-        2_000,
-      );
-      const alex: ValueRecord = { id: people[0], typeId: person.id, typeVersion: 1 };
-      expect(await readValues(db, T, alex)).toEqual({ [name]: "Alex" });
-      await expect(readValues(db, T, { ...alex, typeVersion: 7 })).rejects.toThrow(
-        /stored, but not a field of version 7/,
-      );
+    it("reads values against the type's fields, as they are now", async () => {
+      const { movie, f } = await setup();
+      const thing = await createThing(movie.id);
+      await setValues(db, T, thing, { [f.title]: "Alien", [f.year]: 1979 }, manual());
+      // A constraint added since is not applied to the stored value.
+      await updateField(db, T, f.year, { constraints: { min: 2000 } }, 3_000);
+      expect(await readValues(db, T, thing)).toEqual({ [f.title]: "Alien", [f.year]: 1979 });
+      await deleteField(db, T, f.year);
+      expect(await readValues(db, T, thing)).toEqual({ [f.title]: "Alien" });
     });
   });
 });

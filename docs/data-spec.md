@@ -5,9 +5,9 @@
 | Domain | Records | Definition tables | Data tables |
 | ------ | ------- | ----------------- | ----------- |
 | Timelines | Time spent in a category | `Timeline`, `TimelineCategory` | `TimelineInterval` |
-| Observations | One value per metric per day | `ObservationMetric`, `ObservationMetricVersion` | `DailyObservation`, `ObservationSelection` |
-| Logs | Events at a point in time or over a period | `LogType`, `LogTypeVersion`, `LogField`, `LogFieldVersion` | `LogEntry`, `LogFieldValue` |
-| Things | Entities independent of time: a movie, a person, a place | `ThingType`, `ThingTypeVersion`, `ThingField`, `ThingFieldVersion` | `Thing`, `ThingFieldValue` |
+| Observations | One value per metric per day | `ObservationMetric` | `DailyObservation`, `ObservationSelection` |
+| Logs | Events at a point in time or over a period | `LogType`, `LogField` | `LogEntry`, `LogFieldValue` |
+| Things | Entities independent of time: a movie, a person, a place | `ThingType`, `ThingField` | `Thing`, `ThingFieldValue` |
 
 There are no domain-specific tables. I.e. activity tracking, mood tracking, media
 logs, journaling, and anything else the user wants to track are all built from user-created definitions.
@@ -36,10 +36,6 @@ Every table lists all of its fields. Shared fields mean the same everywhere:
 
 All timestamps are UTC (see [Storage](#storage)).
 
-**Version records** (`ObservationMetricVersion`, `LogTypeVersion`,
-`LogFieldVersion`, `ThingTypeVersion`, `ThingFieldVersion`) are append-only:
-never changed, with only `id` and `created_at`.
-
 **Child rows** (`ObservationSelection`, `LogFieldValue`, `ThingFieldValue`)
 have no lifecycle of their own. They are deleted with their parent, and
 changing one bumps the parent's `updated_at`.
@@ -55,10 +51,11 @@ overwritten in the file. A deletion cannot reach exports written before it.
 | -------- | ------------ |
 | Timeline | Its categories and their intervals. |
 | Timeline category | Its intervals. |
-| Observation metric | Its versions and observations. |
-| Log type | Its fields, versions and entries, and every log type whose `parent_type_id` is this type, with theirs. |
+| Observation metric | Its observations. |
+| Log type | Its fields and entries, and every log type whose `parent_type_id` is this type, with theirs. |
+| Log or thing field | Its values. |
 | Log entry | Its values and its child entries. |
-| Thing type | Its fields, versions and things, as deleting each thing does. |
+| Thing type | Its fields and things, as deleting each thing does. |
 | Thing | Its values, and every `ref` and `multi_ref` value referring to it. |
 
 Two links are cleared instead: a timeline category linked to a deleted thing
@@ -207,29 +204,19 @@ Daily values, one per metric per day, independent of timelines.
 | `id` | |
 | `name` | |
 | `description` | Optional. |
-| `option_labels` | For `enum` and `multi_enum`: label per option key. Not versioned. |
-| `schema_version` | Current [version](#versioning). |
+| `value_type` | `boolean`, `number`, `enum`, or `multi_enum`. Set at creation; see [Changing definitions](#changing-definitions). |
+| `constraints` | `number`: unit, bounds, precision. `enum`/`multi_enum`: [options](#enum-options); `multi_enum` also minimum and maximum selections. |
+| `option_labels` | For `enum` and `multi_enum`: label per option key. |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-
-### Observation metric version
-
-| Field | Meaning |
-| ----- | ------- |
-| `id` | |
-| `metric_id` | |
-| `version` | Unique per metric. |
-| `value_type` | `boolean`, `number`, `enum`, or `multi_enum`. |
-| `constraints` | `number`: unit, bounds, precision. `enum`/`multi_enum`: [options](#enum-options); `multi_enum` also minimum and maximum selections. |
-| `created_at` | |
 
 Examples: boolean “Brushed teeth”, number “Cups of water”, enum “Mood”,
 `multi_enum` “Symptoms”.
 
 ### Enum options
 
-An ordered list in the version's `constraints`, shared by observation metrics
-and log and thing fields:
+An ordered list in the definition's `constraints`, shared by observation
+metrics and log and thing fields:
 
 | Field | Meaning |
 | ----- | ------- |
@@ -237,8 +224,9 @@ and log and thing fields:
 | `order` | Display position. |
 | `score` | Optional ordinal value (Mood: 1–5), so analysis can treat the enum as a scale. |
 
-Labels live in the definition's `option_labels`, not the version, so they can
-be edited freely. Any other option change creates a new version.
+Labels live in `option_labels`, apart from the options, so they can be edited
+freely. Removing an option leaves stored values with its key alone; they show
+the key's label if it still has one.
 
 ### Daily observation
 
@@ -246,7 +234,6 @@ be edited freely. Any other option change creates a new version.
 | ----- | ------- |
 | `id` | |
 | `metric_id` | |
-| `metric_version` | Version the value was validated against. |
 | `date` | `YYYY-MM-DD`; see [Days and time zones](#days-and-time-zones). |
 | `value` | Typed value (see [Storage](#storage)). Unset for `multi_enum`. |
 | `source`, `external_id` | See [Source](#source). |
@@ -257,9 +244,8 @@ At most one observation per `(metric_id, date)`, enforced by a unique index;
 editing revises it. No observation means “not recorded”,
 never `false`, zero, or a default.
 
-Recording a value validates it against the metric's current version, and a
-revision moves the observation to that version. Nothing can be recorded on an
-archived metric.
+Recording a value validates it against the metric's constraints as they are
+then. Nothing can be recorded on an archived metric.
 
 ### Observation selection
 
@@ -287,7 +273,6 @@ workout, or a diary entry.
 | `name` | Such as “Movie watched”. |
 | `description` | Optional. |
 | `parent_type_id` | Nullable. Makes entries of this type [child entries](#child-entries) of that type's entries. Set at creation and never changed. |
-| `schema_version` | Current [version](#versioning). |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
 
@@ -295,43 +280,19 @@ A `parent_type_id` must name an existing log type. Since it never changes and
 a parent always exists before its children, the types form a tree with no
 cycles. A child type can have child types of its own.
 
-### Log type version
-
-A version's field set is exactly its `LogFieldVersion` rows.
-
-| Field | Meaning |
-| ----- | ------- |
-| `id` | |
-| `log_type_id` | |
-| `version` | Unique per type. |
-| `created_at` | |
-
 ### Log field
-
-A field's identity across versions. It is retired by a version that omits it
-and deleted with its type, so it has no archive state.
 
 | Field | Meaning |
 | ----- | ------- |
 | `id` | Never changes. |
 | `log_type_id` | |
-| `name` | |
-| `position` | Display order. Not versioned. |
-| `option_labels` | For `enum`: label per option key. Not versioned. |
-| `created_at`, `updated_at` | |
-
-### Log field version
-
-| Field | Meaning |
-| ----- | ------- |
-| `id` | |
-| `field_id` | |
-| `log_type_id` | The field's type, denormalized so the field and the version belong to the same type. |
-| `log_type_version` | Version of the field's type that includes it. |
-| `value_type` | See below. |
+| `name` | Unique within its type, ignoring case. |
+| `position` | Display order. |
+| `value_type` | See below. Set at creation; see [Changing definitions](#changing-definitions). |
 | `required` | |
-| `constraints` | Bounds; [enum options](#enum-options); or, for `ref` and `multi_ref`, the target `thing_type_id`. |
-| `created_at` | |
+| `constraints` | Bounds; [enum options](#enum-options); or, for `ref` and `multi_ref`, the target `thing_type_id`, which never changes. |
+| `option_labels` | For `enum`: label per option key. |
+| `created_at`, `updated_at` | |
 
 Log and thing field value types:
 
@@ -356,7 +317,6 @@ rewatch is a second entry referring to the same movie.
 | ----- | ------- |
 | `id` | |
 | `log_type_id` | |
-| `log_type_version` | Version the values were validated against. |
 | `occurred_at` | Required, except on child entries. |
 | `ended_at` | Optional; not before `occurred_at`. |
 | `precision` | `instant` (default), `day`, `month`, or `year`. |
@@ -398,7 +358,7 @@ LogEntry W1  Workout  occurred_at=18:00  ended_at=19:00   notes="Leg day"
 ```
 
 A child's type must name its parent's type as `parent_type_id`. A child is an
-ordinary entry with its own values and version. With `occurred_at`,
+ordinary entry with its own values. With `occurred_at`,
 `precision`, and `time_zone` null it inherits its parent's, and it always
 belongs to its parent's day. Deleting a parent deletes its children; a child
 can also be deleted alone.
@@ -418,7 +378,7 @@ is still its parent's.
 | `id` | |
 | `log_entry_id` | |
 | `field_id` | |
-| `value` | Typed value valid for the entry's version. |
+| `value` | Typed value of the field's `value_type`. |
 | `written_by`, `written_at` | See [Provenance](#provenance). |
 
 At most one row per `(log_entry_id, field_id)`, except `multi_ref`: one row per
@@ -442,43 +402,14 @@ Thing definitions mirror log definitions and use the same value types.
 | `id` | |
 | `name` | Such as “Person”. |
 | `description` | Optional. |
-| `title_field_id` | The `text` field used as each thing's display name in references, categories, and merging. Not versioned. |
-| `schema_version` | Current [version](#versioning). |
+| `title_field_id` | A required `text` field, used as each thing's display name in references, categories, and merging. It cannot be deleted or made optional. |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
 
-### Thing type version
-
-| Field | Meaning |
-| ----- | ------- |
-| `id` | |
-| `thing_type_id` | |
-| `version` | Unique per type. |
-| `created_at` | |
-
 ### Thing field
 
-| Field | Meaning |
-| ----- | ------- |
-| `id` | Never changes. |
-| `thing_type_id` | |
-| `name` | |
-| `position` | Display order. Not versioned. |
-| `option_labels` | For `enum`: label per option key. Not versioned. |
-| `created_at`, `updated_at` | |
-
-### Thing field version
-
-| Field | Meaning |
-| ----- | ------- |
-| `id` | |
-| `field_id` | |
-| `thing_type_id` | The field's type, denormalized so the field and the version belong to the same type. |
-| `thing_type_version` | Version of the field's type that includes it. |
-| `value_type` | A [log field value type](#log-field-version). |
-| `required` | |
-| `constraints` | As for log fields. |
-| `created_at` | |
+The same columns as a [log field](#log-field), with `thing_type_id` in place of
+`log_type_id`.
 
 Example: a Movie type with text fields for title and IMDb ID, a number for
 year, and a `ref` to a Person for director.
@@ -489,7 +420,6 @@ year, and a `ref` to a Person for director.
 | ----- | ------- |
 | `id` | |
 | `thing_type_id` | |
-| `thing_type_version` | Version the values were validated against. |
 | `source`, `external_id` | See [Source](#source). |
 | `created_at`, `updated_at` | |
 
@@ -500,7 +430,7 @@ year, and a `ref` to a Person for director.
 | `id` | |
 | `thing_id` | |
 | `field_id` | |
-| `value` | Typed value valid for the thing's version. |
+| `value` | Typed value of the field's `value_type`. |
 | `written_by`, `written_at` | See [Provenance](#provenance). |
 
 Same rules as [log field values](#log-field-value). Deleting a thing deletes the
@@ -533,22 +463,19 @@ Field values are not merged; the user copies over what they want.
 Settings are configuration, so the typed-column rule does not apply. Installed
 plugins and the permissions granted to them are stored as settings.
 
-## Versioning
+## Changing definitions
 
-Changing a metric's or field's value type, constraints, or enum options must
-never reinterpret existing values, so it creates a new immutable version and
-increments the definition's `schema_version`. Every observation, log entry,
-and thing references the version it was validated against:
-`(metric_id, metric_version)`, `(log_type_id, log_type_version)`, or
-`(thing_type_id, thing_type_version)`. IDs stay stable across versions.
+A metric's or field's `value_type` is set when it is created and never
+changes, and neither does the thing type a `ref` or `multi_ref` field refers
+to, so stored values never need reinterpreting. To change either, add a new
+field and delete the old one, which deletes its values after a confirmation
+with the count.
 
-Value shape lives only on version records. Definition rows hold what can change
-without reinterpreting values: names, descriptions, option labels, field
-positions, title fields, `schema_version`, and `archived_at`. Renaming,
-reordering, and relabelling therefore never create a version. Timeline
-categories are not versioned.
-
-`schema_version` is not a sync revision counter.
+Everything else is edited in place: names, descriptions, positions,
+`required`, `constraints`, option labels, and title fields. Constraints and
+`required` are checked when a value is written, never against values already
+stored, so tightening a rule leaves existing records as they are until they
+are next edited. A field added later is simply empty on existing records.
 
 ## Storage
 
@@ -565,7 +492,7 @@ JSON:
 | `value_instant` | `INTEGER` (epoch ms, UTC) | `datetime` |
 | `value_ref` | `TEXT` (UUID) | `ref`, each `multi_ref` row |
 
-Exactly one value column is set, matching the version's `value_type`; a
+Exactly one value column is set, matching the definition's `value_type`; a
 `CHECK` constraint allows at most one non-null. A `multi_enum` observation sets
 none and stores `ObservationSelection` rows.
 
@@ -583,14 +510,12 @@ and field.
 Timeline ──* TimelineCategory ──* TimelineInterval
 Timeline ──* TimelineInterval
 TimelineCategory ──> Thing                 (optional)
-ObservationMetric ──* ObservationMetricVersion ──* DailyObservation ──* ObservationSelection
-LogType ──* LogField ──* LogFieldVersion
-LogType ──* LogTypeVersion ──* LogFieldVersion
-LogTypeVersion ──* LogEntry ──* LogFieldValue
+ObservationMetric ──* DailyObservation ──* ObservationSelection
+LogType ──* LogField ──* LogFieldValue
+LogType ──* LogEntry ──* LogFieldValue
 LogEntry ──* LogEntry                      (child entries)
-ThingType ──* ThingField ──* ThingFieldVersion
-ThingType ──* ThingTypeVersion ──* ThingFieldVersion
-ThingTypeVersion ──* Thing ──* ThingFieldValue
+ThingType ──* ThingField ──* ThingFieldValue
+ThingType ──* Thing ──* ThingFieldValue
 LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
 ```
 
@@ -599,7 +524,7 @@ LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
 - Versioned JSON with a top-level `schemaVersion`, plus one CSV per table.
 - Includes every table above.
 - Round-trip is a core requirement: export then import reproduces IDs,
-  timestamps, versions, values, sources, and archive state exactly.
+  timestamps, values, sources, and archive state exactly.
 - Import validates definitions and values and refuses invalid data rather than
   dropping or altering it. It checks the whole file before writing anything, so
   a refused import changes nothing.
@@ -622,19 +547,14 @@ LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
   "timelineCategories": [],
   "timelineIntervals": [],
   "observationMetrics": [],
-  "observationMetricVersions": [],
   "observations": [],
   "observationSelections": [],
   "logTypes": [],
-  "logTypeVersions": [],
   "logFields": [],
-  "logFieldVersions": [],
   "logEntries": [],
   "logFieldValues": [],
   "thingTypes": [],
-  "thingTypeVersions": [],
   "thingFields": [],
-  "thingFieldVersions": [],
   "things": [],
   "thingFieldValues": []
 }
@@ -662,27 +582,18 @@ stored. Like the full export, it is user-initiated plaintext.
 
 Intervals are split at midnight; an ongoing interval counts up to the export
 time. `month` and `year` entries and text fields are excluded. A companion
-`features.json` maps each key to its definition's name, value type, and
-versions. Lags, rolling windows, and the target are left to the analysis code.
+`features.json` maps each key to its definition's name and value type. Lags,
+rolling windows, and the target are left to the analysis code.
 
 ## To do
 
 Possible additions, not yet decided:
 
-- **Upgrading entries to a newer version.** An edited entry keeps its version,
-  so it still shows removed fields and cannot use new ones. Offer an upgrade on
-  edit, plus a bulk upgrade per type: unchanged fields carry over; removed
-  fields' values are dropped after a warning; values that no longer fit are
-  converted only if lossless, otherwise the user decides; new required fields
-  must be filled. A bulk upgrade runs in one transaction and lists entries it
-  could not convert. Applies to things too, and to observations in bulk; an
-  observation already moves to the current version whenever it is recorded again.
-- **Removing a field's past values.** An explicit “remove this field and its
-  values” action, with counts and confirmation like a cascading delete.
 - **Changes of meaning in the analytics export.** A rating moving from 1–5 to
-  1–10 keeps its field ID, so one feature key mixes two scales. Either split
-  features by version, or have the UI suggest a new field for such changes.
-- **Versions and identity under multi-device sync.** Two offline devices could
-  each create “version 2” of a definition. Decide version numbering, and
-  whether records need a `device_id` or sync revision counter, when sync is
-  designed.
+  1–10 keeps its field ID, so one feature key mixes two scales. Have the UI
+  suggest a new field for such changes.
+- **Archiving fields.** Hiding a field without deleting its values, as
+  definitions can be archived.
+- **Definition edits under multi-device sync.** Two offline devices could each
+  edit the same field. Decide the conflict policy, and whether records need a
+  `device_id` or sync revision counter, when sync is designed.

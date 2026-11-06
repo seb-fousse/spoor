@@ -1,7 +1,6 @@
 import {
   Alert,
   Button,
-  Checkbox,
   Group,
   MultiSelect,
   NumberInput,
@@ -13,40 +12,47 @@ import {
 } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import {
+  addLogField,
   createLogEntry,
   createLogType,
   type Database,
   deleteLogEntry,
+  deleteLogField,
   deleteLogType,
-  FIELD_VALUE_TYPES,
-  type FieldValueType,
-  getLogTypeVersionFields,
+  getLogTypeFields,
   getThingTitle,
   type LogEntry,
   type LogField,
-  type LogFieldInput,
   type LogType,
   listChildEntries,
   listLogEntries,
   listLogTypes,
   listThings,
   listThingTypes,
-  logFieldInput,
   moveChildEntry,
+  type NewLogField,
   optionLabel,
   PRECISIONS,
   type Precision,
   previewLogEntryDeletion,
+  previewLogFieldDeletion,
   previewLogTypeDeletion,
   reorderLogFields,
-  reviseLogTypeFields,
   setLogTypeArchived,
   type ThingType,
+  updateLogField,
   type Value,
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
 import { effect, useConfirmDelete } from "./ConfirmDelete";
+import {
+  FieldList,
+  type NewFieldDraft,
+  NewFieldInputs,
+  newFieldDraft,
+  toNewField,
+} from "./FieldList";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a
@@ -120,9 +126,12 @@ export function Logs({ db }: { db: Database }) {
               {t.name}
             </Button>
             <Text size="sm" c="dimmed">
-              v{t.schemaVersion}
-              {t.parentTypeId !== null && ` · inside ${nameOf(t.parentTypeId)}`}
-              {t.archivedAt !== null && " · archived"}
+              {[
+                t.parentTypeId !== null && `inside ${nameOf(t.parentTypeId)}`,
+                t.archivedAt !== null && "archived",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </Text>
             <Button
               size="xs"
@@ -148,41 +157,6 @@ export function Logs({ db }: { db: Database }) {
 // ---------------------------------------------------------------------------
 // Types and fields
 
-/** A field being edited: constraints as JSON text. */
-interface FieldRow {
-  id?: string;
-  name: string;
-  valueType: FieldValueType;
-  required: boolean;
-  constraints: string;
-  optionLabels?: Record<string, string>;
-}
-
-const newRow = (): FieldRow => ({ name: "", valueType: "text", required: false, constraints: "" });
-
-const toRow = (field: LogField): FieldRow => {
-  const constraints = JSON.stringify(field.shape.constraints);
-  return {
-    ...logFieldInput(field),
-    required: field.required,
-    constraints: constraints === "{}" ? "" : constraints,
-  };
-};
-
-/** The `thingTypeId` of a row's constraints, or "" while they are not a reference's. */
-const thingTypeOf = (constraints: string): string => {
-  try {
-    return JSON.parse(constraints).thingTypeId ?? "";
-  } catch {
-    return "";
-  }
-};
-
-const toInput = ({ constraints, ...row }: FieldRow): LogFieldInput => ({
-  ...row,
-  constraints: constraints.trim() === "" ? undefined : JSON.parse(constraints),
-});
-
 function LogTypeForm({
   db,
   types,
@@ -190,14 +164,14 @@ function LogTypeForm({
 }: {
   db: Database;
   types: LogType[];
-  onCreate: (name: string, parentTypeId: string | null, fields: LogFieldInput[]) => void;
+  onCreate: (name: string, parentTypeId: string | null, fields: NewLogField[]) => void;
 }) {
   const [name, setName] = useState("");
   const [parentTypeId, setParentTypeId] = useState("");
-  const [rows, setRows] = useState<FieldRow[]>([]);
+  const [rows, setRows] = useState<NewFieldDraft[]>([]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    onCreate(name, parentTypeId || null, rows.map(toInput));
+    onCreate(name, parentTypeId || null, rows.map(toNewField));
     setName("");
     setRows([]);
   };
@@ -235,69 +209,28 @@ function LogTypeForm({
   );
 }
 
+/** The fields of a type being created, each removable before it is saved. */
 function FieldsEditor({
   db,
   rows,
   setRows,
 }: {
   db: Database;
-  rows: FieldRow[];
-  setRows: (rows: FieldRow[]) => void;
+  rows: NewFieldDraft[];
+  setRows: (rows: NewFieldDraft[]) => void;
 }) {
   const thingTypes = useThingTypes(db);
-  const change = (i: number, patch: Partial<FieldRow>) =>
-    setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
     <Stack gap={4}>
       {rows.map((row, i) => (
         // New rows have no id yet; the inputs are controlled, so an index key is safe.
-        <Group key={row.id ?? i} gap="xs" align="flex-end">
-          <TextInput
-            size="xs"
-            value={row.name}
-            onChange={(e) => change(i, { name: e.currentTarget.value })}
-            placeholder="Field name"
-            aria-label="Field name"
+        // biome-ignore lint/suspicious/noArrayIndexKey: see above.
+        <Group key={i} gap="xs" align="flex-end">
+          <NewFieldInputs
+            field={row}
+            thingTypes={thingTypes}
+            onChange={(next) => setRows(rows.map((r, j) => (j === i ? next : r)))}
           />
-          <Select
-            size="xs"
-            aria-label="Value type"
-            allowDeselect={false}
-            value={row.valueType}
-            onChange={(v) => change(i, { valueType: v as FieldValueType, constraints: "" })}
-            data={[...FIELD_VALUE_TYPES]}
-          />
-          <Checkbox
-            size="xs"
-            label="required"
-            checked={row.required}
-            onChange={(e) => change(i, { required: e.currentTarget.checked })}
-          />
-          {row.valueType === "ref" || row.valueType === "multi_ref" ? (
-            <Select
-              size="xs"
-              aria-label="Thing type"
-              allowDeselect={false}
-              value={thingTypeOf(row.constraints)}
-              onChange={(v) => change(i, { constraints: JSON.stringify({ thingTypeId: v ?? "" }) })}
-              data={[
-                { value: "", label: "Thing type…" },
-                ...thingTypes.map((t) => ({ value: t.id, label: t.name })),
-              ]}
-            />
-          ) : (
-            <TextInput
-              size="xs"
-              value={row.constraints}
-              onChange={(e) => change(i, { constraints: e.currentTarget.value })}
-              aria-label="Constraints (JSON)"
-              placeholder={
-                row.valueType === "enum"
-                  ? '{"options":[{"key":"a","order":1}]}'
-                  : "Constraints (JSON)"
-              }
-            />
-          )}
           <Button
             size="xs"
             variant="default"
@@ -308,7 +241,7 @@ function FieldsEditor({
         </Group>
       ))}
       <Group gap="xs">
-        <Button size="xs" variant="default" onClick={() => setRows([...rows, newRow()])}>
+        <Button size="xs" variant="default" onClick={() => setRows([...rows, newFieldDraft()])}>
           Add field
         </Button>
       </Group>
@@ -329,82 +262,45 @@ function LogTypeDetail({
   version: number;
   run: Run;
 }) {
-  const fields = useVersionFields(db, type.id, type.schemaVersion, version);
-  const [rows, setRows] = useState<FieldRow[] | null>(null);
+  const fields = useFields(db, type.id, version);
+  const thingTypes = useThingTypes(db);
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
     listLogEntries(db, type.id).then(setEntries);
   }, [db, type.id, version]);
 
-  const move = (i: number, by: number) => {
-    const ids = fields.map((f) => f.id);
-    [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
-    run(() => reorderLogFields(db, type.id, ids));
-  };
   const parent = types.find((t) => t.id === type.parentTypeId);
 
   return (
     <Stack gap="sm">
-      <Title order={3}>
-        {type.name}{" "}
-        <Text span size="sm" c="dimmed">
-          (version {type.schemaVersion})
-        </Text>
-      </Title>
+      <Title order={3}>{type.name}</Title>
+      {deleteDialog}
 
       <Title order={4}>Fields</Title>
-      {rows === null ? (
-        <>
-          <Stack gap={4}>
-            {fields.map((f, i) => (
-              <Group key={f.id} gap="xs">
-                <Text size="sm">
-                  {f.name}: {f.shape.valueType}
-                  {f.required && " (required)"}
-                </Text>
-                <Button size="xs" variant="default" disabled={i === 0} onClick={() => move(i, -1)}>
-                  ↑
-                </Button>
-                <Button
-                  size="xs"
-                  variant="default"
-                  disabled={i === fields.length - 1}
-                  onClick={() => move(i, 1)}
-                >
-                  ↓
-                </Button>
-              </Group>
-            ))}
-          </Stack>
-          <Group gap="xs">
-            <Button size="xs" variant="default" onClick={() => setRows(fields.map(toRow))}>
-              Revise fields
-            </Button>
-          </Group>
-        </>
-      ) : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(() => reviseLogTypeFields(db, type.id, rows.map(toInput)));
-            setRows(null);
-          }}
-        >
-          <Stack gap="xs">
-            <FieldsEditor db={db} rows={rows} setRows={setRows} />
-            <Group gap="xs">
-              <Button type="submit" size="xs">
-                Save
-              </Button>
-              <Button size="xs" variant="default" onClick={() => setRows(null)}>
-                Cancel
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      )}
+      <FieldList
+        fields={fields}
+        thingTypes={thingTypes}
+        onAdd={(field) => run(() => addLogField(db, type.id, field))}
+        onUpdate={(fieldId, patch) => run(() => updateLogField(db, fieldId, patch))}
+        onReorder={(ids) => run(() => reorderLogFields(db, type.id, ids))}
+        onDelete={(field) =>
+          confirmDelete(
+            `the ${field.name} field`,
+            () => deleteLogField(db, field.id),
+            async () => [
+              effect(
+                "removes its value from",
+                (await previewLogFieldDeletion(db, field.id)).values,
+                "entry",
+                "entries",
+              ),
+            ],
+          )
+        }
+      />
 
       <Title order={4}>Entries</Title>
       {parent ? (
@@ -464,7 +360,7 @@ function EntryItem({
   version: number;
   run: Run;
 }) {
-  const fields = useVersionFields(db, entry.logTypeId, entry.logTypeVersion, version);
+  const fields = useFields(db, entry.logTypeId, version);
   const titles = useRefTitles(db, fields, entry);
   const [children, setChildren] = useState<LogEntry[]>([]);
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
@@ -595,7 +491,7 @@ function ChildEntryForm({
   version: number;
   run: Run;
 }) {
-  const fields = useVersionFields(db, type.id, type.schemaVersion, version);
+  const fields = useFields(db, type.id, version);
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>
@@ -824,12 +720,12 @@ function formatTime(entry: LogEntry): string {
 // ---------------------------------------------------------------------------
 // Reads
 
-function useVersionFields(db: Database, typeId: string, schemaVersion: number, reload: number) {
+function useFields(db: Database, typeId: string, reload: number) {
   const [fields, setFields] = useState<LogField[]>([]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `reload` triggers the reload.
   useEffect(() => {
-    getLogTypeVersionFields(db, typeId, schemaVersion).then(setFields);
-  }, [db, typeId, schemaVersion, reload]);
+    getLogTypeFields(db, typeId).then(setFields);
+  }, [db, typeId, reload]);
   return fields;
 }
 

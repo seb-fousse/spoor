@@ -1,15 +1,17 @@
 import type { Selectable } from "kysely";
 import {
-  createFirstVersion,
+  addField,
+  countFieldValues,
+  createFields,
+  deleteField,
   draftFields,
   type FieldDefinition,
-  type FieldInput,
-  getVersionFields,
+  type FieldPatch,
+  getFields,
   MANUAL,
   type NewField,
   readValues,
   reorderFields,
-  reviseFields,
   setValues,
   THING_TABLES,
   updateField,
@@ -21,16 +23,15 @@ import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { type Instant, now } from "./time";
-
 import { transaction } from "./transaction";
 import type { Value } from "./values";
 
 /**
- * Things (see docs/data-spec.md § 4. Things): thing types with versioned fields,
- * and things holding one value per field. The field machinery is shared with
+ * Things (see docs/data-spec.md § 4. Things): thing types with fields, and
+ * things holding one value per field. The field machinery is shared with
  * log types in `definitions.ts`.
  *
- * Every thing type has a title field: a required `text` field, never retired,
+ * Every thing type has a title field: a required `text` field, never deleted,
  * whose value names each thing in references, categories and merging. A
  * timeline category linked to a thing stores the title as its name, updated
  * here whenever the title changes, so it keeps the last title once the thing
@@ -47,8 +48,6 @@ export interface ThingType {
   description: string | null;
   /** The required `text` field that names each thing. */
   titleFieldId: string;
-  /** The current version, which new things are validated against. */
-  schemaVersion: number;
   createdAt: Instant;
   updatedAt: Instant;
   archivedAt: Instant | null;
@@ -57,8 +56,6 @@ export interface ThingType {
 export interface Thing {
   id: string;
   thingTypeId: string;
-  /** The version its values were validated against. */
-  thingTypeVersion: number;
   source: string;
   externalId: string | null;
   /** Stored values by field id; fields without a value are absent. */
@@ -84,7 +81,7 @@ type ThingRow = Selectable<DB["things"]>;
 // Thing types
 
 /**
- * Creates a type at version 1 with `fields`, positioned in order. The field at
+ * Creates a type with `fields`, positioned in order. The field at
  * `titleFieldIndex` (default: the first) is the title field, so it must be a
  * required `text` field.
  */
@@ -115,12 +112,11 @@ export async function createThingType(
         name,
         description: optionalText(input.description),
         title_field_id: title.id,
-        schema_version: 1,
         created_at: t,
         updated_at: t,
       })
       .execute();
-    await createFirstVersion(db, THING_TABLES, id, drafts, t);
+    await createFields(db, THING_TABLES, id, drafts, t);
   });
   return (await getThingType(db, id)) as ThingType;
 }
@@ -146,10 +142,7 @@ export async function listThingTypes(db: Database): Promise<ThingType[]> {
   return rows.map(toThingType);
 }
 
-/**
- * Renames, redescribes, or picks another title field: a required `text` field
- * of the current version. None of these creates a version.
- */
+/** Renames, redescribes, or picks another title field: a required `text` field of the type. */
 export async function updateThingType(
   db: Database,
   id: string,
@@ -158,12 +151,10 @@ export async function updateThingType(
   await transaction(db, async () => {
     const type = await requireThingType(db, id);
     if (patch.titleFieldId !== undefined) {
-      const fields = await getVersionFields(db, THING_TABLES, id, type.schemaVersion);
+      const fields = await getFields(db, THING_TABLES, id);
       const field = fields.find((f) => f.id === patch.titleFieldId);
       if (!field) {
-        throw new Error(
-          `Thing type ${id}: field ${patch.titleFieldId} is not in version ${type.schemaVersion}`,
-        );
+        throw new Error(`Thing type ${id}: field ${patch.titleFieldId} is not one of its fields`);
       }
       assertTitleShape(id, field.id, field.shape.valueType, field.required);
     }
@@ -182,50 +173,69 @@ export async function updateThingType(
   return (await getThingType(db, id)) as ThingType;
 }
 
-/**
- * Replaces the type's field list; see `reviseFields` in `definitions.ts`. A
- * changed shape or required flag, or an added or left-out field, creates a new
- * version that new things use; existing things keep theirs. The title field
- * must stay in the list as a required `text` field.
- */
-export async function reviseThingTypeFields(
+/** Adds a field after the type's others; existing things have no value for it. Returns its id. */
+export async function addThingField(
   db: Database,
-  id: string,
-  fields: readonly FieldInput[],
-): Promise<ThingType> {
-  await transaction(db, async () => {
-    const type = await requireThingType(db, id);
-    const title = fields.find((f) => f.id === type.titleFieldId);
-    if (!title) {
-      throw new Error(`Thing type ${id}: title field ${type.titleFieldId} cannot be retired`);
-    }
-    assertTitleShape(id, type.titleFieldId, title.valueType, title.required ?? false);
-    await reviseFields(db, THING_TABLES, id, fields, now());
+  thingTypeId: string,
+  field: NewField,
+): Promise<string> {
+  return transaction(db, async () => {
+    await requireThingType(db, thingTypeId);
+    return addField(db, THING_TABLES, thingTypeId, field, now());
   });
-  return (await getThingType(db, id)) as ThingType;
 }
 
-/** Renames or relabels one of the type's fields, without a version. */
+/**
+ * Changes one of the type's fields; see `FieldPatch`. Its value type never
+ * changes. The title field stays required.
+ */
 export async function updateThingField(
   db: Database,
   thingTypeId: string,
   fieldId: string,
-  patch: { name?: string; optionLabels?: Record<string, string> },
+  patch: FieldPatch,
 ): Promise<void> {
   await transaction(db, async () => {
-    await requireThingType(db, thingTypeId);
-    const field = await queryBuilder(db)
-      .selectFrom("thing_fields")
-      .select("id")
-      .where("id", "=", fieldId)
-      .where("thing_type_id", "=", thingTypeId)
-      .executeTakeFirst();
-    if (!field) throw new Error(`Thing field ${fieldId}: not a field of thing type ${thingTypeId}`);
+    const type = await requireThingType(db, thingTypeId);
+    await requireOwnField(db, thingTypeId, fieldId);
+    if (fieldId === type.titleFieldId && patch.required === false) {
+      throw new Error(`Thing type ${thingTypeId}: title field ${fieldId} must stay required`);
+    }
     await updateField(db, THING_TABLES, fieldId, patch, now());
   });
 }
 
-/** Puts the current version's fields in the order of `fieldIds`, without a version. */
+/** How many things hold a value for the field, for the user to confirm its deletion. */
+export async function previewThingFieldDeletion(
+  db: Database,
+  thingTypeId: string,
+  fieldId: string,
+): Promise<{ values: number }> {
+  await requireThingType(db, thingTypeId);
+  await requireOwnField(db, thingTypeId, fieldId);
+  return { values: await countFieldValues(db, THING_TABLES, fieldId) };
+}
+
+/**
+ * Deletes one of the type's fields with its values. The title field cannot be
+ * deleted. See `previewThingFieldDeletion`.
+ */
+export async function deleteThingField(
+  db: Database,
+  thingTypeId: string,
+  fieldId: string,
+): Promise<void> {
+  await transaction(db, async () => {
+    const type = await requireThingType(db, thingTypeId);
+    await requireOwnField(db, thingTypeId, fieldId);
+    if (fieldId === type.titleFieldId) {
+      throw new Error(`Thing type ${thingTypeId}: title field ${fieldId} cannot be deleted`);
+    }
+    await deleteField(db, THING_TABLES, fieldId);
+  });
+}
+
+/** Puts the type's fields in the order of `fieldIds`. */
 export async function reorderThingFields(
   db: Database,
   thingTypeId: string,
@@ -237,15 +247,13 @@ export async function reorderThingFields(
   });
 }
 
-/** The fields of a version of the type (default: the current one), by position. */
-export async function getThingTypeVersionFields(
+/** The type's fields, by position. */
+export async function getThingTypeFields(
   db: Database,
   thingTypeId: string,
-  version?: number,
 ): Promise<FieldDefinition[]> {
-  const type = await getThingType(db, thingTypeId);
-  if (!type) throw new Error(`Thing type ${thingTypeId}: not found`);
-  return getVersionFields(db, THING_TABLES, thingTypeId, version ?? type.schemaVersion);
+  await requireThingType(db, thingTypeId);
+  return getFields(db, THING_TABLES, thingTypeId);
 }
 
 /** Archives or unarchives. An archived type is not offered for new things or new references. */
@@ -272,7 +280,7 @@ export async function previewThingTypeDeletion(db: Database, id: string): Promis
 }
 
 /**
- * Deletes the type with its fields, versions and things, as `deleteThing` does
+ * Deletes the type with its fields and things, as `deleteThing` does
  * each. A timeline offering it as its default thing type no longer has one.
  * See `previewThingTypeDeletion`.
  */
@@ -287,8 +295,7 @@ export async function deleteThingType(db: Database, id: string): Promise<void> {
 // Things
 
 /**
- * Creates a thing of a live, unarchived type, validated against its current
- * version. `source` (default `manual`) and `externalId` are set once and never
+ * Creates a thing of an unarchived type, validated against its fields. `source` (default `manual`) and `externalId` are set once and never
  * change; a `(source, externalId)` pair names at most one thing. Values are
  * written by `writtenBy`, which defaults to `source`.
  */
@@ -333,20 +340,16 @@ export async function createThing(
       .values({
         id,
         thing_type_id: type.id,
-        thing_type_version: type.schemaVersion,
         source,
         external_id: externalId,
         created_at: t,
         updated_at: t,
       })
       .execute();
-    await setValues(
-      db,
-      THING_TABLES,
-      { id, typeId: type.id, typeVersion: type.schemaVersion },
-      input.values,
-      { writtenBy: input.writtenBy ?? source, writtenAt: t },
-    );
+    await setValues(db, THING_TABLES, { id, typeId: type.id }, input.values, {
+      writtenBy: input.writtenBy ?? source,
+      writtenAt: t,
+    });
   });
   return (await getThing(db, id)) as Thing;
 }
@@ -379,7 +382,7 @@ export async function listThings(db: Database, thingTypeId: string): Promise<Thi
 
 /**
  * Sets values by field id (`null` clears an optional one), validated against
- * the thing's own version. The user always wins: a `writtenBy` other than
+ * its type's fields. The user always wins: a `writtenBy` other than
  * `manual` (the default) skips fields another writer set, which are returned.
  * A new title renames the thing's timeline categories.
  */
@@ -392,13 +395,10 @@ export async function updateThingValues(
   const { skipped } = await transaction(db, async () => {
     const thing = await requireThing(db, id);
     const t = now();
-    const result = await setValues(
-      db,
-      THING_TABLES,
-      { id, typeId: thing.thing_type_id, typeVersion: thing.thing_type_version },
-      values,
-      { writtenBy: options.writtenBy ?? MANUAL, writtenAt: t },
-    );
+    const result = await setValues(db, THING_TABLES, { id, typeId: thing.thing_type_id }, values, {
+      writtenBy: options.writtenBy ?? MANUAL,
+      writtenAt: t,
+    });
     const title = await getThingTitle(db, id);
     if (title !== undefined) {
       await queryBuilder(db)
@@ -415,7 +415,7 @@ export async function updateThingValues(
 
 /**
  * The thing's title: the value of its type's title field. `undefined` for an
- * unknown thing, or one whose version predates its type's current title field.
+ * unknown thing, or one never given a value for a title field added since.
  */
 export async function getThingTitle(db: Database, id: string): Promise<string | undefined> {
   const row = await queryBuilder(db)
@@ -464,6 +464,16 @@ async function requireThingType(db: Database, id: string): Promise<ThingType> {
   return type;
 }
 
+async function requireOwnField(db: Database, thingTypeId: string, fieldId: string) {
+  const field = await queryBuilder(db)
+    .selectFrom("thing_fields")
+    .select("id")
+    .where("id", "=", fieldId)
+    .where("thing_type_id", "=", thingTypeId)
+    .executeTakeFirst();
+  if (!field) throw new Error(`Thing field ${fieldId}: not a field of thing type ${thingTypeId}`);
+}
+
 async function requireThing(db: Database, id: string): Promise<ThingRow> {
   const row = await queryBuilder(db)
     .selectFrom("things")
@@ -508,11 +518,7 @@ async function previewDeletion(
 }
 
 async function withValues(db: Database, row: ThingRow): Promise<Thing> {
-  const values = await readValues(db, THING_TABLES, {
-    id: row.id,
-    typeId: row.thing_type_id,
-    typeVersion: row.thing_type_version,
-  });
+  const values = await readValues(db, THING_TABLES, { id: row.id, typeId: row.thing_type_id });
   return toThing(row, values);
 }
 
@@ -522,7 +528,6 @@ function toThingType(row: ThingTypeRow): ThingType {
     name: row.name,
     description: row.description,
     titleFieldId: row.title_field_id,
-    schemaVersion: row.schema_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
@@ -533,7 +538,6 @@ function toThing(row: ThingRow, values: Record<string, Value>): Thing {
   return {
     id: row.id,
     thingTypeId: row.thing_type_id,
-    thingTypeVersion: row.thing_type_version,
     source: row.source,
     externalId: row.external_id,
     values,

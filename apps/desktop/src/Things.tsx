@@ -1,7 +1,6 @@
 import {
   Alert,
   Button,
-  Checkbox,
   Group,
   MultiSelect,
   NumberInput,
@@ -13,27 +12,28 @@ import {
 } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import {
+  addThingField,
   createThing,
   createThingType,
   type Database,
   deleteThing,
+  deleteThingField,
   deleteThingType,
-  FIELD_VALUE_TYPES,
   type FieldDefinition,
-  type FieldInput,
-  type FieldValueType,
   getThingTitle,
-  getThingTypeVersionFields,
+  getThingTypeFields,
   listThings,
   listThingTypes,
   mergeThings,
   previewThingDeletion,
+  previewThingFieldDeletion,
   previewThingTypeDeletion,
-  reviseThingTypeFields,
+  reorderThingFields,
   setThingTypeArchived,
   type Thing,
   type ThingDeletion,
   type ThingType,
+  updateThingField,
   updateThingType,
   updateThingValues,
   type Value,
@@ -42,6 +42,7 @@ import {
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
 import { effect, useConfirmDelete } from "./ConfirmDelete";
+import { FieldList } from "./FieldList";
 
 type Run = (action: () => Promise<unknown>) => void;
 
@@ -76,7 +77,7 @@ export function Things({ db }: { db: Database }) {
 
   const addType = (e: FormEvent) => {
     e.preventDefault();
-    // Every type needs a title field; more fields are added by revising it.
+    // Every type needs a title field; more are added from its field list.
     run(() =>
       createThingType(db, {
         name,
@@ -129,8 +130,7 @@ export function Things({ db }: { db: Database }) {
               {t.name}
             </Button>
             <Text size="sm" c="dimmed">
-              v{t.schemaVersion}
-              {t.archivedAt !== null && " · archived"}
+              {t.archivedAt !== null && "archived"}
             </Text>
             <Button
               size="xs"
@@ -173,25 +173,18 @@ function ThingTypeDetail({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([getThingTypeVersionFields(db, type.id), listThings(db, type.id)]).then(
-      ([f, live]) => {
-        setFields(f);
-        setThings(live);
-      },
-    );
-  }, [db, type.id, type.schemaVersion, version]);
+    Promise.all([getThingTypeFields(db, type.id), listThings(db, type.id)]).then(([f, live]) => {
+      setFields(f);
+      setThings(live);
+    });
+  }, [db, type.id, version]);
 
   const title = (thing: Thing) => String(thing.values[type.titleFieldId] ?? "?");
   const editing = things.find((t) => t.id === editingId);
 
   return (
     <Stack gap="sm">
-      <Title order={3}>
-        {type.name}{" "}
-        <Text span size="sm" c="dimmed">
-          (version {type.schemaVersion})
-        </Text>
-      </Title>
+      <Title order={3}>{type.name}</Title>
       {deleteDialog}
 
       <Title order={4}>Fields</Title>
@@ -207,11 +200,26 @@ function ThingTypeDetail({
             .map((f) => ({ value: f.id, label: f.name }))}
         />
       </Group>
-      <FieldEditor
-        key={`${type.id}:${version}`}
+      <FieldList
         fields={fields}
-        types={types}
-        onSave={(inputs) => run(() => reviseThingTypeFields(db, type.id, inputs))}
+        thingTypes={types}
+        lockedId={type.titleFieldId}
+        onAdd={(field) => run(() => addThingField(db, type.id, field))}
+        onUpdate={(fieldId, patch) => run(() => updateThingField(db, type.id, fieldId, patch))}
+        onReorder={(ids) => run(() => reorderThingFields(db, type.id, ids))}
+        onDelete={(field) =>
+          confirmDelete(
+            `the ${field.name} field`,
+            () => deleteThingField(db, type.id, field.id),
+            async () => [
+              effect(
+                "removes its value from",
+                (await previewThingFieldDeletion(db, type.id, field.id)).values,
+                "thing",
+              ),
+            ],
+          )
+        }
       />
 
       <Title order={4}>Things</Title>
@@ -230,9 +238,6 @@ function ThingTypeDetail({
             <Group gap="xs">
               <Text size="sm" fw={700}>
                 {title(thing)}
-              </Text>
-              <Text size="sm" c="dimmed">
-                v{thing.thingTypeVersion}
               </Text>
               <Button size="xs" variant="default" onClick={() => setEditingId(thing.id)}>
                 Edit
@@ -294,7 +299,7 @@ function referenceEffects(n: ThingDeletion) {
   ];
 }
 
-/** Edits a thing against its own version's fields, which may be older than the current ones. */
+/** Edits a thing against its type's fields. */
 function EditThing({
   db,
   thing,
@@ -308,8 +313,8 @@ function EditThing({
 }) {
   const [fields, setFields] = useState<FieldDefinition[] | null>(null);
   useEffect(() => {
-    getThingTypeVersionFields(db, thing.thingTypeId, thing.thingTypeVersion).then(setFields);
-  }, [db, thing.thingTypeId, thing.thingTypeVersion]);
+    getThingTypeFields(db, thing.thingTypeId).then(setFields);
+  }, [db, thing.thingTypeId]);
   if (fields === null) return null;
   return (
     <>
@@ -323,133 +328,6 @@ function EditThing({
         onSubmit={onSave}
       />
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Fields
-
-interface FieldDraft {
-  id?: string;
-  name: string;
-  valueType: FieldValueType;
-  required: boolean;
-  /** JSON text, or the target thing type for references. */
-  constraints: string;
-}
-
-/** Edits the whole field list, saved as one revision. Removing a field retires it. */
-function FieldEditor({
-  fields,
-  types,
-  onSave,
-}: {
-  fields: FieldDefinition[];
-  types: ThingType[];
-  onSave: (inputs: FieldInput[]) => void;
-}) {
-  const [drafts, setDrafts] = useState<FieldDraft[]>(() =>
-    fields.map((f) => ({
-      id: f.id,
-      name: f.name,
-      valueType: f.shape.valueType as FieldValueType,
-      required: f.required,
-      constraints: JSON.stringify(f.shape.constraints),
-    })),
-  );
-  const change = (i: number, patch: Partial<FieldDraft>) =>
-    setDrafts((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)));
-  const isRef = (d: FieldDraft) => d.valueType === "ref" || d.valueType === "multi_ref";
-
-  const save = (e: FormEvent) => {
-    e.preventDefault();
-    onSave(
-      drafts.map(({ constraints, ...d }) => ({
-        ...d,
-        constraints: constraints.trim() === "" ? undefined : JSON.parse(constraints),
-      })),
-    );
-  };
-
-  return (
-    <form onSubmit={save}>
-      <Stack gap="xs">
-        <Stack gap={4}>
-          {drafts.map((d, i) => (
-            <Group key={d.id ?? i} gap="xs">
-              <TextInput
-                size="xs"
-                aria-label="Field name"
-                value={d.name}
-                onChange={(e) => change(i, { name: e.target.value })}
-              />
-              <Select
-                size="xs"
-                aria-label="Value type"
-                allowDeselect={false}
-                value={d.valueType}
-                onChange={(v) =>
-                  v && change(i, { valueType: v as FieldValueType, constraints: "" })
-                }
-                data={FIELD_VALUE_TYPES}
-              />
-              <Checkbox
-                size="xs"
-                label="required"
-                checked={d.required}
-                onChange={(e) => change(i, { required: e.currentTarget.checked })}
-              />
-              {isRef(d) ? (
-                // No target shows the placeholder, as the old empty option did.
-                <Select
-                  size="xs"
-                  clearable
-                  placeholder="Refers to…"
-                  aria-label="Refers to"
-                  value={(d.constraints ? JSON.parse(d.constraints).thingTypeId : null) || null}
-                  onChange={(v) =>
-                    change(i, { constraints: JSON.stringify({ thingTypeId: v ?? "" }) })
-                  }
-                  data={types.map((t) => ({ value: t.id, label: t.name }))}
-                />
-              ) : (
-                <TextInput
-                  size="xs"
-                  value={d.constraints}
-                  onChange={(e) => change(i, { constraints: e.target.value })}
-                  placeholder='Constraints, e.g. {"options":[{"key":"a","order":1}]}'
-                  aria-label="Constraints"
-                />
-              )}
-              <Button
-                size="xs"
-                variant="default"
-                onClick={() => setDrafts((ds) => ds.filter((_, j) => j !== i))}
-              >
-                Remove
-              </Button>
-            </Group>
-          ))}
-        </Stack>
-        <Group gap="xs">
-          <Button
-            size="xs"
-            variant="default"
-            onClick={() =>
-              setDrafts((ds) => [
-                ...ds,
-                { name: "", valueType: "text", required: false, constraints: "" },
-              ])
-            }
-          >
-            Add field
-          </Button>
-          <Button type="submit" size="xs">
-            Save fields
-          </Button>
-        </Group>
-      </Stack>
-    </form>
   );
 }
 
@@ -635,7 +513,7 @@ function ValuesList({ db, thing }: { db: Database; thing: Thing }) {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
   useEffect(() => {
-    getThingTypeVersionFields(db, thing.thingTypeId, thing.thingTypeVersion).then(setFields);
+    getThingTypeFields(db, thing.thingTypeId).then(setFields);
     const ids = Object.values(thing.values).flatMap((v) =>
       Array.isArray(v) ? v : typeof v === "string" ? [v] : [],
     );

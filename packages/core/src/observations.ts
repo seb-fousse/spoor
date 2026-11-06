@@ -5,7 +5,6 @@ import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { type Instant, isLocalDate, type LocalDate, now } from "./time";
-
 import { transaction } from "./transaction";
 import {
   decodeValue,
@@ -14,54 +13,43 @@ import {
   type MetricValueType,
   parseOptionLabels,
   parseShape,
-  sameShape,
   type Value,
   type ValueShape,
   validateValue,
 } from "./values";
 
 /**
- * Observations (see docs/data-spec.md § 2. Observations): metrics, their
- * immutable versions, and at most one daily observation per metric and day.
+ * Observations (see docs/data-spec.md § 2. Observations): metrics, and at most
+ * one daily observation per metric and day.
  *
- * Deleting is permanent. Every write runs in one transaction, so a value is
- * validated against the version it is stored with.
+ * A metric's value type never changes; its constraints can, and are checked
+ * when a value is recorded, so existing observations are not re-validated.
+ * Deleting is permanent. Every write runs in one transaction.
  */
 
 /** The writer of values the user entered. Any other writer is automated. */
 const MANUAL = "manual";
 
-export interface ObservationMetric {
-  id: string;
-  name: string;
-  description: string | null;
-  /** Option key to label, for `enum` and `multi_enum`. Not versioned. */
-  optionLabels: Record<string, string>;
-  /** The current version. */
-  schemaVersion: number;
-  createdAt: Instant;
-  updatedAt: Instant;
-  archivedAt: Instant | null;
-}
-
 /** A shape an observation metric can have. */
 export type MetricShape = Extract<ValueShape, { valueType: MetricValueType }>;
 
-/** One immutable version of a metric. It is itself the shape, so it can be validated against. */
-export type ObservationMetricVersion = MetricShape & {
+/** A metric. It is itself its shape, so values can be validated against it. */
+export type ObservationMetric = MetricShape & {
   id: string;
-  metricId: string;
-  version: number;
+  name: string;
+  description: string | null;
+  /** Option key to label, for `enum` and `multi_enum`. */
+  optionLabels: Record<string, string>;
   createdAt: Instant;
+  updatedAt: Instant;
+  archivedAt: Instant | null;
 };
 
 export interface Observation {
   id: string;
   metricId: string;
-  /** The version the value was validated against. */
-  metricVersion: number;
   date: LocalDate;
-  /** The value type of `metricVersion`. */
+  /** The value type of its metric. */
   valueType: MetricValueType;
   /** Option keys for `multi_enum`, in option order; `[]` is "nothing selected". */
   value: Value;
@@ -82,7 +70,6 @@ export interface RecordObservationResult {
 }
 
 type MetricRow = Selectable<DB["observation_metrics"]>;
-type VersionRow = Selectable<DB["observation_metric_versions"]>;
 type ObservationRow = Selectable<DB["observations"]>;
 
 const VALUE_COLUMNS = ["value_bool", "value_num", "value_enum"] as const;
@@ -90,7 +77,7 @@ const VALUE_COLUMNS = ["value_bool", "value_num", "value_enum"] as const;
 // ---------------------------------------------------------------------------
 // Metrics
 
-/** Creates the metric and its version 1. */
+/** Creates a metric. Its value type is fixed from now on. */
 export async function createMetric(
   db: Database,
   input: {
@@ -106,20 +93,19 @@ export async function createMetric(
   const shape = parseShape(label, METRIC_VALUE_TYPES, input.valueType, input.constraints);
   const t = now();
   await transaction(db, async () => {
-    const q = queryBuilder(db);
-    await q
+    await queryBuilder(db)
       .insertInto("observation_metrics")
       .values({
         id,
         name: requireName(label, input.name),
         description: optionalText(input.description),
+        value_type: shape.valueType,
+        constraints: JSON.stringify(shape.constraints),
         option_labels: JSON.stringify(parseOptionLabels(label, input.optionLabels)),
-        schema_version: 1,
         created_at: t,
         updated_at: t,
       })
       .execute();
-    await insertVersion(db, id, 1, shape);
   });
   return (await getMetric(db, id)) as ObservationMetric;
 }
@@ -145,53 +131,34 @@ export async function listMetrics(db: Database): Promise<ObservationMetric[]> {
   return rows.map(toMetric);
 }
 
-/** Version `version` of the metric, or `undefined`. */
-export async function getMetricVersion(
-  db: Database,
-  metricId: string,
-  version: number,
-): Promise<ObservationMetricVersion | undefined> {
-  const row = await queryBuilder(db)
-    .selectFrom("observation_metric_versions")
-    .selectAll()
-    .where("metric_id", "=", metricId)
-    .where("version", "=", version)
-    .executeTakeFirst();
-  return row && toVersion(row);
-}
-
-/** Every version of the metric, oldest first. */
-export async function listMetricVersions(
-  db: Database,
-  metricId: string,
-): Promise<ObservationMetricVersion[]> {
-  const rows = await queryBuilder(db)
-    .selectFrom("observation_metric_versions")
-    .selectAll()
-    .where("metric_id", "=", metricId)
-    .orderBy("version")
-    .execute();
-  return rows.map(toVersion);
-}
-
 /**
- * Renames, redescribes, or replaces the option labels. None of these
- * reinterpret values, so no version is created.
+ * Renames, redescribes, or replaces the constraints or option labels. The
+ * constraints are parsed for the metric's value type, which never changes.
  */
 export async function updateMetric(
   db: Database,
   id: string,
-  patch: { name?: string; description?: string | null; optionLabels?: Record<string, string> },
+  patch: {
+    name?: string;
+    description?: string | null;
+    constraints?: unknown;
+    optionLabels?: Record<string, string>;
+  },
 ): Promise<ObservationMetric> {
   const label = `Observation metric ${id}`;
   await transaction(db, async () => {
     const metric = await requireMetric(db, id);
+    const constraints =
+      patch.constraints === undefined
+        ? metric.constraints
+        : parseShape(label, METRIC_VALUE_TYPES, metric.valueType, patch.constraints).constraints;
     await queryBuilder(db)
       .updateTable("observation_metrics")
       .set({
         name: patch.name === undefined ? metric.name : requireName(label, patch.name),
         description:
           patch.description === undefined ? metric.description : optionalText(patch.description),
+        constraints: JSON.stringify(constraints),
         option_labels: JSON.stringify(
           patch.optionLabels === undefined
             ? metric.optionLabels
@@ -199,37 +166,6 @@ export async function updateMetric(
         ),
         updated_at: now(),
       })
-      .where("id", "=", id)
-      .execute();
-  });
-  return (await getMetric(db, id)) as ObservationMetric;
-}
-
-/**
- * Changes the value type or constraints. A different shape becomes the next
- * version and the metric's `schema_version`; the same shape changes nothing.
- * Existing observations keep the version they were validated against.
- */
-export async function reviseMetric(
-  db: Database,
-  id: string,
-  input: { valueType: MetricValueType; constraints?: unknown },
-): Promise<ObservationMetric> {
-  const shape = parseShape(
-    `Observation metric ${id}`,
-    METRIC_VALUE_TYPES,
-    input.valueType,
-    input.constraints,
-  );
-  await transaction(db, async () => {
-    const metric = await requireMetric(db, id);
-    const current = await requireVersion(db, id, metric.schemaVersion);
-    if (sameShape(current, shape)) return;
-    const version = metric.schemaVersion + 1;
-    await insertVersion(db, id, version, shape);
-    await queryBuilder(db)
-      .updateTable("observation_metrics")
-      .set({ schema_version: version, updated_at: now() })
       .where("id", "=", id)
       .execute();
   });
@@ -267,7 +203,7 @@ export async function previewMetricDeletion(
   return { observations: n };
 }
 
-/** Deletes the metric with its versions and observations. See `previewMetricDeletion`. */
+/** Deletes the metric with its observations. See `previewMetricDeletion`. */
 export async function deleteMetric(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
     await requireMetric(db, id);
@@ -279,9 +215,9 @@ export async function deleteMetric(db: Database, id: string): Promise<void> {
 // Observations
 
 /**
- * Records the metric's value for `date`, validated against its current
- * version: inserts the day's observation, or revises it, moving it
- * to the current version. A `multi_enum` value replaces the selections.
+ * Records the metric's value for `date`, validated against the metric: inserts
+ * the day's observation, or revises it. A `multi_enum` value replaces the
+ * selections.
  *
  * `writtenBy` (default `manual`) is the writer. The user always wins: an
  * automated writer leaves alone a value another writer set, returning
@@ -313,7 +249,6 @@ export async function recordObservation(
     const q = queryBuilder(db);
     const metric = await requireMetric(db, metricId);
     if (metric.archivedAt !== null) throw new Error(`${metricLabel}: archived`);
-    const version = await requireVersion(db, metricId, metric.schemaVersion);
     const existing = await q
       .selectFrom("observations")
       .select(["id", "written_by"])
@@ -322,17 +257,16 @@ export async function recordObservation(
       .executeTakeFirst();
     const id = existing?.id ?? newId();
     // Validated even when skipped, so bad input never passes silently.
-    const valid = validateValue(`Observation ${id}`, version, value);
+    const valid = validateValue(`Observation ${id}`, metric, value);
     if (existing && writtenBy !== MANUAL && existing.written_by !== writtenBy) {
       return { id, skipped: true };
     }
 
     const t = now();
     const content = {
-      metric_version: version.version,
-      ...(version.valueType === "multi_enum"
+      ...(metric.valueType === "multi_enum"
         ? { value_bool: null, value_num: null, value_enum: null }
-        : encodeValue(version.valueType, valid as boolean | number | string, VALUE_COLUMNS)),
+        : encodeValue(metric.valueType, valid as boolean | number | string, VALUE_COLUMNS)),
       written_by: writtenBy,
       written_at: t,
       updated_at: t,
@@ -367,7 +301,7 @@ export async function recordObservation(
         })
         .execute();
     }
-    if (version.valueType === "multi_enum" && (valid as string[]).length > 0) {
+    if (metric.valueType === "multi_enum" && (valid as string[]).length > 0) {
       await q
         .insertInto("observation_selections")
         .values(
@@ -436,52 +370,16 @@ export async function deleteObservation(db: Database, id: string): Promise<void>
 // ---------------------------------------------------------------------------
 // Internals
 
-async function insertVersion(db: Database, metricId: string, version: number, shape: ValueShape) {
-  await queryBuilder(db)
-    .insertInto("observation_metric_versions")
-    .values({
-      id: newId(),
-      metric_id: metricId,
-      version,
-      value_type: shape.valueType,
-      constraints: JSON.stringify(shape.constraints),
-      created_at: now(),
-    })
-    .execute();
-}
-
 async function requireMetric(db: Database, id: string): Promise<ObservationMetric> {
   const metric = await getMetric(db, id);
   if (!metric) throw new Error(`Observation metric ${id}: not found`);
   return metric;
 }
 
-async function requireVersion(
-  db: Database,
-  metricId: string,
-  version: number,
-): Promise<ObservationMetricVersion> {
-  const found = await getMetricVersion(db, metricId, version);
-  if (!found) throw new Error(`Observation metric ${metricId}: version ${version} not found`);
-  return found;
-}
-
 function toMetric(row: MetricRow): ObservationMetric {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    optionLabels: parseOptionLabels(`Observation metric ${row.id}`, JSON.parse(row.option_labels)),
-    schemaVersion: row.schema_version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    archivedAt: row.archived_at,
-  };
-}
-
-function toVersion(row: VersionRow): ObservationMetricVersion {
+  const label = `Observation metric ${row.id}`;
   const shape = parseShape(
-    `Observation metric ${row.metric_id}, version ${row.version}`,
+    label,
     METRIC_VALUE_TYPES,
     row.value_type,
     JSON.parse(row.constraints),
@@ -489,25 +387,24 @@ function toVersion(row: VersionRow): ObservationMetricVersion {
   return {
     ...shape,
     id: row.id,
-    metricId: row.metric_id,
-    version: row.version,
+    name: row.name,
+    description: row.description,
+    optionLabels: parseOptionLabels(label, JSON.parse(row.option_labels)),
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
   };
 }
 
-/** The observations in `rows`, with their values decoded by their version. */
+/** The observations in `rows`, with their values decoded by their metric's type. */
 async function toObservations(db: Database, rows: ObservationRow[]): Promise<Observation[]> {
   if (rows.length === 0) return [];
   const q = queryBuilder(db);
   const metricIds = [...new Set(rows.map((r) => r.metric_id))];
-  const versions = new Map(
+  const metrics = new Map(
     (
-      await q
-        .selectFrom("observation_metric_versions")
-        .selectAll()
-        .where("metric_id", "in", metricIds)
-        .execute()
-    ).map((v) => [`${v.metric_id}/${v.version}`, toVersion(v)]),
+      await q.selectFrom("observation_metrics").selectAll().where("id", "in", metricIds).execute()
+    ).map((m) => [m.id, toMetric(m)]),
   );
   const selected = new Map<string, string[]>();
   for (const s of await q
@@ -525,25 +422,24 @@ async function toObservations(db: Database, rows: ObservationRow[]): Promise<Obs
 
   return rows.map((row) => {
     const label = `Observation ${row.id}`;
-    const version = versions.get(`${row.metric_id}/${row.metric_version}`) as MetricShape;
+    const metric = metrics.get(row.metric_id) as ObservationMetric;
     let value: Value;
-    if (version.valueType === "multi_enum") {
-      const order = version.constraints.options.map((o) => o.key);
-      // Keys missing from the version (only possible in corrupt data) sort last.
+    if (metric.valueType === "multi_enum") {
+      const order = metric.constraints.options.map((o) => o.key);
+      // Keys of options removed since sort last.
       const rank = (key: string) => {
         const i = order.indexOf(key);
         return i === -1 ? order.length : i;
       };
       value = (selected.get(row.id) ?? []).sort((a, b) => rank(a) - rank(b));
     } else {
-      value = decodeValue(label, version.valueType, row);
+      value = decodeValue(label, metric.valueType, row);
     }
     return {
       id: row.id,
       metricId: row.metric_id,
-      metricVersion: row.metric_version,
       date: row.date,
-      valueType: version.valueType,
+      valueType: metric.valueType,
       value,
       source: row.source,
       externalId: row.external_id,

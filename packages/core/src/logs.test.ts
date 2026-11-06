@@ -1,25 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newId } from "./ids";
 import {
+  addLogField,
   createLogEntry,
   createLogType,
   deleteLogEntry,
+  deleteLogField,
   deleteLogType,
   entryDay,
   getLogEntry,
   getLogType,
-  getLogTypeVersionFields,
+  getLogTypeFields,
   type LogType,
   listChildEntries,
   listLogEntries,
   listLogTypes,
-  logFieldInput,
   moveChildEntry,
   type NewLogField,
   previewLogEntryDeletion,
+  previewLogFieldDeletion,
   previewLogTypeDeletion,
   reorderLogFields,
-  reviseLogTypeFields,
   setLogTypeArchived,
   updateLogEntry,
   updateLogField,
@@ -94,7 +95,7 @@ describe("logs", () => {
         { name: "With", valueType: "multi_ref", constraints: { thingTypeId: person.id } },
       ],
     });
-    const fields = await getLogTypeVersionFields(db, type.id);
+    const fields = await getLogTypeFields(db, type.id);
     const [film, rating, format, review, rewatch, released, booked, withPeople] = fields.map(
       (f) => f.id,
     );
@@ -122,8 +123,8 @@ describe("logs", () => {
         { name: "Weight", valueType: "number", constraints: { unit: "kg" } },
       ],
     });
-    const [notes] = (await getLogTypeVersionFields(db, workout.id)).map((f) => f.id);
-    const [reps, weight] = (await getLogTypeVersionFields(db, set.id)).map((f) => f.id);
+    const [notes] = (await getLogTypeFields(db, workout.id)).map((f) => f.id);
+    const [reps, weight] = (await getLogTypeFields(db, set.id)).map((f) => f.id);
     return { workout, set, f: { notes, reps, weight } };
   };
 
@@ -136,7 +137,7 @@ describe("logs", () => {
     db.query<Record<string, unknown>>(`SELECT * FROM ${table} WHERE ${where} ORDER BY id`, params);
 
   describe("log type", () => {
-    it("creates version 1 with its fields, trimming text", async () => {
+    it("creates with its fields, trimming text", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const type = await createLogType(db, {
@@ -152,26 +153,22 @@ describe("logs", () => {
         name: "Movie watched",
         description: null,
         parentTypeId: null,
-        schemaVersion: 1,
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
       });
       expect(await getLogType(db, type.id)).toEqual(type);
       expect(
-        (await getLogTypeVersionFields(db, type.id)).map((f) => [f.name, f.position, f.required]),
+        (await getLogTypeFields(db, type.id)).map((f) => [f.name, f.position, f.required]),
       ).toEqual([
         ["Review", 0, false],
         ["Rating", 1, true],
-      ]);
-      expect(await rows("log_type_versions")).toEqual([
-        { id: expect.any(String), log_type_id: type.id, version: 1, created_at: 1_000 },
       ]);
     });
 
     it("allows a type without fields", async () => {
       const type = await createLogType(db, { name: "Took medication", fields: [] });
-      expect(await getLogTypeVersionFields(db, type.id)).toEqual([]);
+      expect(await getLogTypeFields(db, type.id)).toEqual([]);
     });
 
     it("requires a name and valid fields, creating nothing otherwise", async () => {
@@ -250,125 +247,103 @@ describe("logs", () => {
 
     it("refuses changes to a deleted type", async () => {
       const type = await simpleType();
-      const [field] = await getLogTypeVersionFields(db, type.id);
+      const [field] = await getLogTypeFields(db, type.id);
       await deleteLogType(db, type.id);
       const notFound = `Log type ${type.id}: not found`;
       await expect(updateLogType(db, type.id, { name: "x" })).rejects.toThrow(notFound);
       await expect(setLogTypeArchived(db, type.id, true)).rejects.toThrow(notFound);
-      await expect(reviseLogTypeFields(db, type.id, [])).rejects.toThrow(notFound);
+      await expect(addLogField(db, type.id, { name: "x", valueType: "text" })).rejects.toThrow(
+        notFound,
+      );
       await expect(reorderLogFields(db, type.id, [field.id])).rejects.toThrow(notFound);
       await expect(updateLogField(db, field.id, { name: "x" })).rejects.toThrow(
         `Log field ${field.id}: not found`,
       );
       await expect(previewLogTypeDeletion(db, type.id)).rejects.toThrow(notFound);
       await expect(deleteLogType(db, type.id)).rejects.toThrow(notFound);
-      await expect(getLogTypeVersionFields(db, type.id)).rejects.toThrow(notFound);
+      await expect(getLogTypeFields(db, type.id)).rejects.toThrow(notFound);
     });
   });
 
-  const firstField = async (type: LogType) => (await getLogTypeVersionFields(db, type.id))[0].id;
+  const firstField = async (type: LogType) => (await getLogTypeFields(db, type.id))[0].id;
 
-  describe("fields and versions", () => {
-    it("renames, relabels and reorders without a version", async () => {
+  describe("fields", () => {
+    it("renames, relabels and reorders", async () => {
       const type = await simpleType("Diary", [
         { name: "Text", valueType: "text" },
         { name: "Mood", valueType: "enum", constraints: { options: [{ key: "ok", order: 1 }] } },
       ]);
-      const [text, mood] = (await getLogTypeVersionFields(db, type.id)).map((f) => f.id);
+      const [text, mood] = (await getLogTypeFields(db, type.id)).map((f) => f.id);
       await updateLogField(db, mood, { name: "Feeling", optionLabels: { ok: "Fine" } });
       await reorderLogFields(db, type.id, [mood, text]);
-      expect(
-        (await getLogTypeVersionFields(db, type.id)).map((f) => [f.name, f.optionLabels]),
-      ).toEqual([
+      expect((await getLogTypeFields(db, type.id)).map((f) => [f.name, f.optionLabels])).toEqual([
         ["Feeling", { ok: "Fine" }],
         ["Text", {}],
       ]);
-      expect((await getLogType(db, type.id))?.schemaVersion).toBe(1);
+      await expect(updateLogField(db, text, { name: "feeling" })).rejects.toThrow(/already used/);
       await expect(updateLogField(db, newId(), { name: "x" })).rejects.toThrow(
         /Log field .*: not found/,
       );
     });
 
-    it("creates a version for a shape change; an old entry keeps its version", async () => {
+    it("changes constraints and the required flag in place, checked on the next write", async () => {
       const type = await simpleType("Run", [
         { name: "Distance", valueType: "number" },
         { name: "Notes", valueType: "text" },
       ]);
-      const [distance, notes] = (await getLogTypeVersionFields(db, type.id)).map((f) => f.id);
+      const [distance, notes] = (await getLogTypeFields(db, type.id)).map((f) => f.id);
       const old = await createLogEntry(db, {
         logTypeId: type.id,
         occurredAt: T0,
-        values: { [distance]: 5, [notes]: "easy" },
+        values: { [distance]: -1 },
       });
 
-      // Version 2: distance gets bounds and is required, notes is retired, feel is added.
-      const revised = await reviseLogTypeFields(db, type.id, [
-        {
-          id: distance,
-          name: "Distance",
-          valueType: "number",
-          required: true,
-          constraints: { min: 0 },
-        },
-        { name: "Feel", valueType: "boolean" },
-      ]);
-      expect(revised).toEqual({ version: 2, created: true });
-      expect((await getLogType(db, type.id))?.schemaVersion).toBe(2);
-      const [, feel] = (await getLogTypeVersionFields(db, type.id, 2)).map((f) => f.id);
-      expect((await getLogTypeVersionFields(db, type.id, 1)).map((f) => f.id)).toEqual([
-        distance,
-        notes,
-      ]);
-
-      // The old entry still reads, and is edited, against version 1.
-      expect(await getLogEntry(db, old.id)).toMatchObject({
-        logTypeVersion: 1,
-        values: { [distance]: 5, [notes]: "easy" },
+      await updateLogField(db, distance, { required: true, constraints: { min: 0 } });
+      expect((await getLogTypeFields(db, type.id))[0]).toMatchObject({
+        required: true,
+        shape: { valueType: "number", constraints: { min: 0 } },
       });
-      await updateLogEntry(db, old.id, { values: { [notes]: "hard", [distance]: null } });
-      expect((await getLogEntry(db, old.id))?.values).toEqual({ [notes]: "hard" });
-      await expect(updateLogEntry(db, old.id, { values: { [feel]: true } })).rejects.toThrow(
-        `Log entry ${old.id}, field ${feel}: not a field of log type ${type.id} version 1`,
+      // Stored values are not re-validated, but a new write is.
+      expect((await getLogEntry(db, old.id))?.values).toEqual({ [distance]: -1 });
+      await updateLogEntry(db, old.id, { values: { [notes]: "hard" } });
+      await expect(updateLogEntry(db, old.id, { values: { [distance]: -2 } })).rejects.toThrow(
+        /must be at least 0/,
       );
-
-      // New entries use version 2.
       await expect(createLogEntry(db, { logTypeId: type.id, occurredAt: T0 })).rejects.toThrow(
-        /field .*: is required/,
+        new RegExp(`field ${distance}: is required`),
       );
-      const fresh = await createLogEntry(db, {
-        logTypeId: type.id,
-        occurredAt: T0,
-        values: { [distance]: 10, [feel]: true },
-      });
-      expect(fresh.logTypeVersion).toBe(2);
-      await expect(
-        createLogEntry(db, {
-          logTypeId: type.id,
-          occurredAt: T0,
-          values: { [distance]: 1, [notes]: "x" },
-        }),
-      ).rejects.toThrow(/not a field of log type .* version 2/);
     });
 
-    it("creates no version when only names and order change", async () => {
-      const type = await simpleType("Diary", [
-        { name: "A", valueType: "text" },
-        { name: "B", valueType: "text" },
-      ]);
-      const [a, b] = (await getLogTypeVersionFields(db, type.id)).map((f) => f.id);
-      expect(
-        await reviseLogTypeFields(db, type.id, [
-          { id: b, name: "Bee", valueType: "text" },
-          { id: a, name: "A", valueType: "text" },
-        ]),
-      ).toEqual({ version: 1, created: false });
-      expect((await getLogTypeVersionFields(db, type.id)).map((f) => f.name)).toEqual(["Bee", "A"]);
-      // The current fields, resubmitted as they are, change nothing.
-      const current = await getLogTypeVersionFields(db, type.id);
-      expect(await reviseLogTypeFields(db, type.id, current.map(logFieldInput))).toEqual({
-        version: 1,
-        created: false,
+    it("keeps a field's value type and the thing type it refers to", async () => {
+      const { movie, person, f } = await setupMovies();
+      await expect(updateLogField(db, f.rating, { constraints: { maxLength: 3 } })).rejects.toThrow(
+        /maxLength/,
+      );
+      await expect(
+        updateLogField(db, f.film, { constraints: { thingTypeId: person.id } }),
+      ).rejects.toThrow(`Log field ${f.film}: cannot change the thing type it refers to`);
+      await updateLogField(db, f.film, { constraints: { thingTypeId: movie.id } });
+    });
+
+    it("adds a field that older entries lack, then deletes one with its values", async () => {
+      const type = await simpleType("Run", [{ name: "Distance", valueType: "number" }]);
+      const [distance] = (await getLogTypeFields(db, type.id)).map((f) => f.id);
+      const old = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: T0,
+        values: { [distance]: 5 },
       });
+      const feel = await addLogField(db, type.id, { name: "Feel", valueType: "boolean" });
+      expect((await getLogEntry(db, old.id))?.values).toEqual({ [distance]: 5 });
+      await updateLogEntry(db, old.id, { values: { [feel]: true } });
+
+      expect(await previewLogFieldDeletion(db, distance)).toEqual({ values: 1 });
+      await deleteLogField(db, distance);
+      expect((await getLogEntry(db, old.id))?.values).toEqual({ [feel]: true });
+      await expect(updateLogEntry(db, old.id, { values: { [distance]: 1 } })).rejects.toThrow(
+        `Log entry ${old.id}, field ${distance}: not a field of log type ${type.id}`,
+      );
+      await expect(deleteLogField(db, distance)).rejects.toThrow(/not found/);
     });
   });
 
@@ -404,7 +379,6 @@ describe("logs", () => {
       expect(entry).toEqual({
         id: expect.any(String),
         logTypeId: type.id,
-        logTypeVersion: 1,
         occurredAt: T0,
         endedAt: null,
         precision: "instant",
@@ -557,9 +531,7 @@ describe("logs", () => {
             occurredAt: T0,
             values: { [f.film]: alien, [foreign]: "x" },
           }),
-        ).rejects.toThrow(
-          new RegExp(`field ${foreign}: not a field of log type ${type.id} version 1`),
-        );
+        ).rejects.toThrow(new RegExp(`field ${foreign}: not a field of log type ${type.id}$`));
       });
 
       it("refuses references to missing, deleted or mistyped things", async () => {
@@ -879,7 +851,7 @@ describe("logs", () => {
         { name: "Hours", valueType: "number" },
         { name: "Note", valueType: "text" },
       ]);
-      const [hours, note] = (await getLogTypeVersionFields(db, type.id)).map((f) => f.id);
+      const [hours, note] = (await getLogTypeFields(db, type.id)).map((f) => f.id);
       const entry = await createLogEntry(db, {
         logTypeId: type.id,
         occurredAt: T0,
@@ -1021,12 +993,7 @@ describe("logs", () => {
       await deleteLogType(db, workout.id);
 
       expect((await listLogTypes(db)).map((t) => t.id)).toEqual([other.id]);
-      for (const table of [
-        "log_type_versions",
-        "log_fields",
-        "log_field_versions",
-        "log_entries",
-      ]) {
+      for (const table of ["log_fields", "log_entries"]) {
         expect(
           (await rows(table)).every((r) => r.log_type_id === other.id),
           table,
@@ -1048,7 +1015,7 @@ describe("logs", () => {
     it("enforces the entry rules core relies on", async () => {
       const { workout, set } = await setupWorkouts();
       const parent = await createLogEntry(db, { logTypeId: workout.id, occurredAt: T0 });
-      const base = { log_type_version: 1, source: "manual", created_at: 0, updated_at: 0 };
+      const base = { source: "manual", created_at: 0, updated_at: 0 };
       const top = {
         ...base,
         log_type_id: workout.id,
@@ -1072,7 +1039,7 @@ describe("logs", () => {
       ]) {
         await expect(insert({ ...bad, id: newId() }), JSON.stringify(bad)).rejects.toThrow(/CHECK/);
       }
-      await expect(insert({ ...top, id: newId(), log_type_version: 2 })).rejects.toThrow(
+      await expect(insert({ ...top, id: newId(), log_type_id: newId() })).rejects.toThrow(
         /FOREIGN KEY/,
       );
     });

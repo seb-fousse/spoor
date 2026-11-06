@@ -1,7 +1,7 @@
 -- Logs (see docs/data-spec.md § 3. Logs). The definition tables mirror the thing
 -- tables of 0004 column for column, so `definitions.ts` serves both. Deleting a
--- log type deletes its child types, versions and fields, and through them their
--- entries and values.
+-- log type deletes its child types, fields and entries, and with them their
+-- values.
 
 -- `parent_type_id` makes this type's entries child entries of that type's
 -- entries. Core sets it only at creation, so the chain of parents cannot form a
@@ -12,7 +12,6 @@ CREATE TABLE log_types (
   name TEXT NOT NULL,
   description TEXT,
   parent_type_id TEXT REFERENCES log_types (id) ON DELETE CASCADE,
-  schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   archived_at INTEGER,
@@ -22,53 +21,23 @@ CREATE TABLE log_types (
 -- Finding child types, as a cascading delete does.
 CREATE INDEX log_types_parent_type_id ON log_types (parent_type_id);
 
--- Append-only: core never updates a version.
--- `UNIQUE (log_type_id, version)` is the target of the composite keys below.
-CREATE TABLE log_type_versions (
-  id TEXT PRIMARY KEY NOT NULL,
-  log_type_id TEXT NOT NULL REFERENCES log_types (id) ON DELETE CASCADE,
-  version INTEGER NOT NULL CHECK (version >= 1),
-  created_at INTEGER NOT NULL,
-  UNIQUE (log_type_id, version)
-) STRICT;
-
--- A field's identity across versions. Its shape lives on its versions.
--- `UNIQUE (id, log_type_id)` is the target of the field versions' composite key.
+-- `value_type` is set at creation and never changes; the rest may be edited.
+-- Deleting a field deletes its values.
 CREATE TABLE log_fields (
   id TEXT PRIMARY KEY NOT NULL,
   log_type_id TEXT NOT NULL REFERENCES log_types (id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   position INTEGER NOT NULL,
-  option_labels TEXT NOT NULL CHECK (json_valid(option_labels)),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE (id, log_type_id)
-) STRICT;
-
-CREATE INDEX log_fields_log_type_id ON log_fields (log_type_id);
-
--- Append-only, like type versions. `log_type_id` is denormalized so the two
--- composite keys make the field and the type version belong to the same type.
-CREATE TABLE log_field_versions (
-  id TEXT PRIMARY KEY NOT NULL,
-  field_id TEXT NOT NULL,
-  log_type_id TEXT NOT NULL,
-  log_type_version INTEGER NOT NULL,
   value_type TEXT NOT NULL
     CHECK (value_type IN ('boolean', 'number', 'enum', 'text', 'date', 'datetime', 'ref', 'multi_ref')),
   required INTEGER NOT NULL CHECK (required IN (0, 1)),
   constraints TEXT NOT NULL CHECK (json_valid(constraints)),
+  option_labels TEXT NOT NULL CHECK (json_valid(option_labels)),
   created_at INTEGER NOT NULL,
-  UNIQUE (field_id, log_type_version),
-  FOREIGN KEY (field_id, log_type_id)
-    REFERENCES log_fields (id, log_type_id) ON DELETE CASCADE,
-  FOREIGN KEY (log_type_id, log_type_version)
-    REFERENCES log_type_versions (log_type_id, version) ON DELETE CASCADE
+  updated_at INTEGER NOT NULL
 ) STRICT;
 
--- A version's field set.
-CREATE INDEX log_field_versions_type_version
-  ON log_field_versions (log_type_id, log_type_version);
+CREATE INDEX log_fields_log_type_id ON log_fields (log_type_id);
 
 -- A top-level entry has a time: `occurred_at`, `precision` and `time_zone`, set
 -- or unset together. A child entry with them unset inherits its parent's; core
@@ -77,8 +46,7 @@ CREATE INDEX log_field_versions_type_version
 -- child entries have one. Deleting an entry deletes its child entries.
 CREATE TABLE log_entries (
   id TEXT PRIMARY KEY NOT NULL,
-  log_type_id TEXT NOT NULL,
-  log_type_version INTEGER NOT NULL,
+  log_type_id TEXT NOT NULL REFERENCES log_types (id) ON DELETE CASCADE,
   occurred_at INTEGER,
   ended_at INTEGER,
   precision TEXT CHECK (precision IN ('instant', 'day', 'month', 'year')),
@@ -89,8 +57,6 @@ CREATE TABLE log_entries (
   external_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  FOREIGN KEY (log_type_id, log_type_version)
-    REFERENCES log_type_versions (log_type_id, version) ON DELETE CASCADE,
   CHECK (parent_entry_id IS NOT NULL OR occurred_at IS NOT NULL),
   CHECK ((occurred_at IS NULL) = (precision IS NULL) AND (occurred_at IS NULL) = (time_zone IS NULL)),
   CHECK (ended_at IS NULL OR (occurred_at IS NOT NULL AND ended_at >= occurred_at)),
@@ -132,6 +98,9 @@ CREATE TABLE log_field_values (
 
 -- Reading an entry's values. The unique indexes below are partial, so they cannot serve it.
 CREATE INDEX log_field_values_log_entry_id ON log_field_values (log_entry_id);
+
+-- Finding a field's values, as deleting it does.
+CREATE INDEX log_field_values_field_id ON log_field_values (field_id);
 
 -- One row per field, except one per referenced thing for `ref` and `multi_ref`.
 -- Core keeps a `ref` field to one row.

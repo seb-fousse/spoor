@@ -25,7 +25,6 @@ import {
   parseOptionLabels,
   parseShape,
   type RefConstraints,
-  sameShape,
   VALUE_COLUMNS,
   type Value,
   type ValueColumns,
@@ -34,14 +33,16 @@ import {
 } from "./values";
 
 /**
- * Versioned definitions with fields (see docs/data-spec.md § 3. Logs, § 4. Things,
- * § Versioning): the machinery thing types and log types share, written once and
- * pointed at each slice's tables by a `DefinitionTables` descriptor.
+ * Definitions with fields (see docs/data-spec.md § 3. Logs, § 4. Things): the
+ * machinery thing types and log types share, written once and pointed at each
+ * slice's tables by a `DefinitionTables` descriptor.
  *
- * A type's version is the set of its field versions. Shapes and required flags
- * are versioned; names, positions and option labels are not. A record (a thing
- * or a log entry) references the version its values were validated against, and
- * stores one value row per field, or one per referenced thing for `multi_ref`.
+ * A field's value type is set when it is created and never changes, so stored
+ * values never need reinterpreting. Everything else about a field (name,
+ * position, required flag, constraints, option labels) is edited in place, and
+ * checked only when a value is written: existing values are not re-validated.
+ * A record (a thing or a log entry) stores one value row per field, or one per
+ * referenced thing for `multi_ref`.
  *
  * Nothing here opens a transaction: every write must run inside the caller's
  * `transaction()`, alongside the caller's own checks (that the type exists,
@@ -58,25 +59,19 @@ export interface DefinitionTables {
   readonly fieldKind: string;
   /** Names a record holding values in errors, such as `"Thing"`. */
   readonly recordKind: string;
-  /** Types: `id`, `schema_version`, `updated_at`, plus the slice's own columns. */
+  /** Types: `id`, `updated_at`, plus the slice's own columns. */
   readonly types: keyof DB;
-  /** Type versions: `id`, type id, `version`, `created_at`. */
-  readonly typeVersions: keyof DB;
-  /** Fields: `id`, type id, `name`, `position`, `option_labels`, `created_at`, `updated_at`. */
-  readonly fields: keyof DB;
   /**
-   * Field versions: `id`, `field_id`, type id, type version, `value_type`,
-   * `required`, `constraints`, `created_at`.
+   * Fields: `id`, type id, `name`, `position`, `value_type`, `required`,
+   * `constraints`, `option_labels`, `created_at`, `updated_at`.
    */
-  readonly fieldVersions: keyof DB;
-  /** Records: `id`, type id, type version, `updated_at`, plus the slice's own columns. */
+  readonly fields: keyof DB;
+  /** Records: `id`, type id, `updated_at`, plus the slice's own columns. */
   readonly records: keyof DB;
   /** Values: `id`, record id, `field_id`, the seven `value_*` columns, `written_by`, `written_at`. */
   readonly values: keyof DB;
-  /** The type id column of type versions, fields, field versions and records. */
+  /** The type id column of fields and records. */
   readonly typeIdColumn: string;
-  /** The type version column of field versions and records. */
-  readonly typeVersionColumn: string;
   /** The record id column of values. */
   readonly recordIdColumn: string;
 }
@@ -86,13 +81,10 @@ export const THING_TABLES = {
   fieldKind: "Thing field",
   recordKind: "Thing",
   types: "thing_types",
-  typeVersions: "thing_type_versions",
   fields: "thing_fields",
-  fieldVersions: "thing_field_versions",
   records: "things",
   values: "thing_field_values",
   typeIdColumn: "thing_type_id",
-  typeVersionColumn: "thing_type_version",
   recordIdColumn: "thing_id",
 } as const satisfies DefinitionTables;
 
@@ -101,13 +93,10 @@ export const LOG_TABLES = {
   fieldKind: "Log field",
   recordKind: "Log entry",
   types: "log_types",
-  typeVersions: "log_type_versions",
   fields: "log_fields",
-  fieldVersions: "log_field_versions",
   records: "log_entries",
   values: "log_field_values",
   typeIdColumn: "log_type_id",
-  typeVersionColumn: "log_type_version",
   recordIdColumn: "log_entry_id",
 } as const satisfies DefinitionTables;
 
@@ -131,9 +120,15 @@ export interface NewField {
   optionLabels?: Record<string, string>;
 }
 
-/** A field in a revised field list: an existing field by `id`, or a new one without. */
-export interface FieldInput extends NewField {
-  id?: string;
+/**
+ * Changes to a field. Constraints are parsed for its value type, which never
+ * changes; a `ref` or `multi_ref` field keeps the thing type it refers to.
+ */
+export interface FieldPatch {
+  name?: string;
+  required?: boolean;
+  constraints?: unknown;
+  optionLabels?: Record<string, string>;
 }
 
 /** A validated field, with its id, ready to be written. */
@@ -145,7 +140,6 @@ export interface FieldDraft {
   optionLabels: Record<string, string>;
 }
 
-/** A field as it is in one version of its type. */
 export interface FieldDefinition {
   id: string;
   typeId: string;
@@ -162,8 +156,6 @@ export interface FieldDefinition {
 export interface ValueRecord {
   id: string;
   typeId: string;
-  /** The version its values are validated against. */
-  typeVersion: number;
 }
 
 /** New values by field id. `null` clears a value, as does an empty `multi_ref`. */
@@ -183,7 +175,7 @@ export interface ValueWriter {
 }
 
 // ---------------------------------------------------------------------------
-// Fields and versions
+// Fields
 
 /**
  * Validates the fields of a new type and gives each a new id, in input order.
@@ -197,157 +189,81 @@ export function draftFields(tables: DefinitionTables, inputs: readonly NewField[
   return drafts;
 }
 
-/**
- * Writes version 1 of a type whose row the caller has just inserted, with
- * `schema_version` 1: the version row, and each field with its first version,
- * positioned in order.
- */
-export async function createFirstVersion(
+/** Writes the fields of a type whose row the caller has just inserted, positioned in order. */
+export async function createFields(
   db: Database,
   tables: DefinitionTables,
   typeId: string,
   fields: readonly FieldDraft[],
   at: Instant,
 ): Promise<void> {
-  const type = await requireType(db, tables, typeId);
-  if (type.schema_version !== 1) {
-    throw new Error(`${tables.typeKind} ${typeId}: already has version ${type.schema_version}`);
-  }
+  await requireType(db, tables, typeId);
   for (const field of fields) await assertRefTarget(db, tables, field);
-  await insertVersion(db, tables, typeId, 1, at);
   for (const [position, field] of fields.entries()) {
     await insertField(db, tables, typeId, field, position, at);
   }
-  await insertFieldVersions(db, tables, typeId, 1, fields, at);
 }
 
-/**
- * Replaces a type's field list with `inputs`, in display order. Existing fields
- * are referenced by `id`, including retired ones, which come back; fields
- * without one are added. Names must be unique among `inputs`, ignoring case and
- * surrounding spaces.
- *
- * If no field was added or left out and every shape and required flag is
- * unchanged, no version is created. Otherwise the type gets version n+1, with a
- * field version for every field in `inputs`; a field left out is retired, and
- * its row and past versions stay. Names, positions and option labels are
- * updated either way, without a version; an existing field given no
- * `optionLabels` keeps its stored ones, while `{}` clears them.
- */
-export async function reviseFields(
+/** Adds a field after the type's others; returns its id. Existing records have no value for it. */
+export async function addField(
   db: Database,
   tables: DefinitionTables,
   typeId: string,
-  inputs: readonly FieldInput[],
+  input: NewField,
   at: Instant,
-): Promise<{ version: number; created: boolean }> {
-  const q = builder(db, tables);
-  const type = await requireType(db, tables, typeId);
-  const current = new Map(
-    (await getVersionFields(db, tables, typeId, type.schema_version)).map((f) => [f.id, f]),
-  );
-  const existing = new Map(
-    (await q.selectFrom("def_fields").selectAll().where("def_type_id", "=", typeId).execute()).map(
-      (row) => [row.id, row],
-    ),
-  );
-
-  const seen = new Set<string>();
-  const drafts = inputs.map((input) => {
-    if (input.id !== undefined) {
-      if (!existing.has(input.id)) {
-        throw new Error(
-          `${tables.fieldKind} ${input.id}: not a field of ${typeLabel(tables, typeId)}`,
-        );
-      }
-      if (seen.has(input.id)) throw new Error(`${tables.fieldKind} ${input.id}: listed twice`);
-      seen.add(input.id);
-    }
-    return draftField(tables, input.id ?? newId(), input);
-  });
-  assertUniqueNames(tables, drafts);
-
-  const unchanged = (draft: FieldDraft) => {
-    const field = current.get(draft.id);
-    return field && sameShape(field.shape, draft.shape) && field.required === draft.required;
-  };
-  const created = drafts.length !== current.size || !drafts.every(unchanged);
-
-  for (const [position, draft] of drafts.entries()) {
-    const row = existing.get(draft.id);
-    if (row === undefined) {
-      await insertField(db, tables, typeId, draft, position, at);
-      continue;
-    }
-    const optionLabels =
-      inputs[position].optionLabels === undefined
-        ? row.option_labels
-        : JSON.stringify(draft.optionLabels);
-    if (
-      row.name !== draft.name ||
-      row.position !== position ||
-      row.option_labels !== optionLabels
-    ) {
-      await q
-        .updateTable("def_fields")
-        .set({ name: draft.name, position, option_labels: optionLabels, updated_at: at })
-        .where("id", "=", draft.id)
-        .execute();
-    }
-  }
-  if (!created) return { version: type.schema_version, created };
-
-  // Only a new field or a new shape picks a target; existing references stay valid.
-  for (const draft of drafts) {
-    const field = current.get(draft.id);
-    if (!field || !sameShape(field.shape, draft.shape)) await assertRefTarget(db, tables, draft);
-  }
-  const version = type.schema_version + 1;
-  await insertVersion(db, tables, typeId, version, at);
-  await insertFieldVersions(db, tables, typeId, version, drafts, at);
-  await q
-    .updateTable("def_types")
-    .set({ schema_version: version, updated_at: at })
-    .where("id", "=", typeId)
-    .execute();
-  return { version, created };
+): Promise<string> {
+  await requireType(db, tables, typeId);
+  const draft = draftField(tables, newId(), input);
+  const fields = await getFields(db, tables, typeId);
+  assertUniqueNames(tables, [...fields, draft]);
+  await assertRefTarget(db, tables, draft);
+  const position = Math.max(-1, ...fields.map((f) => f.position)) + 1;
+  await insertField(db, tables, typeId, draft, position, at);
+  return draft.id;
 }
 
 /**
- * Renames or relabels a field, without a version. A new name must be unique
- * among the fields of the type's current version.
+ * Changes a field in place; see `FieldPatch`. A new name must be unique among
+ * the type's fields. An existing field given no `optionLabels` keeps its
+ * stored ones, while `{}` clears them.
  */
 export async function updateField(
   db: Database,
   tables: DefinitionTables,
   fieldId: string,
-  patch: { name?: string; optionLabels?: Record<string, string> },
+  patch: FieldPatch,
   at: Instant,
 ): Promise<void> {
-  const q = builder(db, tables);
   const label = `${tables.fieldKind} ${fieldId}`;
-  const row = await q
-    .selectFrom("def_fields")
-    .selectAll()
-    .where("id", "=", fieldId)
-    .executeTakeFirst();
-  if (!row) throw new Error(`${label}: not found`);
-  const name = patch.name === undefined ? row.name : requireName(label, patch.name);
+  const field = await requireField(db, tables, fieldId);
+  const name = patch.name === undefined ? field.name : requireName(label, patch.name);
   if (patch.name !== undefined) {
-    const type = await requireType(db, tables, row.def_type_id);
-    const others = (await getVersionFields(db, tables, type.id, type.schema_version)).filter(
-      (f) => f.id !== fieldId,
-    );
+    const others = (await getFields(db, tables, field.typeId)).filter((f) => f.id !== fieldId);
     assertUniqueNames(tables, [...others, { id: fieldId, name }]);
   }
-  await q
+  const required = patch.required ?? field.required;
+  if (typeof required !== "boolean") throw new Error(`${label}: required must be true or false`);
+  const shape =
+    patch.constraints === undefined
+      ? field.shape
+      : parseShape(label, FIELD_VALUE_TYPES, field.shape.valueType, patch.constraints);
+  if (
+    (shape.valueType === "ref" || shape.valueType === "multi_ref") &&
+    shape.constraints.thingTypeId !== (field.shape.constraints as RefConstraints).thingTypeId
+  ) {
+    throw new Error(`${label}: cannot change the thing type it refers to`);
+  }
+  await builder(db, tables)
     .updateTable("def_fields")
     .set({
       name,
-      option_labels:
+      required: Number(required),
+      constraints: JSON.stringify(shape.constraints),
+      option_labels: JSON.stringify(
         patch.optionLabels === undefined
-          ? row.option_labels
-          : JSON.stringify(parseOptionLabels(label, patch.optionLabels)),
+          ? field.optionLabels
+          : parseOptionLabels(label, patch.optionLabels),
+      ),
       updated_at: at,
     })
     .where("id", "=", fieldId)
@@ -355,8 +271,8 @@ export async function updateField(
 }
 
 /**
- * Puts the fields of the type's current version in the order of `fieldIds`,
- * which must list each of them once, without a version.
+ * Puts the type's fields in the order of `fieldIds`, which must list each of
+ * them once.
  */
 export async function reorderFields(
   db: Database,
@@ -365,8 +281,7 @@ export async function reorderFields(
   fieldIds: readonly string[],
   at: Instant,
 ): Promise<void> {
-  const type = await requireType(db, tables, typeId);
-  const fields = await getVersionFields(db, tables, typeId, type.schema_version);
+  const fields = await getFields(db, tables, typeId);
   const sorted = (ids: readonly string[]) => JSON.stringify([...ids].sort());
   if (sorted(fieldIds) !== sorted(fields.map((f) => f.id))) {
     throw new Error(
@@ -384,61 +299,69 @@ export async function reorderFields(
   }
 }
 
-/** The fields of one version of a type, by position. Empty for an unknown version. */
-export async function getVersionFields(
+/** How many records hold a value for the field, which deleting it would remove. */
+export async function countFieldValues(
+  db: Database,
+  tables: DefinitionTables,
+  fieldId: string,
+): Promise<number> {
+  await requireField(db, tables, fieldId);
+  const { n } = await builder(db, tables)
+    .selectFrom("def_values")
+    .select((eb) => eb.fn.count<number>("def_record_id").distinct().as("n"))
+    .where("field_id", "=", fieldId)
+    .executeTakeFirstOrThrow();
+  return n;
+}
+
+/** Deletes the field with its values. See `countFieldValues`. */
+export async function deleteField(
+  db: Database,
+  tables: DefinitionTables,
+  fieldId: string,
+): Promise<void> {
+  await requireField(db, tables, fieldId);
+  await builder(db, tables).deleteFrom("def_fields").where("id", "=", fieldId).execute();
+}
+
+/** The field with `id`, or `undefined`. */
+export async function getField(
+  db: Database,
+  tables: DefinitionTables,
+  id: string,
+): Promise<FieldDefinition | undefined> {
+  const row = await builder(db, tables)
+    .selectFrom("def_fields")
+    .selectAll()
+    .where("id", "=", id)
+    .executeTakeFirst();
+  return row && toField(tables, row);
+}
+
+/** The type's fields, by position. */
+export async function getFields(
   db: Database,
   tables: DefinitionTables,
   typeId: string,
-  version: number,
 ): Promise<FieldDefinition[]> {
   const rows = await builder(db, tables)
-    .selectFrom("def_fields as f")
-    .innerJoin("def_field_versions as v", "v.field_id", "f.id")
-    .select([
-      "f.id",
-      "f.def_type_id",
-      "f.name",
-      "f.position",
-      "f.option_labels",
-      "f.created_at",
-      "f.updated_at",
-      "v.value_type",
-      "v.required",
-      "v.constraints",
-    ])
-    .where("v.def_type_id", "=", typeId)
-    .where("v.def_type_version", "=", version)
-    .orderBy("f.position")
-    .orderBy("f.id")
+    .selectFrom("def_fields")
+    .selectAll()
+    .where("def_type_id", "=", typeId)
+    .orderBy("position")
+    .orderBy("id")
     .execute();
-  return rows.map((row) => {
-    const label = `${tables.fieldKind} ${row.id}`;
-    return {
-      id: row.id,
-      typeId: row.def_type_id,
-      name: row.name,
-      position: row.position,
-      optionLabels: parseOptionLabels(label, JSON.parse(row.option_labels)),
-      shape: parseShape(
-        `${label}, version ${version}`,
-        FIELD_VALUE_TYPES,
-        row.value_type,
-        JSON.parse(row.constraints),
-      ),
-      required: row.required === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
+  return rows.map((row) => toField(tables, row));
 }
 
 // ---------------------------------------------------------------------------
 // Values
 
 /**
- * Validates `patch` for `record` against its version, before `writeValues`.
- * The record need not exist yet. Refuses, naming the record and field:
- * - a field not in the version;
+ * Validates `patch` for `record` against its type's fields, before
+ * `writeValues`. The record need not exist yet. Refuses, naming the record and
+ * field:
+ * - a field not of the record's type;
  * - a value `validateValue` refuses;
  * - a required field left without a value, by clearing it or never setting it
  *   (an empty `multi_ref` has no value);
@@ -451,16 +374,14 @@ export async function validateValues(
   record: ValueRecord,
   patch: ValuePatch,
 ): Promise<FieldValue[]> {
-  const fields = await getVersionFields(db, tables, record.typeId, record.typeVersion);
+  const fields = await getFields(db, tables, record.typeId);
   const stored = await storedRows(db, tables, record.id);
   const result: FieldValue[] = [];
   for (const [fieldId, input] of Object.entries(patch)) {
     const label = valueLabel(tables, record.id, fieldId);
     const field = fields.find((f) => f.id === fieldId);
     if (!field) {
-      throw new Error(
-        `${label}: not a field of ${typeLabel(tables, record.typeId)} version ${record.typeVersion}`,
-      );
+      throw new Error(`${label}: not a field of ${typeLabel(tables, record.typeId)}`);
     }
     const value =
       input === null || (Array.isArray(input) && input.length === 0)
@@ -615,12 +536,12 @@ export async function readValues(
   tables: DefinitionTables,
   record: ValueRecord,
 ): Promise<Record<string, Value>> {
-  const fields = await getVersionFields(db, tables, record.typeId, record.typeVersion);
+  const fields = await getFields(db, tables, record.typeId);
   const rows = await storedRows(db, tables, record.id);
   for (const row of rows) {
     if (!fields.some((f) => f.id === row.field_id)) {
       throw new Error(
-        `${valueLabel(tables, record.id, row.field_id)}: stored, but not a field of version ${record.typeVersion}`,
+        `${valueLabel(tables, record.id, row.field_id)}: stored, but not a field of ${typeLabel(tables, record.typeId)}`,
       );
     }
   }
@@ -704,19 +625,6 @@ function draftField(tables: DefinitionTables, id: string, input: NewField): Fiel
   };
 }
 
-async function insertVersion(
-  db: Database,
-  tables: DefinitionTables,
-  typeId: string,
-  version: number,
-  at: Instant,
-) {
-  await builder(db, tables)
-    .insertInto("def_type_versions")
-    .values({ id: newId(), def_type_id: typeId, version, created_at: at })
-    .execute();
-}
-
 async function insertField(
   db: Database,
   tables: DefinitionTables,
@@ -732,6 +640,9 @@ async function insertField(
       def_type_id: typeId,
       name: field.name,
       position,
+      value_type: field.shape.valueType,
+      required: Number(field.required),
+      constraints: JSON.stringify(field.shape.constraints),
       option_labels: JSON.stringify(field.optionLabels),
       created_at: at,
       updated_at: at,
@@ -739,30 +650,19 @@ async function insertField(
     .execute();
 }
 
-async function insertFieldVersions(
-  db: Database,
-  tables: DefinitionTables,
-  typeId: string,
-  version: number,
-  fields: readonly FieldDraft[],
-  at: Instant,
-) {
-  const q = builder(db, tables);
-  for (const field of fields) {
-    await q
-      .insertInto("def_field_versions")
-      .values({
-        id: newId(),
-        field_id: field.id,
-        def_type_id: typeId,
-        def_type_version: version,
-        value_type: field.shape.valueType,
-        required: Number(field.required),
-        constraints: JSON.stringify(field.shape.constraints),
-        created_at: at,
-      })
-      .execute();
-  }
+function toField(tables: DefinitionTables, row: DefinitionDB["def_fields"]): FieldDefinition {
+  const label = `${tables.fieldKind} ${row.id}`;
+  return {
+    id: row.id,
+    typeId: row.def_type_id,
+    name: row.name,
+    position: row.position,
+    optionLabels: parseOptionLabels(label, JSON.parse(row.option_labels)),
+    shape: parseShape(label, FIELD_VALUE_TYPES, row.value_type, JSON.parse(row.constraints)),
+    required: row.required === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 /** Field names are unique within a field list, ignoring case and surrounding spaces. */
@@ -829,11 +729,17 @@ async function assertRefsTo(
 async function requireType(db: Database, tables: DefinitionTables, typeId: string) {
   const type = await builder(db, tables)
     .selectFrom("def_types")
-    .select(["id", "schema_version"])
+    .select("id")
     .where("id", "=", typeId)
     .executeTakeFirst();
   if (!type) throw new Error(`${tables.typeKind} ${typeId}: not found`);
   return type;
+}
+
+async function requireField(db: Database, tables: DefinitionTables, id: string) {
+  const field = await getField(db, tables, id);
+  if (!field) throw new Error(`${tables.fieldKind} ${id}: not found`);
+  return field;
 }
 
 function storedRows(db: Database, tables: DefinitionTables, recordId: string) {
@@ -865,28 +771,20 @@ function typeLabel(tables: DefinitionTables, typeId: string, start = false) {
  * module uses are declared.
  */
 interface DefinitionDB {
-  def_types: { id: string; schema_version: number; updated_at: number };
-  def_type_versions: { id: string; def_type_id: string; version: number; created_at: number };
+  def_types: { id: string; updated_at: number };
   def_fields: {
     id: string;
     def_type_id: string;
     name: string;
     position: number;
+    value_type: string;
+    required: number;
+    constraints: string;
     option_labels: string;
     created_at: number;
     updated_at: number;
   };
-  def_field_versions: {
-    id: string;
-    field_id: string;
-    def_type_id: string;
-    def_type_version: number;
-    value_type: string;
-    required: number;
-    constraints: string;
-    created_at: number;
-  };
-  def_records: { id: string; def_type_id: string; def_type_version: number; updated_at: number };
+  def_records: { id: string; def_type_id: string; updated_at: number };
   def_values: ValueColumns & {
     id: string;
     def_record_id: string;
@@ -909,13 +807,10 @@ function builder(db: Database, tables: DefinitionTables): Kysely<DefinitionDB> {
   if (q === undefined) {
     const plugin = new RenamePlugin({
       def_types: tables.types,
-      def_type_versions: tables.typeVersions,
       def_fields: tables.fields,
-      def_field_versions: tables.fieldVersions,
       def_records: tables.records,
       def_values: tables.values,
       def_type_id: tables.typeIdColumn,
-      def_type_version: tables.typeVersionColumn,
       def_record_id: tables.recordIdColumn,
     });
     // The one cast: the plugin makes the generic names real.

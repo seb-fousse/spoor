@@ -7,7 +7,7 @@ import {
   createThing,
   createThingType,
   deleteThing,
-  getThingTypeVersionFields,
+  getThingTypeFields,
   updateThingValues,
 } from "./things";
 import {
@@ -443,7 +443,7 @@ describe("categories linked to things", () => {
       name: "Person",
       fields: [{ name: "Name", valueType: "text", required: true }],
     });
-    const [name] = (await getThingTypeVersionFields(db, type.id)).map((f) => f.id);
+    const [name] = (await getThingTypeFields(db, type.id)).map((f) => f.id);
     const thing = await createThing(db, { thingTypeId: type.id, values: { [name]: title } });
     return { timeline, type, name, thing };
   };

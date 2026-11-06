@@ -9,7 +9,7 @@ import {
   createThingType,
   deleteThing,
   getThing,
-  getThingTypeVersionFields,
+  getThingTypeFields,
   type Thing,
 } from "./things";
 import {
@@ -43,7 +43,7 @@ describe("mergeThings", () => {
       name: "Person",
       fields: [{ name: "Name", valueType: "text", required: true }],
     });
-    const [name] = (await getThingTypeVersionFields(db, personType.id)).map((f) => f.id);
+    const [name] = (await getThingTypeFields(db, personType.id)).map((f) => f.id);
     const person = (title: string) =>
       createThing(db, { thingTypeId: personType.id, values: { [name]: title } });
     const [alex, alexSmith, sam] = [
@@ -59,9 +59,7 @@ describe("mergeThings", () => {
         { name: "Cast", valueType: "multi_ref", constraints: { thingTypeId: personType.id } },
       ],
     });
-    const [title, director, cast] = (await getThingTypeVersionFields(db, movieType.id)).map(
-      (f) => f.id,
-    );
+    const [title, director, cast] = (await getThingTypeFields(db, movieType.id)).map((f) => f.id);
     return { personType, movieType, name, alex, alexSmith, sam, f: { title, director, cast } };
   };
 
