@@ -18,21 +18,17 @@ import {
   dayOf,
   deleteMetric,
   deleteObservation,
-  getMetricVersion,
   getTimeZone,
   listMetrics,
-  listMetricVersions,
   listObservations,
   METRIC_VALUE_TYPES,
   type MetricValueType,
   now,
   type Observation,
   type ObservationMetric,
-  type ObservationMetricVersion,
   optionLabel,
   previewMetricDeletion,
   recordObservation,
-  reviseMetric,
   setMetricArchived,
   updateMetric,
   type Value,
@@ -80,7 +76,6 @@ export function Observations({ db }: { db: Database }) {
       {deleteDialog}
 
       <ShapeForm
-        withName
         submitLabel="Add"
         onSubmit={(shape, { name, labels }) =>
           run(() => createMetric(db, { ...shape, name, optionLabels: parseJson(labels) as never }))
@@ -97,7 +92,7 @@ export function Observations({ db }: { db: Database }) {
               {m.name}
             </Button>
             <Text size="sm" c="dimmed">
-              v{m.schemaVersion}
+              {m.valueType}
               {m.archivedAt !== null && " · archived"}
             </Text>
             <Button
@@ -138,13 +133,11 @@ export function Observations({ db }: { db: Database }) {
   );
 }
 
-/** Value type and constraints, plus a name and option labels when creating. */
+/** A new metric: its name, value type, constraints and option labels. */
 function ShapeForm({
-  withName = false,
   submitLabel,
   onSubmit,
 }: {
-  withName?: boolean;
   submitLabel: string;
   onSubmit: (
     shape: { valueType: MetricValueType; constraints: unknown },
@@ -163,15 +156,13 @@ function ShapeForm({
   return (
     <form onSubmit={submit}>
       <Group gap="xs" align="flex-end">
-        {withName && (
-          <TextInput
-            size="xs"
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="New metric"
-            aria-label="New metric"
-          />
-        )}
+        <TextInput
+          size="xs"
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+          placeholder="New metric"
+          aria-label="New metric"
+        />
         <Select
           size="xs"
           data={METRIC_VALUE_TYPES}
@@ -187,15 +178,13 @@ function ShapeForm({
           placeholder='Constraints, e.g. {"min": 0}'
           aria-label="Constraints"
         />
-        {withName && (
-          <TextInput
-            size="xs"
-            value={labels}
-            onChange={(e) => setLabels(e.currentTarget.value)}
-            placeholder='Labels, e.g. {"low": "Low"}'
-            aria-label="Labels"
-          />
-        )}
+        <TextInput
+          size="xs"
+          value={labels}
+          onChange={(e) => setLabels(e.currentTarget.value)}
+          placeholder='Labels, e.g. {"low": "Low"}'
+          aria-label="Labels"
+        />
         <Button type="submit" size="xs">
           {submitLabel}
         </Button>
@@ -215,10 +204,9 @@ function MetricDetail({
   version: number;
   run: Run;
 }) {
-  const [current, setCurrent] = useState<ObservationMetricVersion>();
-  const [versions, setVersions] = useState<ObservationMetricVersion[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [name, setName] = useState(metric.name);
+  const [constraints, setConstraints] = useState(JSON.stringify(metric.constraints));
   const [labels, setLabels] = useState(JSON.stringify(metric.optionLabels));
   const [date, setDate] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -226,16 +214,8 @@ function MetricDetail({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([
-      getMetricVersion(db, metric.id, metric.schemaVersion),
-      listMetricVersions(db, metric.id),
-      listObservations(db, metric.id),
-    ]).then(([c, v, o]) => {
-      setCurrent(c);
-      setVersions(v);
-      setObservations(o);
-    });
-  }, [db, metric.id, metric.schemaVersion, version]);
+    listObservations(db, metric.id).then(setObservations);
+  }, [db, metric.id, version]);
 
   // Today in the user's time zone, the day new values default to.
   useEffect(() => {
@@ -253,7 +233,13 @@ function MetricDetail({
 
   const rename = (e: FormEvent) => {
     e.preventDefault();
-    run(() => updateMetric(db, metric.id, { name, optionLabels: parseJson(labels) as never }));
+    run(() =>
+      updateMetric(db, metric.id, {
+        name,
+        constraints: parseJson(constraints),
+        optionLabels: parseJson(labels) as never,
+      }),
+    );
   };
 
   return (
@@ -270,6 +256,13 @@ function MetricDetail({
           />
           <TextInput
             size="xs"
+            value={constraints}
+            onChange={(e) => setConstraints(e.currentTarget.value)}
+            title={`Constraints of this ${metric.valueType} metric`}
+            aria-label="Constraints"
+          />
+          <TextInput
+            size="xs"
             value={labels}
             onChange={(e) => setLabels(e.currentTarget.value)}
             title="Option labels"
@@ -281,42 +274,27 @@ function MetricDetail({
         </Group>
       </form>
 
-      <Title order={4}>Versions</Title>
-      <Stack gap={4}>
-        {versions.map((v) => (
-          <Text key={v.id} size="sm">
-            v{v.version}: {v.valueType} {JSON.stringify(v.constraints)}
-          </Text>
-        ))}
-      </Stack>
-      <ShapeForm
-        submitLabel="Revise"
-        onSubmit={(shape) => run(() => reviseMetric(db, metric.id, shape))}
-      />
-
       <Title order={4}>Observations</Title>
-      {current && (
-        <ValueForm
-          key={current.id}
-          version={current}
-          labels={metric.optionLabels}
-          date={date}
-          onDate={setDate}
-          onRecord={(value) =>
-            run(async () => {
-              const { skipped } = await recordObservation(db, metric.id, date, value);
-              setNotice(skipped ? `Skipped ${date}: written by another writer` : null);
-            })
-          }
-        />
-      )}
+      <ValueForm
+        key={metric.updatedAt}
+        metric={metric}
+        labels={metric.optionLabels}
+        date={date}
+        onDate={setDate}
+        onRecord={(value) =>
+          run(async () => {
+            const { skipped } = await recordObservation(db, metric.id, date, value);
+            setNotice(skipped ? `Skipped ${date}: written by another writer` : null);
+          })
+        }
+      />
       {notice && <Text size="sm">{notice}</Text>}
       <Stack gap={4}>
         {observations.map((o) => (
           <Group key={o.id} gap="xs">
             <Text size="sm">{show(o)}</Text>
             <Text size="sm" c="dimmed">
-              (v{o.metricVersion}, by {o.writtenBy})
+              (by {o.writtenBy})
             </Text>
             <Button
               size="xs"
@@ -335,15 +313,15 @@ function MetricDetail({
   );
 }
 
-/** A date and a value input that fits the current version's type. */
+/** A date and a value input that fits the metric's type. */
 function ValueForm({
-  version,
+  metric: version,
   labels,
   date,
   onDate,
   onRecord,
 }: {
-  version: ObservationMetricVersion;
+  metric: ObservationMetric;
   labels: Record<string, string>;
   date: string;
   onDate: (date: string) => void;

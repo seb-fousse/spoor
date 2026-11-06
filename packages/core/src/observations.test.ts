@@ -4,15 +4,12 @@ import {
   deleteMetric,
   deleteObservation,
   getMetric,
-  getMetricVersion,
   getObservation,
   listMetrics,
-  listMetricVersions,
   listObservations,
   type ObservationMetric,
   previewMetricDeletion,
   recordObservation,
-  reviseMetric,
   setMetricArchived,
   updateMetric,
 } from "./observations";
@@ -65,7 +62,7 @@ describe("observations", () => {
   const rows = (sql: string, params: unknown[] = []) => db.query(sql, params);
 
   describe("metric", () => {
-    it("creates with version 1, trimming text and canonicalising the shape", async () => {
+    it("creates, trimming text and canonicalising the shape", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const metric = await createMetric(db, {
@@ -79,23 +76,14 @@ describe("observations", () => {
         id: expect.any(String),
         name: "Mood",
         description: null,
+        valueType: "enum",
+        constraints: MOOD,
         optionLabels: { low: "Low" },
-        schemaVersion: 1,
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
       });
       expect(await getMetric(db, metric.id)).toEqual(metric);
-      expect(await listMetricVersions(db, metric.id)).toEqual([
-        {
-          id: expect.any(String),
-          metricId: metric.id,
-          version: 1,
-          valueType: "enum",
-          constraints: MOOD,
-          createdAt: 1_000,
-        },
-      ]);
     });
 
     it.each([
@@ -109,7 +97,6 @@ describe("observations", () => {
         new RegExp(`^Observation metric [0-9a-f-]{36}: .*${message.source}`),
       );
       expect(await rows("SELECT * FROM observation_metrics")).toEqual([]);
-      expect(await rows("SELECT * FROM observation_metric_versions")).toEqual([]);
     });
 
     it("lists metrics by name, archived included", async () => {
@@ -121,7 +108,7 @@ describe("observations", () => {
       expect((await listMetrics(db)).map((m) => m.name)).toEqual(["b"]);
     });
 
-    it("renames and relabels without creating a version", async () => {
+    it("renames and relabels", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const { id } = await createMetric(db, {
@@ -136,10 +123,8 @@ describe("observations", () => {
         name: "Feeling",
         description: "daily",
         optionLabels: { ok: "Fine" },
-        schemaVersion: 1,
         updatedAt: 2_000,
       });
-      expect(await listMetricVersions(db, id)).toHaveLength(1);
       await expect(updateMetric(db, id, { optionLabels: { ok: " " } })).rejects.toThrow(
         `Observation metric ${id}: label for option "ok" must be a non-empty string`,
       );
@@ -157,97 +142,48 @@ describe("observations", () => {
       const { id } = await water();
       await deleteMetric(db, id);
       await expect(updateMetric(db, id, { name: "x" })).rejects.toThrow(/not found/);
-      await expect(reviseMetric(db, id, { valueType: "boolean" })).rejects.toThrow(/not found/);
       await expect(setMetricArchived(db, id, true)).rejects.toThrow(/not found/);
       await expect(deleteMetric(db, id)).rejects.toThrow(/not found/);
     });
   });
 
-  describe("versioning", () => {
-    it("creates no version for the same shape, however it is written", async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-      const metric = await createMetric(db, {
-        name: "Mood",
-        valueType: "enum",
-        constraints: MOOD,
-      });
-      vi.setSystemTime(2_000);
-      const same = await reviseMetric(db, metric.id, {
-        valueType: "enum",
-        constraints: { options: [MOOD.options[2], MOOD.options[0], MOOD.options[1]] },
-      });
-      expect(same).toEqual(metric);
-      expect(await listMetricVersions(db, metric.id)).toHaveLength(1);
-    });
-
-    it("creates the next version for a new shape, keeping existing observations on theirs", async () => {
+  describe("constraints", () => {
+    it("change in place, checked on the next value but not on stored ones", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const metric = await water();
-      const old = await record(metric, "2026-10-19", 3);
+      const old = await record(metric, "2026-10-19", 2.5);
       vi.setSystemTime(2_000);
-      const revised = await reviseMetric(db, metric.id, {
+      const updated = await updateMetric(db, metric.id, { constraints: { min: 5, max: 20 } });
+      expect(updated).toMatchObject({
         valueType: "number",
-        constraints: { min: 0, max: 20, precision: 1 },
-      });
-      expect(revised).toMatchObject({ schemaVersion: 2, updatedAt: 2_000 });
-      expect(await getMetricVersion(db, metric.id, 2)).toMatchObject({
-        version: 2,
-        valueType: "number",
-        constraints: { min: 0, max: 20, precision: 1 },
-        createdAt: 2_000,
-      });
-      expect(await getMetricVersion(db, metric.id, 1)).toMatchObject({
-        constraints: { min: 0, max: 20 },
+        constraints: { min: 5, max: 20 },
+        updatedAt: 2_000,
       });
       expect(await getObservation(db, old.id)).toEqual(old);
-
-      const newer = await record(metric, "2026-10-20", 2.5);
-      expect(newer).toMatchObject({ metricVersion: 2, value: 2.5 });
-      expect((await reviseMetric(db, metric.id, { valueType: "boolean" })).schemaVersion).toBe(3);
-      expect((await listMetricVersions(db, metric.id)).map((v) => v.valueType)).toEqual([
-        "number",
-        "number",
-        "boolean",
-      ]);
+      await expect(record(metric, "2026-10-20", 3)).rejects.toThrow(/must be at least 5/);
+      await expect(record(metric, "2026-10-19", 3)).rejects.toThrow(
+        `Observation ${old.id}: must be at least 5`,
+      );
+      expect((await record(metric, "2026-10-19", 6)).id).toBe(old.id);
     });
 
-    it("refuses an invalid shape, changing nothing", async () => {
+    it("are parsed for the metric's value type, which never changes", async () => {
       const metric = await water();
       await expect(
-        reviseMetric(db, metric.id, { valueType: "number", constraints: { min: 2, max: 1 } }),
+        updateMetric(db, metric.id, { constraints: { min: 2, max: 1 } }),
       ).rejects.toThrow(`Observation metric ${metric.id}: min must not be greater than max`);
+      await expect(updateMetric(db, metric.id, { constraints: MOOD })).rejects.toThrow(/options/);
       expect(await getMetric(db, metric.id)).toEqual(metric);
     });
 
-    it("moves a revised observation to the current version, validating against it", async () => {
-      const metric = await water();
-      const first = await record(metric, "2026-10-19", 3);
-      await reviseMetric(db, metric.id, { valueType: "number", constraints: { min: 5 } });
-      await expect(record(metric, "2026-10-19", 3)).rejects.toThrow(
-        `Observation ${first.id}: must be at least 5`,
-      );
-      const revised = await record(metric, "2026-10-19", 6);
-      expect(revised).toMatchObject({ id: first.id, metricVersion: 2, value: 6 });
-    });
-
-    it("stores a value under a changed type in its own column only", async () => {
-      const metric = await createMetric(db, { name: "Mood", valueType: "enum", constraints: MOOD });
-      const { id } = await record(metric, "2026-10-19", "ok");
-      await reviseMetric(db, metric.id, { valueType: "multi_enum", constraints: MOOD });
-      expect(await record(metric, "2026-10-19", ["low", "high"])).toMatchObject({
-        valueType: "multi_enum",
-        value: ["low", "high"],
+    it("keep a removed option's stored keys, sorted last", async () => {
+      const metric = await symptoms();
+      const created = await record(metric, "2026-10-19", ["cough", "headache"]);
+      await updateMetric(db, metric.id, {
+        constraints: { ...SYMPTOMS, options: SYMPTOMS.options.filter((o) => o.key !== "headache") },
       });
-      const values = "SELECT value_bool, value_num, value_enum FROM observations";
-      expect(await rows(values)).toEqual([{ value_bool: null, value_num: null, value_enum: null }]);
-
-      await reviseMetric(db, metric.id, { valueType: "number" });
-      expect((await record(metric, "2026-10-19", 4)).value).toBe(4);
-      expect(await rows("SELECT * FROM observation_selections")).toEqual([]);
-      expect(await rows(values)).toEqual([{ value_bool: null, value_num: 4, value_enum: null }]);
-      expect((await getObservation(db, id))?.valueType).toBe("number");
+      expect((await getObservation(db, created.id))?.value).toEqual(["cough", "headache"]);
     });
   });
 
@@ -262,7 +198,6 @@ describe("observations", () => {
         observation: {
           id: expect.any(String),
           metricId: metric.id,
-          metricVersion: 1,
           date: "2026-10-19",
           valueType: "number",
           value: 3,
@@ -500,20 +435,16 @@ describe("observations", () => {
       expect(fresh.id).not.toBe(old.id);
     });
 
-    it("previews, then deletes a metric with its versions and observations", async () => {
+    it("previews, then deletes a metric with its observations", async () => {
       const metric = await water();
       await record(metric, "2026-10-19", 1);
       await record(metric, "2026-10-20", 2);
-      await reviseMetric(db, metric.id, { valueType: "number", constraints: { min: 1 } });
       const other = await water();
       await record(other, "2026-10-19", 1);
 
       expect(await previewMetricDeletion(db, metric.id)).toEqual({ observations: 2 });
       await deleteMetric(db, metric.id);
       expect(await listMetrics(db)).toEqual([other]);
-      expect(await rows("SELECT metric_id FROM observation_metric_versions")).toEqual([
-        { metric_id: other.id },
-      ]);
       expect(await rows("SELECT metric_id FROM observations")).toEqual([{ metric_id: other.id }]);
     });
   });
@@ -522,7 +453,6 @@ describe("observations", () => {
     const insert = (columns: Record<string, unknown>) => {
       const row = {
         id: "x",
-        metric_version: 1,
         date: "2026-10-19",
         source: "manual",
         written_by: "manual",
@@ -544,11 +474,8 @@ describe("observations", () => {
       await expect(insert({ metric_id: metric.id, value_num: 2 })).rejects.toThrow(/UNIQUE/);
     });
 
-    it("references an existing version of the metric", async () => {
-      const metric = await water();
-      await expect(insert({ metric_id: metric.id, metric_version: 2 })).rejects.toThrow(
-        /FOREIGN KEY/,
-      );
+    it("references an existing metric", async () => {
+      await expect(insert({ metric_id: "nope" })).rejects.toThrow(/FOREIGN KEY/);
     });
 
     it.each([

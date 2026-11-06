@@ -3,13 +3,13 @@ import { type Instant, instantToIso, isInstant, isLocalDate, type LocalDate } fr
 
 /**
  * Typed values, their shapes, and how they are stored (see docs/data-spec.md
- * § Enum options, § Versioning, § Storage). Shared by observation metrics and
- * log and thing fields.
+ * § Enum options, § Storage). Shared by observation metrics and log and thing
+ * fields.
  *
- * A **shape** is a value type plus its constraints: exactly what a version
- * record fixes. Changing a shape creates a new version; `sameShape` says when
- * nothing changed. Option labels are not part of the shape and are not
- * versioned, so they can outlive the options of the current version.
+ * A **shape** is a value type plus its constraints. A definition's value type
+ * never changes; its constraints can, and are checked only when a value is
+ * written. Option labels are not part of the shape, so they can outlive the
+ * options they label.
  *
  * Storage conventions for the migrations that use this module:
  * - `constraints` and `option_labels` are definition config, not values, so
@@ -116,7 +116,7 @@ export interface RefConstraints {
 
 type NoConstraints = Record<string, never>;
 
-/** A value type with its constraints: what one version record fixes. */
+/** A value type with its constraints. */
 export type ValueShape =
   | { valueType: "boolean"; constraints: NoConstraints }
   | { valueType: "number"; constraints: NumberConstraints }
@@ -143,7 +143,7 @@ export type Value = SingleValue | string[];
 // Shapes
 
 /**
- * The shape for `valueType` and `constraints` as read from input, a version
+ * The shape for `valueType` and `constraints` as read from input, a definition
  * record, or an import, in canonical form: known keys only, in a fixed order,
  * options sorted by `order`. Throws, naming `label`, if `valueType` is not in
  * `allowed` or the constraints are invalid. Unknown constraint keys are
@@ -289,17 +289,10 @@ function compact<T extends object>(obj: T): T {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 }
 
-/** Whether two canonical shapes are identical, so a change between them needs no new version. */
-export function sameShape(a: ValueShape, b: ValueShape): boolean {
-  return (
-    a.valueType === b.valueType && JSON.stringify(a.constraints) === JSON.stringify(b.constraints)
-  );
-}
-
 /**
  * Option labels as read from input, a definition record, or an import: option
- * key to non-empty label. Not checked against any version's options, since
- * labels are not versioned and older versions' keys keep their labels.
+ * key to non-empty label. Not checked against the options, so a removed
+ * option's key keeps its label.
  */
 export function parseOptionLabels(label: string, raw: unknown): Record<string, string> {
   const labels = raw ?? {};

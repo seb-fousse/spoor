@@ -48,26 +48,18 @@ export interface DB {
     id: string;
     name: string;
     description: string | null;
+    value_type: string;
+    /** JSON text. */
+    constraints: string;
     /** JSON text: option key to label. */
     option_labels: string;
-    schema_version: number;
     created_at: number;
     updated_at: number;
     archived_at: number | null;
   };
-  observation_metric_versions: {
-    id: string;
-    metric_id: string;
-    version: number;
-    value_type: string;
-    /** JSON text. */
-    constraints: string;
-    created_at: number;
-  };
   observations: {
     id: string;
     metric_id: string;
-    metric_version: number;
     date: string;
     /** 0 or 1. */
     value_bool: number | null;
@@ -91,43 +83,28 @@ export interface DB {
     description: string | null;
     /** A `thing_fields` id; no foreign key, core enforces it. */
     title_field_id: string;
-    schema_version: number;
     created_at: number;
     updated_at: number;
     archived_at: number | null;
-  };
-  thing_type_versions: {
-    id: string;
-    thing_type_id: string;
-    version: number;
-    created_at: number;
   };
   thing_fields: {
     id: string;
     thing_type_id: string;
     name: string;
     position: number;
-    /** JSON text: option key to label. */
-    option_labels: string;
-    created_at: number;
-    updated_at: number;
-  };
-  thing_field_versions: {
-    id: string;
-    field_id: string;
-    thing_type_id: string;
-    thing_type_version: number;
     value_type: string;
     /** 0 or 1. */
     required: number;
     /** JSON text. */
     constraints: string;
+    /** JSON text: option key to label. */
+    option_labels: string;
     created_at: number;
+    updated_at: number;
   };
   things: {
     id: string;
     thing_type_id: string;
-    thing_type_version: number;
     source: string;
     external_id: string | null;
     created_at: number;
@@ -154,43 +131,28 @@ export interface DB {
     description: string | null;
     /** Set at creation only. */
     parent_type_id: string | null;
-    schema_version: number;
     created_at: number;
     updated_at: number;
     archived_at: number | null;
-  };
-  log_type_versions: {
-    id: string;
-    log_type_id: string;
-    version: number;
-    created_at: number;
   };
   log_fields: {
     id: string;
     log_type_id: string;
     name: string;
     position: number;
-    /** JSON text: option key to label. */
-    option_labels: string;
-    created_at: number;
-    updated_at: number;
-  };
-  log_field_versions: {
-    id: string;
-    field_id: string;
-    log_type_id: string;
-    log_type_version: number;
     value_type: string;
     /** 0 or 1. */
     required: number;
     /** JSON text. */
     constraints: string;
+    /** JSON text: option key to label. */
+    option_labels: string;
     created_at: number;
+    updated_at: number;
   };
   log_entries: {
     id: string;
     log_type_id: string;
-    log_type_version: number;
     /** Null on a child entry, which inherits them; as are `precision` and `time_zone`. */
     occurred_at: number | null;
     ended_at: number | null;
@@ -263,24 +225,16 @@ export const TABLE_COLUMNS: { readonly [T in keyof DB]: Record<keyof DB[T], true
     id: true,
     name: true,
     description: true,
+    value_type: true,
+    constraints: true,
     option_labels: true,
-    schema_version: true,
     created_at: true,
     updated_at: true,
     archived_at: true,
   },
-  observation_metric_versions: {
-    id: true,
-    metric_id: true,
-    version: true,
-    value_type: true,
-    constraints: true,
-    created_at: true,
-  },
   observations: {
     id: true,
     metric_id: true,
-    metric_version: true,
     date: true,
     value_bool: true,
     value_num: true,
@@ -298,35 +252,25 @@ export const TABLE_COLUMNS: { readonly [T in keyof DB]: Record<keyof DB[T], true
     name: true,
     description: true,
     title_field_id: true,
-    schema_version: true,
     created_at: true,
     updated_at: true,
     archived_at: true,
   },
-  thing_type_versions: { id: true, thing_type_id: true, version: true, created_at: true },
   thing_fields: {
     id: true,
     thing_type_id: true,
     name: true,
     position: true,
+    value_type: true,
+    required: true,
+    constraints: true,
     option_labels: true,
     created_at: true,
     updated_at: true,
   },
-  thing_field_versions: {
-    id: true,
-    field_id: true,
-    thing_type_id: true,
-    thing_type_version: true,
-    value_type: true,
-    required: true,
-    constraints: true,
-    created_at: true,
-  },
   things: {
     id: true,
     thing_type_id: true,
-    thing_type_version: true,
     source: true,
     external_id: true,
     created_at: true,
@@ -351,35 +295,25 @@ export const TABLE_COLUMNS: { readonly [T in keyof DB]: Record<keyof DB[T], true
     name: true,
     description: true,
     parent_type_id: true,
-    schema_version: true,
     created_at: true,
     updated_at: true,
     archived_at: true,
   },
-  log_type_versions: { id: true, log_type_id: true, version: true, created_at: true },
   log_fields: {
     id: true,
     log_type_id: true,
     name: true,
     position: true,
+    value_type: true,
+    required: true,
+    constraints: true,
     option_labels: true,
     created_at: true,
     updated_at: true,
   },
-  log_field_versions: {
-    id: true,
-    field_id: true,
-    log_type_id: true,
-    log_type_version: true,
-    value_type: true,
-    required: true,
-    constraints: true,
-    created_at: true,
-  },
   log_entries: {
     id: true,
     log_type_id: true,
-    log_type_version: true,
     occurred_at: true,
     ended_at: true,
     precision: true,

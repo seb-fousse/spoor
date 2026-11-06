@@ -7,7 +7,6 @@ import {
   optionLabel,
   parseOptionLabels,
   parseShape,
-  sameShape,
   VALUE_TYPES,
   type ValueShape,
   validateValue,
@@ -108,30 +107,6 @@ describe("parseShape", () => {
 
   it("refuses constraints that are not an object", () => {
     expect(() => shape("number", [])).toThrow("Field f1: constraints must be an object");
-  });
-});
-
-describe("sameShape", () => {
-  it("is true only when type and constraints match", () => {
-    const a = shape("number", { min: 0, max: 5 });
-    expect(sameShape(a, shape("number", { max: 5, min: 0 }))).toBe(true);
-    expect(sameShape(a, shape("number", { min: 0, max: 6 }))).toBe(false);
-    expect(
-      sameShape(
-        shape("ref", { thingTypeId: THING_TYPE }),
-        shape("multi_ref", { thingTypeId: THING_TYPE }),
-      ),
-    ).toBe(false);
-  });
-
-  it("treats an option change as a new shape", () => {
-    const moved = shape("enum", {
-      options: [
-        { key: "good", order: 1, score: 5 },
-        { key: "bad", order: 2, score: 1 },
-      ],
-    });
-    expect(sameShape(mood, moved)).toBe(false);
   });
 });
 

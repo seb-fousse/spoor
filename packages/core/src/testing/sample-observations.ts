@@ -3,14 +3,14 @@ import {
   deleteMetric,
   deleteObservation,
   recordObservation,
-  reviseMetric,
   setMetricArchived,
+  updateMetric,
 } from "../observations";
 import type { Database } from "../platform/index";
 
 /**
- * TEST-ONLY. Observation rows for `populate`: metrics, one archived, a metric
- * with two versions, and observations of every value type (`multi_enum` with
+ * TEST-ONLY. Observation rows for `populate`: metrics, one archived and one
+ * whose constraints changed, and observations of every value type (`multi_enum` with
  * none and several selected, one automated). A deleted metric and a deleted
  * observation leave nothing behind.
  */
@@ -26,11 +26,8 @@ export async function populateObservations(db: Database): Promise<void> {
     constraints: { unit: "cups", min: 0 },
   });
   await recordObservation(db, water.id, "2026-10-19", 6);
-  // Version 2 allows one decimal place at most; the first observation keeps version 1.
-  await reviseMetric(db, water.id, {
-    valueType: "number",
-    constraints: { unit: "cups", min: 0, precision: 1 },
-  });
+  // Now one decimal place at most; the first observation is not re-validated.
+  await updateMetric(db, water.id, { constraints: { unit: "cups", min: 0, precision: 1 } });
   await recordObservation(db, water.id, "2026-10-20", 7.5, {
     writtenBy: "healthkit",
     externalId: "hk-1",

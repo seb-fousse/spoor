@@ -4,20 +4,22 @@ import type { Database } from "./platform/index";
 import { migrate } from "./schema/migrate";
 import { createInMemoryDatabase } from "./testing/in-memory-database";
 import {
+  addThingField,
   createThing,
   createThingType,
   deleteThing,
+  deleteThingField,
   deleteThingType,
   getThing,
   getThingTitle,
   getThingType,
-  getThingTypeVersionFields,
+  getThingTypeFields,
   listThings,
   listThingTypes,
   previewThingDeletion,
+  previewThingFieldDeletion,
   previewThingTypeDeletion,
   reorderThingFields,
-  reviseThingTypeFields,
   setThingTypeArchived,
   type ThingType,
   updateThingField,
@@ -45,7 +47,7 @@ describe("things", () => {
   /** A Person type with a title and a birth date, and its field ids. */
   const person = async () => {
     const type = await createThingType(db, { name: "Person", fields: [NAME, BORN] });
-    const [name, born] = (await getThingTypeVersionFields(db, type.id)).map((f) => f.id);
+    const [name, born] = (await getThingTypeFields(db, type.id)).map((f) => f.id);
     return { type, name, born };
   };
 
@@ -53,7 +55,7 @@ describe("things", () => {
     (await db.query<{ n: number }>(`SELECT count(*) AS n FROM ${table}`))[0].n;
 
   describe("thing type", () => {
-    it("creates version 1, trimming text, with the first field as title", async () => {
+    it("creates, trimming text, with the first field as title", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const type = await createThingType(db, {
@@ -61,13 +63,12 @@ describe("things", () => {
         description: " ",
         fields: [NAME, BORN],
       });
-      const fields = await getThingTypeVersionFields(db, type.id);
+      const fields = await getThingTypeFields(db, type.id);
       expect(type).toEqual({
         id: expect.any(String),
         name: "Person",
         description: null,
         titleFieldId: fields[0].id,
-        schemaVersion: 1,
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
@@ -85,7 +86,7 @@ describe("things", () => {
         fields: [BORN, NAME],
         titleFieldIndex: 1,
       });
-      const fields = await getThingTypeVersionFields(db, type.id);
+      const fields = await getThingTypeFields(db, type.id);
       expect(type.titleFieldId).toBe(fields[1].id);
     });
 
@@ -111,116 +112,98 @@ describe("things", () => {
       expect((await listThingTypes(db)).map((t) => t.name)).toEqual(["Movie", "place"]);
     });
 
-    it("renames, redescribes and picks another title field without a version", async () => {
+    it("renames, redescribes and picks another title field", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
-      const { type, name } = await person();
-      const nick = { name: "Nickname", valueType: "text" as const, required: true };
-      await reviseThingTypeFields(db, type.id, [{ ...NAME, id: name }, nick]);
-      const nickId = (await getThingTypeVersionFields(db, type.id))[1].id;
+      const { type } = await person();
+      const nick = await addThingField(db, type.id, {
+        name: "Nickname",
+        valueType: "text",
+        required: true,
+      });
       vi.setSystemTime(2_000);
       const updated = await updateThingType(db, type.id, {
         name: "People",
         description: "Who",
-        titleFieldId: nickId,
+        titleFieldId: nick,
       });
       expect(updated).toMatchObject({
         name: "People",
         description: "Who",
-        titleFieldId: nickId,
-        schemaVersion: 2,
+        titleFieldId: nick,
         updatedAt: 2_000,
       });
     });
 
-    it("refuses a title field that is not a required text field of the current version", async () => {
-      const { type, name, born } = await person();
+    it("refuses a title field that is not one of its required text fields", async () => {
+      const { type, born } = await person();
       await expect(updateThingType(db, type.id, { titleFieldId: born })).rejects.toThrow(
         /must be a required text field/,
       );
-      await reviseThingTypeFields(db, type.id, [{ ...NAME, id: name }]);
-      await expect(updateThingType(db, type.id, { titleFieldId: born })).rejects.toThrow(
-        /is not in version 2/,
+      const other = await person();
+      await expect(updateThingType(db, type.id, { titleFieldId: other.name })).rejects.toThrow(
+        /is not one of its fields/,
       );
     });
 
-    describe("revising fields", () => {
-      it("creates a version that new things use, while old things keep theirs", async () => {
-        const { type, name, born } = await person();
+    describe("fields", () => {
+      it("adds a field, which existing things lack and new ones must fill if required", async () => {
+        const { type, name } = await person();
         const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
-        const revised = await reviseThingTypeFields(db, type.id, [
-          { ...NAME, id: name },
-          { ...BORN, id: born, required: true },
+        const city = await addThingField(db, type.id, {
+          name: "City",
+          valueType: "text",
+          required: true,
+        });
+        expect((await getThingTypeFields(db, type.id)).map((f) => [f.name, f.position])).toEqual([
+          ["Name", 0],
+          ["Born", 1],
+          ["City", 2],
         ]);
-        expect(revised.schemaVersion).toBe(2);
+        expect((await getThing(db, alex.id))?.values).toEqual({ [name]: "Alex" });
         await expect(
           createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } }),
-        ).rejects.toThrow(/is required/);
-        const sam = await createThing(db, {
-          thingTypeId: type.id,
-          values: { [name]: "Sam", [born]: "1990-01-01" },
-        });
-        expect(sam.thingTypeVersion).toBe(2);
-        expect((await getThing(db, alex.id))?.thingTypeVersion).toBe(1);
-        // Alex is still valid against version 1.
-        await updateThingValues(db, alex.id, { [name]: "Alexandra" });
+        ).rejects.toThrow(new RegExp(`field ${city}: is required`));
+        await expect(
+          addThingField(db, type.id, { name: "city", valueType: "text" }),
+        ).rejects.toThrow(/already used/);
       });
 
-      it("creates no version for renames and reordering", async () => {
+      it("renames, relabels, requires and reorders fields", async () => {
         const { type, name, born } = await person();
-        const revised = await reviseThingTypeFields(db, type.id, [
-          { ...BORN, id: born },
-          { ...NAME, id: name, name: "Full name" },
+        await updateThingField(db, type.id, born, { name: "Birthday", required: true });
+        await reorderThingFields(db, type.id, [born, name]);
+        expect((await getThingTypeFields(db, type.id)).map((f) => [f.name, f.required])).toEqual([
+          ["Birthday", true],
+          ["Name", true],
         ]);
-        expect(revised.schemaVersion).toBe(1);
-        expect((await getThingTypeVersionFields(db, type.id)).map((f) => f.name)).toEqual([
-          "Born",
-          "Full name",
-        ]);
-      });
-
-      it.each([
-        ["retires", (_name: string, born: string) => [{ ...BORN, id: born }], /cannot be retired/],
-        [
-          "retypes",
-          (name: string) => [
-            { id: name, name: "Name", valueType: "number" as const, required: true },
-          ],
-          /required text field/,
-        ],
-        [
-          "makes optional",
-          (name: string) => [{ ...NAME, id: name, required: false }],
-          /required text/,
-        ],
-      ])("refuses a revision that %s the title field", async (_, fields, message) => {
-        const { type, name, born } = await person();
-        await expect(reviseThingTypeFields(db, type.id, fields(name, born))).rejects.toThrow(
-          message,
+        const other = await person();
+        await expect(updateThingField(db, type.id, other.born, { name: "x" })).rejects.toThrow(
+          /not a field of thing type/,
         );
-        expect((await getThingType(db, type.id))?.schemaVersion).toBe(1);
       });
 
-      it("reads older versions' fields", async () => {
+      it("previews, then deletes a field with its values", async () => {
+        const { type, name, born } = await person();
+        await createThing(db, {
+          thingTypeId: type.id,
+          values: { [name]: "Alex", [born]: "1990-01-01" },
+        });
+        await createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } });
+        expect(await previewThingFieldDeletion(db, type.id, born)).toEqual({ values: 1 });
+        await deleteThingField(db, type.id, born);
+        expect((await getThingTypeFields(db, type.id)).map((f) => f.id)).toEqual([name]);
+        expect(await count("thing_field_values")).toBe(2);
+      });
+
+      it("keeps the title field, required", async () => {
         const { type, name } = await person();
-        await reviseThingTypeFields(db, type.id, [{ ...NAME, id: name }]);
-        expect(await getThingTypeVersionFields(db, type.id)).toHaveLength(1);
-        expect(await getThingTypeVersionFields(db, type.id, 1)).toHaveLength(2);
+        await expect(deleteThingField(db, type.id, name)).rejects.toThrow(/cannot be deleted/);
+        await expect(updateThingField(db, type.id, name, { required: false })).rejects.toThrow(
+          /must stay required/,
+        );
+        await updateThingField(db, type.id, name, { constraints: { maxLength: 10 } });
       });
-    });
-
-    it("renames, relabels and reorders fields", async () => {
-      const { type, name, born } = await person();
-      await updateThingField(db, type.id, born, { name: "Birthday" });
-      await reorderThingFields(db, type.id, [born, name]);
-      expect((await getThingTypeVersionFields(db, type.id)).map((f) => f.name)).toEqual([
-        "Birthday",
-        "Name",
-      ]);
-      const other = await person();
-      await expect(updateThingField(db, type.id, other.born, { name: "x" })).rejects.toThrow(
-        /not a field of thing type/,
-      );
     });
 
     it("is not offered for new things once archived", async () => {
@@ -233,7 +216,7 @@ describe("things", () => {
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
     });
 
-    it("previews, then deletes with its fields, versions and things", async () => {
+    it("previews, then deletes with its fields and things", async () => {
       const { type, name } = await person();
       const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } });
@@ -244,7 +227,7 @@ describe("things", () => {
           { name: "Director", valueType: "ref", constraints: { thingTypeId: type.id } },
         ],
       });
-      const [title, director] = (await getThingTypeVersionFields(db, movie.id)).map((f) => f.id);
+      const [title, director] = (await getThingTypeFields(db, movie.id)).map((f) => f.id);
       const alien = await createThing(db, {
         thingTypeId: movie.id,
         values: { [title]: "Alien", [director]: alex.id },
@@ -262,7 +245,6 @@ describe("things", () => {
       expect(await getThingType(db, type.id)).toBeUndefined();
       expect(await count("things")).toBe(1);
       expect(await count("thing_fields")).toBe(2);
-      expect(await count("thing_type_versions")).toBe(1);
       expect((await getThing(db, alien.id))?.values).toEqual({ [title]: "Alien" });
       expect(await getCategory(db, category.id)).toMatchObject({ name: "Alex", thingId: null });
       expect((await getTimeline(db, people.id))?.defaultThingTypeId).toBeNull();
@@ -271,7 +253,7 @@ describe("things", () => {
   });
 
   describe("thing", () => {
-    it("creates with values against the current version", async () => {
+    it("creates with values against its type's fields", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1_000);
       const { type, name, born } = await person();
@@ -282,7 +264,6 @@ describe("things", () => {
       expect(alex).toEqual({
         id: expect.any(String),
         thingTypeId: type.id,
-        thingTypeVersion: 1,
         source: "manual",
         externalId: null,
         values: { [name]: "Alex", [born]: "1990-04-01" },
@@ -403,7 +384,7 @@ describe("things", () => {
           { name: "Director", valueType: "ref", constraints: { thingTypeId: people.id } },
         ],
       });
-      const [title, director] = (await getThingTypeVersionFields(db, movie.id)).map((f) => f.id);
+      const [title, director] = (await getThingTypeFields(db, movie.id)).map((f) => f.id);
       const alien = await createThing(db, {
         thingTypeId: movie.id,
         values: { [title]: "Alien", [director]: alex.id },
