@@ -24,7 +24,7 @@ import { populateThings } from "./sample-things";
 const H = 3_600_000;
 const T0 = Date.UTC(2026, 9, 20, 8);
 
-/** Settings, live/archived/trashed timelines, categories and intervals, and a purged interval. */
+/** Settings, timelines, categories and intervals, some archived, and some deleted to leave no trace. */
 export async function populate(db: Database): Promise<void> {
   await setTimeZone(db, "Europe/Paris");
   await setSetting(db, "theme", {
@@ -51,25 +51,17 @@ export async function populate(db: Database): Promise<void> {
     endAt: T0 + 4 * H,
     timeZone: "Asia/Tokyo",
   });
-  const trashed = await createInterval(db, {
+  const deleted = await createInterval(db, {
     categoryId: work.id,
     startAt: T0 + 5 * H,
     endAt: T0 + 6 * H,
   });
-  await deleteInterval(db, trashed.id);
+  await deleteInterval(db, deleted.id);
   await startInterval(db, work.id, { at: T0 + 7 * H });
 
   await setCategoryArchived(db, idle.id, true);
   const gone = await createCategory(db, activities.id, { name: "Gone" });
   await deleteCategory(db, gone.id);
-
-  // The purge operation does not exist yet, so write the tombstone it will leave.
-  await db.execute(
-    `INSERT INTO timeline_intervals
-       (id, timeline_id, category_id, created_at, updated_at, deleted_at, deletion_id, purged_at)
-     VALUES ('01900000-0000-7000-8000-000000000001', ?, ?, ?, ?, ?, ?, ?)`,
-    [activities.id, work.id, T0, T0 + 1, T0 + 2, "01900000-0000-7000-8000-000000000002", T0 + 3],
-  );
 
   const habits = await createTimeline(db, { name: "Habits", exclusive: false });
   await createCategory(db, habits.id, { name: "Read" });

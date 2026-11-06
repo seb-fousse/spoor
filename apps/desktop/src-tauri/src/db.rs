@@ -31,7 +31,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    // Erased content is overwritten, not left in free pages (see data-spec, Purge).
+    // Deleted content is overwritten, not left in free pages (see data-spec, Deleting).
     conn.pragma_update(None, "secure_delete", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     Ok(())

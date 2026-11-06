@@ -11,7 +11,8 @@ to end, not one layer at a time. No dates.
 - **Observations:** define daily metrics and enter them manually.
 - **Logs and things:** define log and thing types; create log entries that
   refer to things.
-- **Trash:** deleted entries are restorable for seven days, then purged.
+- **Deleting:** immediate and permanent, after a confirmation that counts what
+  goes with it. No trash for the MVP.
 - **Full export and import** with a tested round-trip.
 - A query layer validated over Tauri IPC.
 

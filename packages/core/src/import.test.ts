@@ -62,12 +62,12 @@ describe("importData", () => {
   });
 
   it("inserts a self-referencing row after the row it references", async () => {
-    // A merged thing references its survivor: list it first and the survivor last.
-    const things = rows(doc, "things");
-    const duplicate = things.find((t) => t.mergedIntoId !== null);
-    const survivor = things.find((t) => t.id === duplicate?.mergedIntoId);
-    expect(survivor).toBeDefined();
-    doc.things = [duplicate, ...things.filter((t) => t !== duplicate && t !== survivor), survivor];
+    // A child entry references its parent: list it first and the parent last.
+    const entries = rows(doc, "logEntries");
+    const child = entries.find((e) => e.parentEntryId !== null);
+    const parent = entries.find((e) => e.id === child?.parentEntryId);
+    expect(parent).toBeDefined();
+    doc.logEntries = [child, ...entries.filter((e) => e !== child && e !== parent), parent];
     await importData(db, doc);
     expect(await dumpAll(db)).toEqual(await dumpAll(source));
   });
@@ -141,10 +141,10 @@ describe("importData", () => {
   });
 
   it("rolls back when a constraint is violated", async () => {
-    // Trashed without a deletion id breaks the CHECK on the timeline.
-    const timeline = rows(doc, "timelines")[0];
-    if (timeline) timeline.deletedAt = "2026-10-20T08:00:00.000Z";
-    await refused(/timelines\[0\]/);
+    // Ending when it starts breaks the CHECK on the interval.
+    const interval = rows(doc, "timelineIntervals")[0];
+    if (interval) interval.endAt = interval.startAt;
+    await refused(/timelineIntervals\[0\]/);
   });
 
   it("refuses an interval in a time zone the platform does not know", async () => {
@@ -154,8 +154,8 @@ describe("importData", () => {
   });
 
   describe("the overlap rule", () => {
-    // On "Activities" (exclusive): Sleep 00:00-08:00, Work 08:00-12:00, a trashed
-    // Work 13:00-14:00, and an ongoing Work from 15:00, all on 2026-10-20 UTC.
+    // On "Activities" (exclusive): Sleep 00:00-08:00, Work 08:00-12:00, and an
+    // ongoing Work from 15:00, all on 2026-10-20 UTC.
     const activities = () => {
       const timeline = rows(doc, "timelines").find((t) => t.name === "Activities");
       if (!timeline) throw new Error("fixture has no Activities timeline");
@@ -177,11 +177,6 @@ describe("importData", () => {
     it("accepts intervals of different categories that overlap on a non-exclusive timeline", async () => {
       activities().exclusive = false;
       intervalStartingAt("2026-10-20T00:00:00.000Z").endAt = "2026-10-20T09:00:00.000Z";
-      await expect(importData(db, doc)).resolves.toBeUndefined();
-    });
-
-    it("ignores trashed intervals", async () => {
-      intervalStartingAt("2026-10-20T13:00:00.000Z").startAt = "2026-10-20T10:00:00.000Z";
       await expect(importData(db, doc)).resolves.toBeUndefined();
     });
   });

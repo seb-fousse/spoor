@@ -21,7 +21,8 @@ import {
   listCategories,
   listIntervals,
   listTimelines,
-  restoreTimelineRecords,
+  previewCategoryDeletion,
+  previewTimelineDeletion,
   setCategoryArchived,
   setTimelineArchived,
   startInterval,
@@ -32,7 +33,7 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
-import { Trash } from "./Trash";
+import { effect, useConfirmDelete } from "./ConfirmDelete";
 
 /**
  * Proof-of-concept Timelines screen: every core read and write, built from
@@ -41,7 +42,6 @@ import { Trash } from "./Trash";
  */
 export function Timelines({ db }: { db: Database }) {
   const [timelines, setTimelines] = useState<Timeline[]>([]);
-  const [trashed, setTrashed] = useState<Timeline[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -54,22 +54,34 @@ export function Timelines({ db }: { db: Database }) {
       .finally(() => setVersion((v) => v + 1));
   };
 
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([listTimelines(db), listTimelines(db, { trashed: true })])
-      .then(([live, trash]) => {
-        setTimelines(live);
-        setTrashed(trash);
-      })
+    listTimelines(db)
+      .then(setTimelines)
       .catch((e: Error) => setError(e.message));
   }, [db, version]);
 
   const selected = timelines.find((t) => t.id === selectedId);
+  const askDelete = (t: Timeline) =>
+    confirmDelete(
+      `the ${t.name} timeline`,
+      () => deleteTimeline(db, t.id),
+      async () => {
+        const n = await previewTimelineDeletion(db, t.id);
+        return [
+          effect("deletes", n.categories, "category", "categories"),
+          effect("deletes", n.intervals, "interval"),
+        ];
+      },
+    );
 
   return (
     <Stack component="section" gap="sm">
       <Title order={2}>Timelines</Title>
       {error && <Alert color="red">{error}</Alert>}
+      {deleteDialog}
 
       <TimelineForm
         onCreate={(name, exclusive) => run(() => createTimeline(db, { name, exclusive }))}
@@ -95,21 +107,12 @@ export function Timelines({ db }: { db: Database }) {
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
             </Button>
-            <Button
-              size="xs"
-              variant="light"
-              color="red"
-              onClick={() => run(() => deleteTimeline(db, t.id))}
-            >
+            <Button size="xs" variant="light" color="red" onClick={() => askDelete(t)}>
               Delete
             </Button>
           </Group>
         ))}
       </Stack>
-      <Trash
-        items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
-        onRestore={(deletionId) => run(() => restoreTimelineRecords(db, deletionId))}
-      />
 
       {selected && <TimelineDetail db={db} timeline={selected} version={version} run={run} />}
     </Stack>
@@ -160,28 +163,21 @@ function TimelineDetail({
   run: (action: () => Promise<unknown>) => void;
 }) {
   const [categories, setCategories] = useState<TimelineCategory[]>([]);
-  const [trashedCategories, setTrashedCategories] = useState<TimelineCategory[]>([]);
   const [intervals, setIntervals] = useState<TimelineInterval[]>([]);
-  const [trashedIntervals, setTrashedIntervals] = useState<TimelineInterval[]>([]);
   const [categoryName, setCategoryName] = useState("");
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([
-      listCategories(db, timeline.id),
-      listCategories(db, timeline.id, { trashed: true }),
-      listIntervals(db, timeline.id),
-      listIntervals(db, timeline.id, { trashed: true }),
-    ]).then(([c, tc, i, ti]) => {
-      setCategories(c);
-      setTrashedCategories(tc);
-      setIntervals(i);
-      setTrashedIntervals(ti);
-    });
+    Promise.all([listCategories(db, timeline.id), listIntervals(db, timeline.id)]).then(
+      ([c, i]) => {
+        setCategories(c);
+        setIntervals(i);
+      },
+    );
   }, [db, timeline.id, version]);
 
-  // Trashed intervals may belong to trashed categories, so look in both lists.
-  const names = new Map([...categories, ...trashedCategories].map((c) => [c.id, c.name]));
+  const names = new Map(categories.map((c) => [c.id, c.name]));
   const describe = (i: TimelineInterval) =>
     `${names.get(i.categoryId) ?? "?"}: ${formatTime(i.startAt)} → ${i.endAt === null ? "ongoing" : formatTime(i.endAt)}`;
 
@@ -194,6 +190,7 @@ function TimelineDetail({
   return (
     <Stack gap="sm">
       <Title order={3}>{timeline.name}</Title>
+      {deleteDialog}
 
       <Title order={4}>Categories</Title>
       <form onSubmit={addCategory}>
@@ -233,7 +230,19 @@ function TimelineDetail({
               size="xs"
               variant="light"
               color="red"
-              onClick={() => run(() => deleteCategory(db, c.id))}
+              onClick={() =>
+                confirmDelete(
+                  `the ${c.name} category`,
+                  () => deleteCategory(db, c.id),
+                  async () => [
+                    effect(
+                      "deletes",
+                      (await previewCategoryDeletion(db, c.id)).intervals,
+                      "interval",
+                    ),
+                  ],
+                )
+              }
             >
               Delete
             </Button>
@@ -264,29 +273,15 @@ function TimelineDetail({
               size="xs"
               variant="light"
               color="red"
-              onClick={() => run(() => deleteInterval(db, i.id))}
+              onClick={() =>
+                confirmDelete(`the interval ${describe(i)}`, () => deleteInterval(db, i.id))
+              }
             >
               Delete
             </Button>
           </Group>
         ))}
       </Stack>
-
-      <Trash
-        items={[
-          ...trashedCategories.map((c) => ({
-            id: c.id,
-            label: `Category ${c.name}`,
-            deletionId: c.deletionId,
-          })),
-          ...trashedIntervals.map((i) => ({
-            id: i.id,
-            label: describe(i),
-            deletionId: i.deletionId,
-          })),
-        ]}
-        onRestore={(deletionId) => run(() => restoreTimelineRecords(db, deletionId))}
-      />
     </Stack>
   );
 }

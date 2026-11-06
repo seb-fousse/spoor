@@ -376,10 +376,7 @@ describe("definitions", () => {
     it("refuses a new reference to a deleted thing type", async () => {
       const { id, fieldIds } = await createType(fields);
       const gone = await createType(fields, "Gone");
-      await db.execute("UPDATE thing_types SET deleted_at = 1, deletion_id = ? WHERE id = ?", [
-        newId(),
-        gone.id,
-      ]);
+      await db.execute("DELETE FROM thing_types WHERE id = ?", [gone.id]);
       await expect(
         reviseFields(
           db,
@@ -700,7 +697,7 @@ describe("definitions", () => {
       ).rejects.toThrow(`thing ${other.id} is not of thing type`);
     });
 
-    it("refuses new references to a deleted thing but keeps stored ones valid", async () => {
+    it("drops stored references to a deleted thing, and refuses new ones", async () => {
       const { movie, people, f } = await setup();
       const thing = await createThing(movie.id);
       await setValues(
@@ -710,29 +707,12 @@ describe("definitions", () => {
         { [f.title]: "Alien", [f.director]: people[0], [f.withPeople]: [people[0]] },
         manual(),
       );
-      await db.execute("UPDATE things SET deleted_at = 1, deletion_id = ? WHERE id IN (?, ?)", [
-        newId(),
-        people[0],
-        people[1],
-      ]);
+      await db.execute("DELETE FROM things WHERE id = ?", [people[0]]);
 
-      // Stored references survive edits, including re-sending them.
-      await setValues(
-        db,
-        T,
-        thing,
-        { [f.title]: "Aliens", [f.director]: people[0], [f.withPeople]: [people[0], people[2]] },
-        manual(),
-      );
-      expect((await readValues(db, T, thing))[f.director]).toBe(people[0]);
-
+      expect(await readValues(db, T, thing)).toEqual({ [f.title]: "Alien" });
       await expect(
         validateValues(db, T, thing, { [f.withPeople]: [people[0], people[1]] }),
-      ).rejects.toThrow(`Thing ${thing.id}, field ${f.withPeople}: thing ${people[1]} is deleted`);
-      const fresh = await createThing(movie.id);
-      await expect(
-        validateValues(db, T, fresh, { [f.title]: "Alien", [f.director]: people[0] }),
-      ).rejects.toThrow(/is deleted/);
+      ).rejects.toThrow(`Thing ${thing.id}, field ${f.withPeople}: thing ${people[0]} not found`);
     });
 
     it("lets the user always win over automated writers", async () => {

@@ -44,8 +44,8 @@ import {
  * stores one value row per field, or one per referenced thing for `multi_ref`.
  *
  * Nothing here opens a transaction: every write must run inside the caller's
- * `transaction()`, alongside the caller's own checks (that the type is live,
- * that the record is not purged, and so on).
+ * `transaction()`, alongside the caller's own checks (that the type exists,
+ * that it is not archived, and so on).
  *
  * Internal to core: not exported from the barrel.
  */
@@ -442,12 +442,8 @@ export async function getVersionFields(
  * - a value `validateValue` refuses;
  * - a required field left without a value, by clearing it or never setting it
  *   (an empty `multi_ref` has no value);
- * - a new reference to a thing that does not exist, is deleted, or has another
- *   type than the field's `thingTypeId`. References already stored stay valid
- *   when their thing is deleted.
- *
- * A reference to a merged thing is redirected to the thing it was merged into,
- * following the chain, before it is checked.
+ * - a new reference to a thing that does not exist, or has another type than
+ *   the field's `thingTypeId`.
  */
 export async function validateValues(
   db: Database,
@@ -466,22 +462,13 @@ export async function validateValues(
         `${label}: not a field of ${typeLabel(tables, record.typeId)} version ${record.typeVersion}`,
       );
     }
-    let value =
+    const value =
       input === null || (Array.isArray(input) && input.length === 0)
         ? null
         : validateValue(label, field.shape, input);
     if (value === null && field.required) throw new Error(`${label}: is required`);
     if (field.shape.valueType === "ref" || field.shape.valueType === "multi_ref") {
       const kept = new Set(stored.filter((r) => r.field_id === fieldId).map((r) => r.value_ref));
-      if (value !== null) {
-        const merged = await resolveMergedThings(
-          db,
-          Array.isArray(value) ? value : [value as string],
-        );
-        value = Array.isArray(value)
-          ? [...new Set(value.map((id) => merged.get(id) as string))]
-          : (merged.get(value as string) as string);
-      }
       const ids = value === null ? [] : Array.isArray(value) ? value : [value as string];
       await assertRefsTo(
         db,
@@ -658,50 +645,6 @@ export async function readValues(
 // References
 
 /**
- * Each of `ids` mapped to the thing it was merged into, following the chain if
- * that one was merged too. An id never merged, or unknown, maps to itself.
- */
-export async function resolveMergedThings(
-  db: Database,
-  ids: readonly string[],
-): Promise<Map<string, string>> {
-  const resolved = new Map(ids.map((id) => [id, id]));
-  for (let hops = 0; resolved.size > 0; hops++) {
-    const merged = await queryBuilder(db)
-      .selectFrom("things")
-      .select(["id", "merged_into_id"])
-      .where("id", "in", [...new Set(resolved.values())])
-      .where("merged_into_id", "is not", null)
-      .execute();
-    if (merged.length === 0) break;
-    // Core never builds a cycle; refuse rather than loop on corrupt data.
-    if (hops === 100) throw new Error(`Thing ${merged[0].id}: its merge chain does not end`);
-    const next = new Map(merged.map((row) => [row.id, row.merged_into_id as string]));
-    for (const [id, target] of resolved) resolved.set(id, next.get(target) ?? target);
-  }
-  return resolved;
-}
-
-/**
- * A merge trashes the duplicate, and categories and intervals it absorbed, under
- * one deletion. Its references were moved, so it cannot be undone by a restore.
- * For `restoreThingRecords` and `restoreTimelineRecords`.
- */
-export async function assertNotMerge(db: Database, deletionId: string): Promise<void> {
-  const merged = await queryBuilder(db)
-    .selectFrom("things")
-    .select(["id", "merged_into_id"])
-    .where("deletion_id", "=", deletionId)
-    .where("merged_into_id", "is not", null)
-    .executeTakeFirst();
-  if (merged) {
-    throw new Error(
-      `Thing ${merged.id}: merged into thing ${merged.merged_into_id}, cannot be restored`,
-    );
-  }
-}
-
-/**
  * Points every reference to thing `fromId` in these values at `toId`, as
  * `writer`, dropping a `multi_ref` row that would then repeat a member. Bumps
  * each changed record's `updated_at`. For merging.
@@ -840,16 +783,16 @@ function assertUniqueNames(
   }
 }
 
-/** A new `ref` or `multi_ref` field must target a live, unarchived thing type. */
+/** A new `ref` or `multi_ref` field must target an unarchived thing type. */
 async function assertRefTarget(db: Database, tables: DefinitionTables, field: FieldDraft) {
   if (field.shape.valueType !== "ref" && field.shape.valueType !== "multi_ref") return;
   const { thingTypeId } = field.shape.constraints;
   const target = await queryBuilder(db)
     .selectFrom("thing_types")
-    .select(["deleted_at", "archived_at"])
+    .select("archived_at")
     .where("id", "=", thingTypeId)
     .executeTakeFirst();
-  if (!target || target.deleted_at !== null) {
+  if (!target) {
     throw new Error(`${tables.fieldKind} ${field.id}: thing type ${thingTypeId} not found`);
   }
   if (target.archived_at !== null) {
@@ -857,7 +800,7 @@ async function assertRefTarget(db: Database, tables: DefinitionTables, field: Fi
   }
 }
 
-/** Each of `ids` must be a live thing of the constraint's type. */
+/** Each of `ids` must be a thing of the constraint's type. */
 async function assertRefsTo(
   db: Database,
   label: string,
@@ -869,7 +812,7 @@ async function assertRefsTo(
     (
       await queryBuilder(db)
         .selectFrom("things")
-        .select(["id", "thing_type_id", "deleted_at"])
+        .select(["id", "thing_type_id"])
         .where("id", "in", ids)
         .execute()
     ).map((t) => [t.id, t]),
@@ -877,7 +820,6 @@ async function assertRefsTo(
   for (const id of ids) {
     const thing = things.get(id);
     if (!thing) throw new Error(`${label}: thing ${id} not found`);
-    if (thing.deleted_at !== null) throw new Error(`${label}: thing ${id} is deleted`);
     if (thing.thing_type_id !== constraints.thingTypeId) {
       throw new Error(`${label}: thing ${id} is not of thing type ${constraints.thingTypeId}`);
     }

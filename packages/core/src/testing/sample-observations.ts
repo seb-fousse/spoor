@@ -9,10 +9,10 @@ import {
 import type { Database } from "../platform/index";
 
 /**
- * TEST-ONLY. Observation rows for `populate`: live, archived and trashed
- * metrics, a metric with two versions, observations of every value type
- * (`multi_enum` with none and several selected, one automated), a trashed
- * observation and a purged one.
+ * TEST-ONLY. Observation rows for `populate`: metrics, one archived, a metric
+ * with two versions, and observations of every value type (`multi_enum` with
+ * none and several selected, one automated). A deleted metric and a deleted
+ * observation leave nothing behind.
  */
 export async function populateObservations(db: Database): Promise<void> {
   const teeth = await createMetric(db, { name: "Brushed teeth", valueType: "boolean" });
@@ -35,8 +35,8 @@ export async function populateObservations(db: Database): Promise<void> {
     writtenBy: "healthkit",
     externalId: "hk-1",
   });
-  const trashed = await recordObservation(db, water.id, "2026-10-21", 2);
-  await deleteObservation(db, trashed.observation.id);
+  const deleted = await recordObservation(db, water.id, "2026-10-21", 2);
+  await deleteObservation(db, deleted.observation.id);
 
   const mood = await createMetric(db, {
     name: "Mood",
@@ -70,13 +70,4 @@ export async function populateObservations(db: Database): Promise<void> {
   const gone = await createMetric(db, { name: "Gone", valueType: "boolean" });
   await recordObservation(db, gone.id, "2026-10-20", true);
   await deleteMetric(db, gone.id);
-
-  // The purge operation does not exist yet, so write the tombstone it will leave.
-  const T0 = Date.UTC(2026, 9, 20, 8);
-  await db.execute(
-    `INSERT INTO observations
-       (id, metric_id, metric_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
-     VALUES ('01900000-0000-7000-8000-000000000003', ?, 1, ?, ?, ?, ?, ?)`,
-    [teeth.id, T0, T0 + 1, T0 + 2, "01900000-0000-7000-8000-000000000004", T0 + 3],
-  );
 }

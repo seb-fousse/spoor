@@ -10,8 +10,6 @@ import {
   deleteThing,
   getThing,
   getThingTypeVersionFields,
-  resolveThing,
-  restoreThingRecords,
   type Thing,
 } from "./things";
 import {
@@ -21,7 +19,6 @@ import {
   getCategory,
   listCategories,
   listIntervals,
-  restoreTimelineRecords,
 } from "./timelines";
 
 const H = 3_600_000;
@@ -99,31 +96,20 @@ describe("mergeThings", () => {
     expect(rows).toEqual([{ value_ref: alexSmith.id, written_by: "manual" }]);
   });
 
-  it("trashes the duplicate, recording the survivor", async () => {
-    const { alex, alexSmith } = await setup();
-    const deletionId = await mergeThings(db, alexSmith.id, alex.id);
-    expect(await getThing(db, alex.id)).toMatchObject({
-      mergedIntoId: alexSmith.id,
-      deletionId,
-      deletedAt: expect.any(Number),
-    });
-    expect(await getThing(db, alexSmith.id)).toMatchObject({ mergedIntoId: null, deletedAt: null });
-  });
-
-  it("resolves a merged thing through the chain, and redirects new references to it", async () => {
-    const { movieType, alex, alexSmith, sam, f } = await setup();
+  it("deletes the duplicate with its own values, keeping the survivor's", async () => {
+    const { movieType, alex, alexSmith, name, f } = await setup();
     await mergeThings(db, alexSmith.id, alex.id);
-    await mergeThings(db, sam.id, alexSmith.id);
-    expect(await resolveThing(db, alex.id)).toBe(sam.id);
-    expect(await resolveThing(db, sam.id)).toBe(sam.id);
-    expect(await resolveThing(db, "01900000-0000-7000-8000-000000000000")).toBeUndefined();
-
-    // A reference arriving later, say from another device, lands on the survivor.
-    const movie = await createThing(db, {
-      thingTypeId: movieType.id,
-      values: { [f.title]: "Alien", [f.director]: alex.id, [f.cast]: [alex.id, sam.id] },
-    });
-    expect(movie.values).toMatchObject({ [f.director]: sam.id, [f.cast]: [sam.id] });
+    expect(await getThing(db, alex.id)).toBeUndefined();
+    expect(await valuesOf(alexSmith)).toEqual({ [name]: "Alex Smith" });
+    expect(
+      await db.query("SELECT id FROM thing_field_values WHERE thing_id = ?", [alex.id]),
+    ).toEqual([]);
+    await expect(
+      createThing(db, {
+        thingTypeId: movieType.id,
+        values: { [f.title]: "Alien", [f.director]: alex.id },
+      }),
+    ).rejects.toThrow(new RegExp(`thing ${alex.id} not found`));
   });
 
   it.each([
@@ -155,22 +141,10 @@ describe("mergeThings", () => {
 
     const before = await dumpAll(db);
     await expect(mergeThings(db, movie.id, sam.id)).rejects.toThrow(/of another type/);
-    await expect(mergeThings(db, alex.id, sam.id)).rejects.toThrow(/already merged into/);
-    await expect(mergeThings(db, kim.id, sam.id)).rejects.toThrow(`Thing ${kim.id}: deleted`);
+    await expect(mergeThings(db, alex.id, sam.id)).rejects.toThrow(`Thing ${alex.id}: not found`);
+    await expect(mergeThings(db, kim.id, sam.id)).rejects.toThrow(`Thing ${kim.id}: not found`);
     await expect(mergeThings(db, sam.id, kim.id)).rejects.toThrow(`Thing ${kim.id}: not found`);
     expect(await dumpAll(db)).toEqual(before);
-  });
-
-  it("cannot be undone by a restore", async () => {
-    const { alex, alexSmith } = await setup();
-    const people = await createTimeline(db, { name: "People", exclusive: false });
-    await createCategory(db, people.id, { thingId: alexSmith.id });
-    await createCategory(db, people.id, { thingId: alex.id });
-    const deletionId = await mergeThings(db, alexSmith.id, alex.id);
-    await expect(restoreThingRecords(db, deletionId)).rejects.toThrow(
-      `Thing ${alex.id}: merged into thing ${alexSmith.id}, cannot be restored`,
-    );
-    await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(/merged into/);
   });
 
   describe("categories", () => {
@@ -191,7 +165,6 @@ describe("mergeThings", () => {
       expect(await getCategory(db, category.id)).toMatchObject({
         thingId: alexSmith.id,
         name: "Alex Smith",
-        deletedAt: null,
       });
       expect(await listIntervals(db, people.id)).toHaveLength(1);
     });
@@ -208,7 +181,7 @@ describe("mergeThings", () => {
       await interval(merged.id, 8, null); // ongoing
       await interval(kept.id, 9, 10); // within the ongoing one
 
-      const deletionId = await mergeThings(db, alexSmith.id, alex.id);
+      await mergeThings(db, alexSmith.id, alex.id);
       expect(
         (await listIntervals(db, people.id)).map((i) => [
           i.categoryId,
@@ -220,14 +193,11 @@ describe("mergeThings", () => {
         [kept.id, 6, 7],
         [kept.id, 0, 4],
       ]);
-      expect(await getCategory(db, merged.id)).toMatchObject({ deletionId, thingId: alexSmith.id });
-      expect(
-        (await listIntervals(db, people.id, { trashed: true })).map((i) => i.deletionId),
-      ).toEqual([deletionId, deletionId, deletionId]);
+      expect(await getCategory(db, merged.id)).toBeUndefined();
       expect((await listCategories(db, people.id)).map((c) => c.id)).toEqual([kept.id]);
     });
 
-    it("joins only touching intervals on an exclusive timeline, moving trashed ones too", async () => {
+    it("joins only touching intervals on an exclusive timeline", async () => {
       const { alex, alexSmith } = await setup();
       const where = await createTimeline(db, { name: "With", exclusive: true });
       const kept = await createCategory(db, where.id, { thingId: alexSmith.id });
@@ -237,16 +207,6 @@ describe("mergeThings", () => {
       await interval(merged.id, 1, 2);
       await interval(other.id, 2, 3);
       await interval(merged.id, 3, 4);
-      const trashedId = (
-        await db.query<{ id: string }>(
-          `SELECT id FROM timeline_intervals WHERE category_id = ? AND start_at = ?`,
-          [merged.id, 3 * H],
-        )
-      )[0].id;
-      await db.execute(
-        "UPDATE timeline_intervals SET deleted_at = 1, deletion_id = ? WHERE id = ?",
-        ["01900000-0000-7000-8000-000000000009", trashedId],
-      );
 
       await mergeThings(db, alexSmith.id, alex.id);
       expect(
@@ -256,14 +216,10 @@ describe("mergeThings", () => {
           i.endAt && i.endAt / H,
         ]),
       ).toEqual([
+        [kept.id, 3, 4],
         [other.id, 2, 3],
         [kept.id, 0, 2],
       ]);
-      const [trashed] = await db.query<{ category_id: string }>(
-        "SELECT category_id FROM timeline_intervals WHERE id = ?",
-        [trashedId],
-      );
-      expect(trashed.category_id).toBe(kept.id);
     });
 
     it("leaves categories on other timelines and of other things alone", async () => {
@@ -274,10 +230,7 @@ describe("mergeThings", () => {
       const onB = await createCategory(db, b.id, { thingId: alex.id });
       const samOnA = await createCategory(db, a.id, { thingId: sam.id });
       await mergeThings(db, alexSmith.id, alex.id);
-      expect(await getCategory(db, onB.id)).toMatchObject({
-        thingId: alexSmith.id,
-        deletedAt: null,
-      });
+      expect(await getCategory(db, onB.id)).toMatchObject({ thingId: alexSmith.id });
       expect(await getCategory(db, samOnA.id)).toMatchObject({ thingId: sam.id, name: "Sam" });
     });
   });

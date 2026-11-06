@@ -14,9 +14,9 @@ import {
   getThingTypeVersionFields,
   listThings,
   listThingTypes,
+  previewThingDeletion,
   previewThingTypeDeletion,
   reorderThingFields,
-  restoreThingRecords,
   reviseThingTypeFields,
   setThingTypeArchived,
   type ThingType,
@@ -24,6 +24,7 @@ import {
   updateThingType,
   updateThingValues,
 } from "./things";
+import { createCategory, createTimeline, getCategory, getTimeline } from "./timelines";
 
 const NAME: NewField = { name: "Name", valueType: "text", required: true };
 const BORN: NewField = { name: "Born", valueType: "date" };
@@ -70,8 +71,6 @@ describe("things", () => {
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
-        deletedAt: null,
-        deletionId: null,
       });
       expect(fields.map((f) => [f.name, f.position, f.shape.valueType, f.required])).toEqual([
         ["Name", 0, "text", true],
@@ -103,14 +102,13 @@ describe("things", () => {
       expect(await count("thing_fields")).toBe(0);
     });
 
-    it("lists live types by name, archived included, and trashed ones", async () => {
+    it("lists types by name, archived included", async () => {
       const b = await createThingType(db, { name: "place", fields: [NAME] });
       await createThingType(db, { name: "Movie", fields: [NAME] });
       const c = await createThingType(db, { name: "Person", fields: [NAME] });
       await setThingTypeArchived(db, b.id, true);
       await deleteThingType(db, c.id);
       expect((await listThingTypes(db)).map((t) => t.name)).toEqual(["Movie", "place"]);
-      expect((await listThingTypes(db, { trashed: true })).map((t) => t.id)).toEqual([c.id]);
     });
 
     it("renames, redescribes and picks another title field without a version", async () => {
@@ -235,24 +233,40 @@ describe("things", () => {
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
     });
 
-    it("deletes with its live things under one deletion, and restores them", async () => {
+    it("previews, then deletes with its fields, versions and things", async () => {
       const { type, name } = await person();
       const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } });
-      const gone = await createThing(db, { thingTypeId: type.id, values: { [name]: "Kim" } });
-      const earlier = await deleteThing(db, gone.id);
-      expect(await previewThingTypeDeletion(db, type.id)).toEqual({ things: 2 });
+      const movie = await createThingType(db, {
+        name: "Movie",
+        fields: [
+          NAME,
+          { name: "Director", valueType: "ref", constraints: { thingTypeId: type.id } },
+        ],
+      });
+      const [title, director] = (await getThingTypeVersionFields(db, movie.id)).map((f) => f.id);
+      const alien = await createThing(db, {
+        thingTypeId: movie.id,
+        values: { [title]: "Alien", [director]: alex.id },
+      });
+      const people = await createTimeline(db, { name: "People" });
+      await db.execute("UPDATE timelines SET default_thing_type_id = ?", [type.id]);
+      const category = await createCategory(db, people.id, { thingId: alex.id });
 
-      const deletionId = await deleteThingType(db, type.id);
-      expect((await getThingType(db, type.id))?.deletionId).toBe(deletionId);
-      expect((await getThing(db, alex.id))?.deletionId).toBe(deletionId);
-      expect((await getThing(db, gone.id))?.deletionId).toBe(earlier);
-      expect(await listThings(db, type.id)).toEqual([]);
+      expect(await previewThingTypeDeletion(db, type.id)).toEqual({
+        things: 2,
+        references: 1,
+        categories: 1,
+      });
+      await deleteThingType(db, type.id);
+      expect(await getThingType(db, type.id)).toBeUndefined();
+      expect(await count("things")).toBe(1);
+      expect(await count("thing_fields")).toBe(2);
+      expect(await count("thing_type_versions")).toBe(1);
+      expect((await getThing(db, alien.id))?.values).toEqual({ [title]: "Alien" });
+      expect(await getCategory(db, category.id)).toMatchObject({ name: "Alex", thingId: null });
+      expect((await getTimeline(db, people.id))?.defaultThingTypeId).toBeNull();
       await expect(updateThingType(db, type.id, { name: "x" })).rejects.toThrow(/not found/);
-
-      await restoreThingRecords(db, deletionId);
-      expect((await listThings(db, type.id)).map((t) => t.values[name])).toEqual(["Alex", "Sam"]);
-      expect((await getThing(db, gone.id))?.deletionId).toBe(earlier);
     });
   });
 
@@ -271,12 +285,9 @@ describe("things", () => {
         thingTypeVersion: 1,
         source: "manual",
         externalId: null,
-        mergedIntoId: null,
         values: { [name]: "Alex", [born]: "1990-04-01" },
         createdAt: 1_000,
         updatedAt: 1_000,
-        deletedAt: null,
-        deletionId: null,
       });
       expect(await getThing(db, alex.id)).toEqual(alex);
       expect(await getThingTitle(db, alex.id)).toBe("Alex");
@@ -325,7 +336,7 @@ describe("things", () => {
       ).rejects.toThrow(/source is required/);
     });
 
-    it("lists live things by title, and trashed ones", async () => {
+    it("lists things by title", async () => {
       const { type, name } = await person();
       for (const title of ["sam", "Alex", "Kim"]) {
         await createThing(db, { thingTypeId: type.id, values: { [name]: title } });
@@ -333,9 +344,6 @@ describe("things", () => {
       const [alex] = await listThings(db, type.id);
       await deleteThing(db, alex.id);
       expect((await listThings(db, type.id)).map((t) => t.values[name])).toEqual(["Kim", "sam"]);
-      expect((await listThings(db, type.id, { trashed: true })).map((t) => t.id)).toEqual([
-        alex.id,
-      ]);
     });
 
     it("updates values, bumping updated_at", async () => {
@@ -369,45 +377,23 @@ describe("things", () => {
       expect(thing.values).toEqual({ [name]: "Alex", [born]: "1990-04-01" });
     });
 
-    it("deletes and restores, keeping its title while trashed", async () => {
+    it("deletes with its values", async () => {
       const { type, name } = await person();
       const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
-      const deletionId = await deleteThing(db, alex.id);
-      expect(await getThingTitle(db, alex.id)).toBe("Alex");
-      await expect(updateThingValues(db, alex.id, { [name]: "x" })).rejects.toThrow(/not found/);
-      await expect(deleteThing(db, alex.id)).rejects.toThrow(/not found/);
-
-      await restoreThingRecords(db, deletionId);
-      expect((await getThing(db, alex.id))?.deletedAt).toBeNull();
-      await expect(restoreThingRecords(db, deletionId)).rejects.toThrow(/nothing in the trash/);
-    });
-
-    it("cannot be restored while its type is deleted by another deletion", async () => {
-      const { type, name } = await person();
-      const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
-      const deletionId = await deleteThing(db, alex.id);
-      await deleteThingType(db, type.id);
-      await expect(restoreThingRecords(db, deletionId)).rejects.toThrow(
-        `Thing ${alex.id}: cannot be restored while its parent is deleted`,
-      );
-    });
-
-    it("cannot be restored once purged", async () => {
-      const { type, name } = await person();
-      const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
-      const deletionId = await deleteThing(db, alex.id);
-      // The purge operation does not exist yet, so write the tombstone it will leave.
-      await db.execute("DELETE FROM thing_field_values WHERE thing_id = ?", [alex.id]);
-      await db.execute(
-        "UPDATE things SET purged_at = 1, source = NULL, external_id = NULL WHERE id = ?",
-        [alex.id],
-      );
-      await expect(restoreThingRecords(db, deletionId)).rejects.toThrow(/purged/);
+      expect(await previewThingDeletion(db, alex.id)).toEqual({
+        things: 1,
+        references: 0,
+        categories: 0,
+      });
+      await deleteThing(db, alex.id);
       expect(await getThing(db, alex.id)).toBeUndefined();
       expect(await getThingTitle(db, alex.id)).toBeUndefined();
+      expect(await count("thing_field_values")).toBe(0);
+      await expect(updateThingValues(db, alex.id, { [name]: "x" })).rejects.toThrow(/not found/);
+      await expect(deleteThing(db, alex.id)).rejects.toThrow(/not found/);
     });
 
-    it("refers to other things, which stay referenced once deleted", async () => {
+    it("refers to other things, losing the reference when one is deleted", async () => {
       const { type: people, name } = await person();
       const alex = await createThing(db, { thingTypeId: people.id, values: { [name]: "Alex" } });
       const movie: ThingType = await createThingType(db, {
@@ -422,15 +408,15 @@ describe("things", () => {
         thingTypeId: movie.id,
         values: { [title]: "Alien", [director]: alex.id },
       });
+      expect(await previewThingDeletion(db, alex.id)).toMatchObject({ references: 1 });
       await deleteThing(db, alex.id);
-      const { thing } = await updateThingValues(db, alien.id, { [title]: "Aliens" });
-      expect(thing.values[director]).toBe(alex.id);
+      expect((await getThing(db, alien.id))?.values).toEqual({ [title]: "Alien" });
       await expect(
         createThing(db, {
           thingTypeId: movie.id,
           values: { [title]: "Heat", [director]: alex.id },
         }),
-      ).rejects.toThrow(/is deleted/);
+      ).rejects.toThrow(new RegExp(`thing ${alex.id} not found`));
     });
   });
 });
