@@ -8,7 +8,6 @@ import {
   createThingType,
   deleteThing,
   getThingTypeVersionFields,
-  restoreThingRecords,
   updateThingValues,
 } from "./things";
 import {
@@ -24,7 +23,8 @@ import {
   listCategories,
   listIntervals,
   listTimelines,
-  restoreTimelineRecords,
+  previewCategoryDeletion,
+  previewTimelineDeletion,
   setCategoryArchived,
   setTimelineArchived,
   startInterval,
@@ -81,8 +81,6 @@ describe("timelines", () => {
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
-        deletedAt: null,
-        deletionId: null,
       });
       expect(await getTimeline(db, timeline.id)).toEqual(timeline);
     });
@@ -92,14 +90,13 @@ describe("timelines", () => {
       expect(await listTimelines(db)).toEqual([]);
     });
 
-    it("lists live timelines by name, archived included", async () => {
+    it("lists timelines by name, archived included", async () => {
       const b = await createTimeline(db, { name: "b" });
       const a = await createTimeline(db, { name: "A" });
       await setTimelineArchived(db, b.id, true);
       expect((await listTimelines(db)).map((t) => t.name)).toEqual(["A", "b"]);
       await deleteTimeline(db, a.id);
       expect((await listTimelines(db)).map((t) => t.name)).toEqual(["b"]);
-      expect((await listTimelines(db, { trashed: true })).map((t) => t.name)).toEqual(["A"]);
     });
 
     it("updates fields and bumps updated_at", async () => {
@@ -380,110 +377,49 @@ describe("timelines", () => {
     });
   });
 
-  describe("trash", () => {
-    it("deletes and restores an interval", async () => {
+  describe("delete", () => {
+    const count = async (table: string) =>
+      (await db.query<{ n: number }>(`SELECT count(*) AS n FROM ${table}`))[0].n;
+
+    it("deletes an interval", async () => {
       const { timeline, categories } = await setup();
       const created = await interval(categories[0].id, 1, 2);
-      const deletionId = await deleteInterval(db, created.id);
+      await deleteInterval(db, created.id);
 
       expect(await listIntervals(db, timeline.id)).toEqual([]);
-      expect(await listIntervals(db, timeline.id, { trashed: true })).toEqual([
-        expect.objectContaining({ id: created.id, deletionId }),
-      ]);
+      expect(await getInterval(db, created.id)).toBeUndefined();
       await expect(deleteInterval(db, created.id)).rejects.toThrow(/not found/);
-
-      await restoreTimelineRecords(db, deletionId);
-      expect(await listIntervals(db, timeline.id)).toEqual([
-        expect.objectContaining({ id: created.id, deletedAt: null, deletionId: null }),
-      ]);
     });
 
-    it("cascades a timeline delete to its categories and intervals, and restores them", async () => {
+    it("previews, then deletes a timeline with its categories and intervals", async () => {
       const { timeline, categories } = await setup();
       await interval(categories[0].id, 1, 2);
       await interval(categories[1].id, 2, null);
-      const deletionId = await deleteTimeline(db, timeline.id);
+      const other = await setup();
+      await interval(other.categories[0].id, 1, 2);
 
-      const ids = async (table: string) =>
-        db.query(`SELECT id FROM ${table} WHERE deletion_id = ?`, [deletionId]);
-      expect(await ids("timelines")).toHaveLength(1);
-      expect(await ids("timeline_categories")).toHaveLength(2);
-      expect(await ids("timeline_intervals")).toHaveLength(2);
-
-      await restoreTimelineRecords(db, deletionId);
-      expect(await listTimelines(db)).toHaveLength(1);
-      expect(await listCategories(db, timeline.id)).toHaveLength(2);
-      expect(await listIntervals(db, timeline.id)).toHaveLength(2);
+      expect(await previewTimelineDeletion(db, timeline.id)).toEqual({
+        categories: 2,
+        intervals: 2,
+      });
+      await deleteTimeline(db, timeline.id);
+      expect(await listTimelines(db)).toEqual([other.timeline]);
+      expect(await count("timeline_categories")).toBe(2);
+      expect(await count("timeline_intervals")).toBe(1);
+      await expect(previewTimelineDeletion(db, timeline.id)).rejects.toThrow(/not found/);
     });
 
-    it("cascades a category delete to its intervals only", async () => {
+    it("previews, then deletes a category with its intervals only", async () => {
       const { timeline, categories } = await setup();
       await interval(categories[0].id, 1, 2);
       await interval(categories[1].id, 2, 3);
+      expect(await previewCategoryDeletion(db, categories[0].id)).toEqual({ intervals: 1 });
       await deleteCategory(db, categories[0].id);
 
       expect((await listCategories(db, timeline.id)).map((c) => c.name)).toEqual(["Sleep"]);
       expect(await listIntervals(db, timeline.id)).toEqual([
         expect.objectContaining({ categoryId: categories[1].id }),
       ]);
-    });
-
-    it("keeps separately deleted records in the trash when their parent is restored", async () => {
-      const { timeline, categories } = await setup();
-      const alone = await interval(categories[0].id, 1, 2);
-      const intervalDeletion = await deleteInterval(db, alone.id);
-      const categoryDeletion = await deleteCategory(db, categories[1].id);
-      const timelineDeletion = await deleteTimeline(db, timeline.id);
-
-      // Children cannot come back while their parent is in the trash.
-      await expect(restoreTimelineRecords(db, intervalDeletion)).rejects.toThrow(
-        /while its parent is deleted/,
-      );
-      await expect(restoreTimelineRecords(db, categoryDeletion)).rejects.toThrow(
-        /while its parent is deleted/,
-      );
-
-      await restoreTimelineRecords(db, timelineDeletion);
-      expect((await listCategories(db, timeline.id)).map((c) => c.name)).toEqual(["Work"]);
-      expect(await listIntervals(db, timeline.id)).toEqual([]);
-
-      await restoreTimelineRecords(db, intervalDeletion);
-      expect(await listIntervals(db, timeline.id)).toHaveLength(1);
-    });
-
-    it("refuses a restore that would overlap a live interval, restoring nothing", async () => {
-      const { timeline, categories } = await setup();
-      const old = await startInterval(db, categories[0].id, { at: 0, timeZone: TZ });
-      const deletionId = await deleteInterval(db, old.id);
-      await startInterval(db, categories[0].id, { at: H, timeZone: TZ });
-
-      await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(/overlaps interval/);
-      expect(await listIntervals(db, timeline.id, { trashed: true })).toHaveLength(1);
-    });
-
-    it("refuses a restore whose intervals overlap each other", async () => {
-      const { timeline, categories } = await setup(false);
-      await interval(categories[0].id, 0, 2);
-      await interval(categories[1].id, 1, 3);
-      const deletionId = await deleteTimeline(db, timeline.id);
-      // Overlaps were allowed when trashed, but the timeline is exclusive now.
-      await db.execute("UPDATE timelines SET exclusive = 1");
-
-      await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(/overlaps interval/);
-      expect(await listTimelines(db)).toEqual([]);
-    });
-
-    it("refuses an unknown or purged deletion", async () => {
-      await expect(restoreTimelineRecords(db, "nope")).rejects.toThrow(/nothing in the trash/);
-
-      const { categories } = await setup();
-      const created = await interval(categories[0].id, 1, 2);
-      const deletionId = await deleteInterval(db, created.id);
-      await db.execute(
-        "UPDATE timeline_intervals SET purged_at = 1, start_at = NULL, end_at = NULL, time_zone = NULL",
-      );
-      await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(/purged/);
-      expect(await getInterval(db, created.id)).toBeUndefined();
     });
   });
 });
@@ -525,23 +461,23 @@ describe("categories linked to things", () => {
     await expect(createCategory(db, timeline.id, {})).rejects.toThrow(/name is required/);
   });
 
-  it("follows the title, keeping the last one once the thing is deleted", async () => {
+  it("follows the title, and is unlinked keeping the last one once the thing is deleted", async () => {
     const { timeline, name, thing } = await setup();
     const category = await createCategory(db, timeline.id, { thingId: thing.id });
     await updateThingValues(db, thing.id, { [name]: "Alex Smith" });
     expect((await getCategory(db, category.id))?.name).toBe("Alex Smith");
-    await deleteThing(db, thing.id);
-    expect(await getCategory(db, category.id)).toMatchObject({
-      name: "Alex Smith",
-      deletedAt: null,
-    });
     await expect(updateCategory(db, category.id, { name: "Alex" })).rejects.toThrow(
       /takes its name from thing .*, so cannot be renamed/,
     );
-    await updateCategory(db, category.id, { description: "Old friend" });
+    await deleteThing(db, thing.id);
+    expect(await getCategory(db, category.id)).toMatchObject({
+      name: "Alex Smith",
+      thingId: null,
+    });
+    await updateCategory(db, category.id, { name: "Alex" });
   });
 
-  it("requires a live thing", async () => {
+  it("requires an existing thing", async () => {
     const { timeline, thing } = await setup();
     await deleteThing(db, thing.id);
     await expect(createCategory(db, timeline.id, { thingId: thing.id })).rejects.toThrow(
@@ -549,7 +485,7 @@ describe("categories linked to things", () => {
     );
   });
 
-  it("allows one live category per thing per timeline", async () => {
+  it("allows one category per thing per timeline", async () => {
     const { timeline, thing } = await setup();
     const first = await createCategory(db, timeline.id, { thingId: thing.id });
     await expect(createCategory(db, timeline.id, { thingId: thing.id })).rejects.toThrow(
@@ -558,17 +494,7 @@ describe("categories linked to things", () => {
     const other = await createTimeline(db, { name: "Calls" });
     await createCategory(db, other.id, { thingId: thing.id });
 
-    const deletionId = await deleteCategory(db, first.id);
-    const second = await createCategory(db, timeline.id, { thingId: thing.id });
-    await expect(restoreTimelineRecords(db, deletionId)).rejects.toThrow(
-      `Timeline category ${first.id}: thing ${thing.id} already has category ${second.id} on its timeline`,
-    );
-  });
-
-  it("restores a thing without touching its categories", async () => {
-    const { timeline, thing } = await setup();
-    const category = await createCategory(db, timeline.id, { thingId: thing.id });
-    await restoreThingRecords(db, await deleteThing(db, thing.id));
-    expect((await listCategories(db, timeline.id)).map((c) => c.id)).toEqual([category.id]);
+    await deleteCategory(db, first.id);
+    await createCategory(db, timeline.id, { thingId: thing.id });
   });
 });

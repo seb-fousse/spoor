@@ -36,7 +36,7 @@ In scope, among others:
 - Data loss or corruption that an attacker can trigger, for example through a
   crafted import file.
 - Weaknesses in the desktop shell, such as unsafe IPC commands or capabilities.
-- Deleted data that remains recoverable after the trash has been purged.
+- Deleted data that remains recoverable from the database file.
 
 Out of scope:
 

@@ -51,21 +51,17 @@ describe("export/import round trip", () => {
     expect(again).toEqual({ ...(await exportData(source)), exportedAt: again.exportedAt });
   });
 
-  it("exports trashed and purged records", async () => {
+  it("exports archived records", async () => {
     const doc = await exportData(source);
-    const intervals = doc.timelineIntervals ?? [];
-    expect(intervals.some((i) => i.deletedAt !== null && i.purgedAt === null)).toBe(true);
-    expect(intervals.some((i) => i.purgedAt !== null && i.startAt === null)).toBe(true);
     expect((doc.timelineCategories ?? []).some((c) => c.archivedAt !== null)).toBe(true);
   });
 
-  it("exports log entries with children, every precision, and a tombstone", async () => {
+  it("exports log entries with children and every precision", async () => {
     const entries = (await exportData(source)).logEntries ?? [];
     expect(entries.some((e) => e.parentEntryId !== null && e.occurredAt === null)).toBe(true);
     expect(new Set(entries.map((e) => e.precision))).toEqual(
       new Set(["instant", "day", "month", "year", null]),
     );
-    expect(entries.some((e) => e.purgedAt !== null && e.source === null)).toBe(true);
   });
 
   it("exports in the documented shape", async () => {
@@ -76,13 +72,12 @@ describe("export/import round trip", () => {
     expect(doc.timelines?.[0]).toMatchObject({ exclusive: expect.any(Boolean) });
   });
 
-  it("exports observations in every state, with typed values", async () => {
+  it("exports observations with typed values", async () => {
     const doc = await exportData(source);
     const observations = doc.observations ?? [];
     expect(observations.map((o) => o.valueNum).filter((n) => n !== null)).toContain(7.5);
     expect(observations.some((o) => o.valueBool === false)).toBe(true);
     expect(observations.some((o) => o.writtenBy === "healthkit")).toBe(true);
-    expect(observations.some((o) => o.purgedAt !== null && o.date === null)).toBe(true);
     expect(doc.observationMetricVersions?.some((v) => v.version === 2)).toBe(true);
     expect(doc.observationMetrics?.find((m) => m.name === "Mood")?.optionLabels).toEqual({
       low: "Low",

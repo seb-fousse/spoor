@@ -30,15 +30,15 @@ import {
   type ObservationMetric,
   type ObservationMetricVersion,
   optionLabel,
+  previewMetricDeletion,
   recordObservation,
-  restoreObservationRecords,
   reviseMetric,
   setMetricArchived,
   updateMetric,
   type Value,
 } from "@spoor/core";
 import { type FormEvent, useEffect, useState } from "react";
-import { Trash } from "./Trash";
+import { effect, useConfirmDelete } from "./ConfirmDelete";
 
 type Run = (action: () => Promise<unknown>) => void;
 
@@ -50,7 +50,6 @@ type Run = (action: () => Promise<unknown>) => void;
  */
 export function Observations({ db }: { db: Database }) {
   const [metrics, setMetrics] = useState<ObservationMetric[]>([]);
-  const [trashed, setTrashed] = useState<ObservationMetric[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -63,13 +62,12 @@ export function Observations({ db }: { db: Database }) {
       .finally(() => setVersion((v) => v + 1));
   };
 
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([listMetrics(db), listMetrics(db, { trashed: true })])
-      .then(([live, trash]) => {
-        setMetrics(live);
-        setTrashed(trash);
-      })
+    listMetrics(db)
+      .then(setMetrics)
       .catch((e: Error) => setError(e.message));
   }, [db, version]);
 
@@ -79,6 +77,7 @@ export function Observations({ db }: { db: Database }) {
     <Stack component="section" gap="sm">
       <Title order={2}>Observations</Title>
       {error && <Alert color="red">{error}</Alert>}
+      {deleteDialog}
 
       <ShapeForm
         withName
@@ -112,17 +111,25 @@ export function Observations({ db }: { db: Database }) {
               size="xs"
               variant="light"
               color="red"
-              onClick={() => run(() => deleteMetric(db, m.id))}
+              onClick={() =>
+                confirmDelete(
+                  `the ${m.name} metric`,
+                  () => deleteMetric(db, m.id),
+                  async () => [
+                    effect(
+                      "deletes",
+                      (await previewMetricDeletion(db, m.id)).observations,
+                      "observation",
+                    ),
+                  ],
+                )
+              }
             >
               Delete
             </Button>
           </Group>
         ))}
       </Stack>
-      <Trash
-        items={trashed.map((m) => ({ id: m.id, label: m.name, deletionId: m.deletionId }))}
-        onRestore={(deletionId) => run(() => restoreObservationRecords(db, deletionId))}
-      />
 
       {selected && (
         <MetricDetail key={selected.id} db={db} metric={selected} version={version} run={run} />
@@ -211,11 +218,11 @@ function MetricDetail({
   const [current, setCurrent] = useState<ObservationMetricVersion>();
   const [versions, setVersions] = useState<ObservationMetricVersion[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
-  const [trashedObservations, setTrashedObservations] = useState<Observation[]>([]);
   const [name, setName] = useState(metric.name);
   const [labels, setLabels] = useState(JSON.stringify(metric.optionLabels));
   const [date, setDate] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
@@ -223,12 +230,10 @@ function MetricDetail({
       getMetricVersion(db, metric.id, metric.schemaVersion),
       listMetricVersions(db, metric.id),
       listObservations(db, metric.id),
-      listObservations(db, metric.id, { trashed: true }),
-    ]).then(([c, v, o, to]) => {
+    ]).then(([c, v, o]) => {
       setCurrent(c);
       setVersions(v);
       setObservations(o);
-      setTrashedObservations(to);
     });
   }, [db, metric.id, metric.schemaVersion, version]);
 
@@ -254,6 +259,7 @@ function MetricDetail({
   return (
     <Stack gap="sm">
       <Title order={3}>{metric.name}</Title>
+      {deleteDialog}
       <form onSubmit={rename}>
         <Group gap="xs" align="flex-end">
           <TextInput
@@ -316,21 +322,15 @@ function MetricDetail({
               size="xs"
               variant="light"
               color="red"
-              onClick={() => run(() => deleteObservation(db, o.id))}
+              onClick={() =>
+                confirmDelete(`the observation for ${o.date}`, () => deleteObservation(db, o.id))
+              }
             >
               Delete
             </Button>
           </Group>
         ))}
       </Stack>
-      <Trash
-        items={trashedObservations.map((o) => ({
-          id: o.id,
-          label: show(o),
-          deletionId: o.deletionId,
-        }))}
-        onRestore={(deletionId) => run(() => restoreObservationRecords(db, deletionId))}
-      />
     </Stack>
   );
 }

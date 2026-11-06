@@ -1,5 +1,5 @@
 import { createFirstVersion, draftFields, LOG_TABLES, MANUAL, setValues } from "../definitions";
-import { newId } from "../ids";
+
 import {
   createLogEntry,
   createLogType,
@@ -17,10 +17,10 @@ import { transaction } from "../transaction";
 
 /**
  * TEST-ONLY. Log types, entries and values for the round-trip test: every value
- * column, references to the things `populateThings` made, live/archived/trashed
- * types, two versions, a parent and child type, a workout with child sets,
- * `day`, `month` and `year` precision, a trashed entry with a trashed child, and
- * a purged tombstone.
+ * column, references to the things `populateThings` made, an archived type, two
+ * versions, a parent and child type, a workout with child sets, and `day`,
+ * `month` and `year` precision. A deleted type, a deleted entry with its child,
+ * and a child deleted alone leave nothing behind.
  *
  * The Workout type and one workout are written with ids above any UUID v7 made
  * today, so their child type and child entries sort before them and import has
@@ -164,7 +164,7 @@ export async function populateLogs(db: Database): Promise<void> {
   // A set deleted alone.
   await deleteLogEntry(db, (await addSet(WORKOUT_ID, 8, 40)).id);
 
-  // A trashed workout, with its trashed set.
+  // A deleted workout, with its set.
   const skipped = await createLogEntry(db, {
     logTypeId: WORKOUT_TYPE_ID,
     occurredAt: T0 + 24 * H,
@@ -173,20 +173,11 @@ export async function populateLogs(db: Database): Promise<void> {
   await addSet(skipped.id, 3, 60);
   await deleteLogEntry(db, skipped.id);
 
-  // An archived type, and a trashed one with its entry.
+  // An archived type, and a deleted one with its entry.
   const meditation = await createLogType(db, { name: "Meditation", fields: [] });
   await createLogEntry(db, { logTypeId: meditation.id, occurredAt: T0 - 2 * H });
   await setLogTypeArchived(db, meditation.id, true);
   const habit = await createLogType(db, { name: "Old habit", fields: [] });
   await createLogEntry(db, { logTypeId: habit.id, occurredAt: T0 - 3 * H });
   await deleteLogType(db, habit.id);
-
-  // The purge operation does not exist yet, so write the tombstone it will leave.
-  const t = now();
-  await db.execute(
-    `INSERT INTO log_entries
-       (id, log_type_id, log_type_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
-     VALUES (?, ?, 1, ?, ?, ?, ?, ?)`,
-    [newId(), movieWatched.id, t, t + 1, t + 2, newId(), t + 3],
-  );
 }

@@ -13,9 +13,8 @@ import { transaction } from "./transaction";
 
 /**
  * Export (see docs/data-spec.md § Export and import): every row of every table in
- * the registry, in every state, so that importing the result restores the database
- * exactly. Rows are read directly rather than through the repositories, which hide
- * trashed and purged records.
+ * the registry, so that importing the result restores the database exactly. Rows are
+ * read directly rather than through the repositories.
  */
 
 /** A snapshot of the whole database, read in one transaction so it is consistent. */

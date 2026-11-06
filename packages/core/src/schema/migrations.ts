@@ -21,9 +21,11 @@ export interface Migration {
  * checks that every file there is listed here, in order.
  *
  * Rules (a file written by an old version must always open in a newer one):
- * - Append-only. Once merged to main, a migration is never edited, reordered,
- *   or removed; fix mistakes with a new one. The runner skips versions a
- *   database already has, so an edit would never reach it.
+ * - Append-only from the first release. Once released, a migration is never
+ *   edited, reordered, or removed; fix mistakes with a new one. The runner
+ *   skips versions a database already has, so an edit would never reach it.
+ *   Until then, migrations are edited in place and development databases are
+ *   recreated.
  * - Statements are split by `splitStatements`; see its limits.
  * - Every `CREATE TABLE` ends with `STRICT` (see data-spec, Storage).
  * - Table names are snake_case.

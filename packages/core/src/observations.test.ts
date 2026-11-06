@@ -10,8 +10,8 @@ import {
   listMetricVersions,
   listObservations,
   type ObservationMetric,
+  previewMetricDeletion,
   recordObservation,
-  restoreObservationRecords,
   reviseMetric,
   setMetricArchived,
   updateMetric,
@@ -84,8 +84,6 @@ describe("observations", () => {
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
-        deletedAt: null,
-        deletionId: null,
       });
       expect(await getMetric(db, metric.id)).toEqual(metric);
       expect(await listMetricVersions(db, metric.id)).toEqual([
@@ -114,14 +112,13 @@ describe("observations", () => {
       expect(await rows("SELECT * FROM observation_metric_versions")).toEqual([]);
     });
 
-    it("lists live metrics by name, archived included", async () => {
+    it("lists metrics by name, archived included", async () => {
       const b = await createMetric(db, { name: "b", valueType: "boolean" });
       const a = await createMetric(db, { name: "A", valueType: "boolean" });
       await setMetricArchived(db, b.id, true);
       expect((await listMetrics(db)).map((m) => m.name)).toEqual(["A", "b"]);
       await deleteMetric(db, a.id);
       expect((await listMetrics(db)).map((m) => m.name)).toEqual(["b"]);
-      expect((await listMetrics(db, { trashed: true })).map((m) => m.name)).toEqual(["A"]);
     });
 
     it("renames and relabels without creating a version", async () => {
@@ -275,8 +272,6 @@ describe("observations", () => {
           writtenAt: 1_000,
           createdAt: 1_000,
           updatedAt: 1_000,
-          deletedAt: null,
-          deletionId: null,
         },
       });
       expect(await getObservation(db, result.observation.id)).toEqual(result.observation);
@@ -484,27 +479,20 @@ describe("observations", () => {
     });
   });
 
-  describe("trash", () => {
-    it("deletes and restores an observation", async () => {
+  describe("delete", () => {
+    it("deletes an observation with its selections", async () => {
       const metric = await symptoms();
       const created = await record(metric, "2026-10-19", ["cough"]);
-      const deletionId = await deleteObservation(db, created.id);
+      await deleteObservation(db, created.id);
 
       expect(await listObservations(db, metric.id)).toEqual([]);
-      expect(await listObservations(db, metric.id, { trashed: true })).toEqual([
-        expect.objectContaining({ id: created.id, deletionId, value: ["cough"] }),
-      ]);
+      expect(await rows("SELECT * FROM observation_selections")).toEqual([]);
       await expect(deleteObservation(db, created.id)).rejects.toThrow(
         `Observation ${created.id}: not found`,
       );
-
-      await restoreObservationRecords(db, deletionId);
-      expect(await listObservations(db, metric.id)).toEqual([
-        expect.objectContaining({ id: created.id, deletedAt: null, value: ["cough"] }),
-      ]);
     });
 
-    it("frees the day for a new observation once trashed", async () => {
+    it("frees the day for a new observation", async () => {
       const metric = await water();
       const old = await record(metric, "2026-10-19", 3);
       await deleteObservation(db, old.id);
@@ -512,70 +500,21 @@ describe("observations", () => {
       expect(fresh.id).not.toBe(old.id);
     });
 
-    it("cascades a metric delete to its live observations, and restores them", async () => {
+    it("previews, then deletes a metric with its versions and observations", async () => {
       const metric = await water();
       await record(metric, "2026-10-19", 1);
       await record(metric, "2026-10-20", 2);
-      const deletionId = await deleteMetric(db, metric.id);
+      await reviseMetric(db, metric.id, { valueType: "number", constraints: { min: 1 } });
+      const other = await water();
+      await record(other, "2026-10-19", 1);
 
-      const ids = (table: string) =>
-        rows(`SELECT id FROM ${table} WHERE deletion_id = ?`, [deletionId]);
-      expect(await ids("observation_metrics")).toHaveLength(1);
-      expect(await ids("observations")).toHaveLength(2);
-      expect(await listObservations(db, metric.id, { trashed: true })).toHaveLength(2);
-
-      await restoreObservationRecords(db, deletionId);
-      expect(await listMetrics(db)).toHaveLength(1);
-      expect(await listObservations(db, metric.id)).toHaveLength(2);
-    });
-
-    it("keeps a separately deleted observation in the trash when its metric is restored", async () => {
-      const metric = await water();
-      const alone = await record(metric, "2026-10-19", 1);
-      const observationDeletion = await deleteObservation(db, alone.id);
-      const metricDeletion = await deleteMetric(db, metric.id);
-
-      await expect(restoreObservationRecords(db, observationDeletion)).rejects.toThrow(
-        `Observation ${alone.id}: cannot be restored while its metric is deleted`,
-      );
-      await restoreObservationRecords(db, metricDeletion);
-      expect(await listObservations(db, metric.id)).toEqual([]);
-      await restoreObservationRecords(db, observationDeletion);
-      expect(await listObservations(db, metric.id)).toHaveLength(1);
-    });
-
-    it("refuses a restore whose day has a live observation, restoring nothing", async () => {
-      const metric = await water();
-      const old = await record(metric, "2026-10-19", 1);
-      await record(metric, "2026-10-20", 2);
-      const deletionId = await deleteMetric(db, metric.id);
-      await db.execute("UPDATE observation_metrics SET deleted_at = NULL, deletion_id = NULL");
-      const fresh = await record(metric, "2026-10-19", 3);
-      // Put the metric back in the group, so only the clash can refuse the restore.
-      await db.execute("UPDATE observation_metrics SET deleted_at = 1, deletion_id = ?", [
-        deletionId,
+      expect(await previewMetricDeletion(db, metric.id)).toEqual({ observations: 2 });
+      await deleteMetric(db, metric.id);
+      expect(await listMetrics(db)).toEqual([other]);
+      expect(await rows("SELECT metric_id FROM observation_metric_versions")).toEqual([
+        { metric_id: other.id },
       ]);
-
-      await expect(restoreObservationRecords(db, deletionId)).rejects.toThrow(
-        `Observation ${old.id}: cannot be restored, observation ${fresh.id} is recorded for 2026-10-19`,
-      );
-      expect(await listObservations(db, metric.id, { trashed: true })).toHaveLength(2);
-      expect((await getMetric(db, metric.id))?.deletionId).toBe(deletionId);
-    });
-
-    it("refuses an unknown or purged deletion", async () => {
-      await expect(restoreObservationRecords(db, "nope")).rejects.toThrow(/nothing in the trash/);
-
-      const metric = await water();
-      const created = await record(metric, "2026-10-19", 1);
-      const deletionId = await deleteObservation(db, created.id);
-      await db.execute(
-        `UPDATE observations SET purged_at = 1, date = NULL, value_num = NULL, source = NULL,
-           written_by = NULL, written_at = NULL`,
-      );
-      await expect(restoreObservationRecords(db, deletionId)).rejects.toThrow(/purged/);
-      expect(await getObservation(db, created.id)).toBeUndefined();
-      expect(await listObservations(db, metric.id, { trashed: true })).toEqual([]);
+      expect(await rows("SELECT metric_id FROM observations")).toEqual([{ metric_id: other.id }]);
     });
   });
 
@@ -599,7 +538,7 @@ describe("observations", () => {
       );
     };
 
-    it("allows one live observation per metric and day", async () => {
+    it("allows one observation per metric and day", async () => {
       const metric = await water();
       await record(metric, "2026-10-19", 1);
       await expect(insert({ metric_id: metric.id, value_num: 2 })).rejects.toThrow(/UNIQUE/);
@@ -613,13 +552,13 @@ describe("observations", () => {
     });
 
     it.each([
-      ["two values", { value_num: 1, value_enum: "a" }],
-      ["no date while unpurged", { date: null }],
-      ["no writer while unpurged", { written_by: null }],
-      ["a non-boolean value_bool", { value_bool: 2 }],
-    ])("refuses %s", async (_, columns) => {
+      ["two values", { value_num: 1, value_enum: "a" }, /CHECK/],
+      ["no date", { date: null }, /NOT NULL/],
+      ["no writer", { written_by: null }, /NOT NULL/],
+      ["a non-boolean value_bool", { value_bool: 2 }, /CHECK/],
+    ])("refuses %s", async (_, columns, error) => {
       const metric = await water();
-      await expect(insert({ metric_id: metric.id, ...columns })).rejects.toThrow(/CHECK/);
+      await expect(insert({ metric_id: metric.id, ...columns })).rejects.toThrow(error);
     });
   });
 });

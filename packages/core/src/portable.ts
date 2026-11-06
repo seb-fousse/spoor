@@ -16,8 +16,8 @@ import type { DB } from "./schema/tables";
  * 2. Give every column a kind. A trailing `?` marks a nullable column.
  * 3. Add a `check` for any rule core enforces that the database constraints cannot,
  *    such as the overlap rule, so import refuses data core would never write.
- * 4. Extend the fixture in `roundtrip.test.ts` so the table holds live, trashed and,
- *    where it has them, purged rows.
+ * 4. Extend the fixture in `roundtrip.test.ts` so the table holds rows in every state
+ *    it has, such as archived.
  *
  * Unknown fields from a newer format are refused for now; the spec's rule to preserve
  * them applies once a format newer than this one exists.
@@ -92,8 +92,6 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
       archived_at: "instant?",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
     },
   },
   {
@@ -135,19 +133,14 @@ export const TABLES = [
     key: "things",
     table: "things",
     orderBy: "id",
-    selfReference: "merged_into_id",
     columns: {
       id: "uuid",
       thing_type_id: "uuid",
       thing_type_version: "int",
-      source: "text?",
+      source: "text",
       external_id: "text?",
-      merged_into_id: "uuid?",
       created_at: "instant",
       updated_at: "instant",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
-      purged_at: "instant?",
     },
   },
   {
@@ -182,8 +175,6 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
       archived_at: "instant?",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
     },
   },
   {
@@ -199,8 +190,6 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
       archived_at: "instant?",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
     },
   },
   {
@@ -211,14 +200,11 @@ export const TABLES = [
       id: "uuid",
       timeline_id: "uuid",
       category_id: "uuid",
-      start_at: "instant?",
+      start_at: "instant",
       end_at: "instant?",
-      time_zone: "zone?",
+      time_zone: "zone",
       created_at: "instant",
       updated_at: "instant",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
-      purged_at: "instant?",
     },
     async check(db: Database) {
       const overlap = await findOverlap(db);
@@ -241,8 +227,6 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
       archived_at: "instant?",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
     },
   },
   {
@@ -266,19 +250,16 @@ export const TABLES = [
       id: "uuid",
       metric_id: "uuid",
       metric_version: "int",
-      date: "text?",
+      date: "text",
       value_bool: "bool?",
       value_num: "real?",
       value_enum: "text?",
-      source: "text?",
+      source: "text",
       external_id: "text?",
-      written_by: "text?",
-      written_at: "instant?",
+      written_by: "text",
+      written_at: "instant",
       created_at: "instant",
       updated_at: "instant",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
-      purged_at: "instant?",
     },
   },
   {
@@ -301,8 +282,6 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
       archived_at: "instant?",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
     },
   },
   {
@@ -355,13 +334,10 @@ export const TABLES = [
       time_zone: "zone?",
       parent_entry_id: "uuid?",
       position: "int?",
-      source: "text?",
+      source: "text",
       external_id: "text?",
       created_at: "instant",
       updated_at: "instant",
-      deleted_at: "instant?",
-      deletion_id: "uuid?",
-      purged_at: "instant?",
     },
   },
   {

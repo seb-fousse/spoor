@@ -27,11 +27,12 @@ import {
   listThings,
   listThingTypes,
   mergeThings,
+  previewThingDeletion,
   previewThingTypeDeletion,
-  restoreThingRecords,
   reviseThingTypeFields,
   setThingTypeArchived,
   type Thing,
+  type ThingDeletion,
   type ThingType,
   updateThingType,
   updateThingValues,
@@ -40,20 +41,18 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
-import { Trash } from "./Trash";
+import { effect, useConfirmDelete } from "./ConfirmDelete";
 
 type Run = (action: () => Promise<unknown>) => void;
 
 /**
  * Proof-of-concept Things screen: thing types and their fields, things and
- * their values, merging and the trash, wired to stock Mantine controls. Its only
+ * their values and merging, wired to stock Mantine controls. Its only
  * job is to show the slice works end to end over IPC; the real UI replaces it.
  */
 export function Things({ db }: { db: Database }) {
   const [types, setTypes] = useState<ThingType[]>([]);
-  const [trashed, setTrashed] = useState<ThingType[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<{ type: ThingType; things: number } | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -66,13 +65,12 @@ export function Things({ db }: { db: Database }) {
       .finally(() => setVersion((v) => v + 1));
   };
 
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([listThingTypes(db), listThingTypes(db, { trashed: true })])
-      .then(([live, trash]) => {
-        setTypes(live);
-        setTrashed(trash);
-      })
+    listThingTypes(db)
+      .then(setTypes)
       .catch((e: Error) => setError(e.message));
   }, [db, version]);
 
@@ -88,9 +86,15 @@ export function Things({ db }: { db: Database }) {
     setName("");
   };
 
-  // Deleting cascades, so show what it removes first.
   const askDelete = (type: ThingType) =>
-    run(async () => setConfirming({ type, ...(await previewThingTypeDeletion(db, type.id)) }));
+    confirmDelete(
+      `the ${type.name} type`,
+      () => deleteThingType(db, type.id),
+      async () => {
+        const n = await previewThingTypeDeletion(db, type.id);
+        return [effect("deletes", n.things, "thing"), ...referenceEffects(n)];
+      },
+    );
 
   const selected = types.find((t) => t.id === selectedId);
 
@@ -98,6 +102,7 @@ export function Things({ db }: { db: Database }) {
     <Stack component="section" gap="sm">
       <Title order={2}>Things</Title>
       {error && <Alert color="red">{error}</Alert>}
+      {deleteDialog}
 
       <form onSubmit={addType}>
         <Group gap="xs" align="flex-end">
@@ -113,27 +118,6 @@ export function Things({ db }: { db: Database }) {
           </Button>
         </Group>
       </form>
-      {confirming && (
-        <Group gap="xs">
-          <Text size="sm">
-            This deletes the {confirming.type.name} type and its {confirming.things} things.
-          </Text>
-          <Button
-            size="xs"
-            variant="light"
-            color="red"
-            onClick={() => {
-              setConfirming(null);
-              run(() => deleteThingType(db, confirming.type.id));
-            }}
-          >
-            Delete
-          </Button>
-          <Button size="xs" variant="default" onClick={() => setConfirming(null)}>
-            Cancel
-          </Button>
-        </Group>
-      )}
       <Stack gap={4}>
         {types.map((t) => (
           <Group key={t.id} gap="xs">
@@ -161,10 +145,6 @@ export function Things({ db }: { db: Database }) {
           </Group>
         ))}
       </Stack>
-      <Trash
-        items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
-        onRestore={(deletionId) => run(() => restoreThingRecords(db, deletionId))}
-      />
 
       {selected && (
         <ThingTypeDetail db={db} type={selected} types={types} version={version} run={run} />
@@ -188,20 +168,17 @@ function ThingTypeDetail({
 }) {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [things, setThings] = useState<Thing[]>([]);
-  const [trashed, setTrashed] = useState<Thing[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([
-      getThingTypeVersionFields(db, type.id),
-      listThings(db, type.id),
-      listThings(db, type.id, { trashed: true }),
-    ]).then(([f, live, trash]) => {
-      setFields(f);
-      setThings(live);
-      setTrashed(trash);
-    });
+    Promise.all([getThingTypeVersionFields(db, type.id), listThings(db, type.id)]).then(
+      ([f, live]) => {
+        setFields(f);
+        setThings(live);
+      },
+    );
   }, [db, type.id, type.schemaVersion, version]);
 
   const title = (thing: Thing) => String(thing.values[type.titleFieldId] ?? "?");
@@ -215,6 +192,7 @@ function ThingTypeDetail({
           (version {type.schemaVersion})
         </Text>
       </Title>
+      {deleteDialog}
 
       <Title order={4}>Fields</Title>
       <Group gap="xs">
@@ -275,7 +253,13 @@ function ThingTypeDetail({
                 size="xs"
                 variant="light"
                 color="red"
-                onClick={() => run(() => deleteThing(db, thing.id))}
+                onClick={() =>
+                  confirmDelete(
+                    title(thing),
+                    () => deleteThing(db, thing.id),
+                    async () => referenceEffects(await previewThingDeletion(db, thing.id)),
+                  )
+                }
               >
                 Delete
               </Button>
@@ -298,16 +282,16 @@ function ThingTypeDetail({
           }
         />
       )}
-      <Trash
-        items={trashed.map((t) => ({
-          id: t.id,
-          label: t.mergedIntoId ? `${title(t)} (merged)` : title(t),
-          deletionId: t.deletionId,
-        }))}
-        onRestore={(deletionId) => run(() => restoreThingRecords(db, deletionId))}
-      />
     </Stack>
   );
+}
+
+/** What deleting things does to what refers to them, for the confirmation. */
+function referenceEffects(n: ThingDeletion) {
+  return [
+    effect("removes", n.references, "reference"),
+    effect("unlinks", n.categories, "timeline category", "timeline categories"),
+  ];
 }
 
 /** Edits a thing against its own version's fields, which may be older than the current ones. */
@@ -646,7 +630,7 @@ function ThingSelect({
   );
 }
 
-/** A thing's values, with references shown by title, including deleted things. */
+/** A thing's values, with references shown by title. */
 function ValuesList({ db, thing }: { db: Database; thing: Thing }) {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});

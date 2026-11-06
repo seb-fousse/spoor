@@ -6,7 +6,7 @@
  * title must also be a valid Conventional Commit.
  *
  * Examples:
- *   feat(core): add soft delete to time entries
+ *   feat(core): add child entries to log entries
  *   fix(desktop): stop crash when importing an empty file
  *   docs: explain the export round-trip guarantee
  */

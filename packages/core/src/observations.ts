@@ -1,11 +1,11 @@
-import { type Selectable, sql } from "kysely";
+import type { Selectable } from "kysely";
 import { isNonEmptyString, optionalText, requireName } from "./guards";
 import { newId } from "./ids";
 import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { type Instant, isLocalDate, type LocalDate, now } from "./time";
-import type { ListOptions } from "./timelines";
+
 import { transaction } from "./transaction";
 import {
   decodeValue,
@@ -24,9 +24,8 @@ import {
  * Observations (see docs/data-spec.md § 2. Observations): metrics, their
  * immutable versions, and at most one daily observation per metric and day.
  *
- * Reads return only live records unless asked for the trash. Purged
- * observations are never returned. Every write runs in one transaction, so a
- * value is validated against the version it is stored with.
+ * Deleting is permanent. Every write runs in one transaction, so a value is
+ * validated against the version it is stored with.
  */
 
 /** The writer of values the user entered. Any other writer is automated. */
@@ -43,8 +42,6 @@ export interface ObservationMetric {
   createdAt: Instant;
   updatedAt: Instant;
   archivedAt: Instant | null;
-  deletedAt: Instant | null;
-  deletionId: string | null;
 }
 
 /** A shape an observation metric can have. */
@@ -74,13 +71,11 @@ export interface Observation {
   writtenAt: Instant;
   createdAt: Instant;
   updatedAt: Instant;
-  deletedAt: Instant | null;
-  deletionId: string | null;
 }
 
 /** What `recordObservation` did. */
 export interface RecordObservationResult {
-  /** The live observation for the metric and day, as it now is. */
+  /** The observation for the metric and day, as it now is. */
   observation: Observation;
   /** True if an automated writer left another writer's value in place. */
   skipped: boolean;
@@ -129,7 +124,7 @@ export async function createMetric(
   return (await getMetric(db, id)) as ObservationMetric;
 }
 
-/** The metric with `id` in any state, or `undefined`. */
+/** The metric with `id`, or `undefined`. */
 export async function getMetric(db: Database, id: string): Promise<ObservationMetric | undefined> {
   const row = await queryBuilder(db)
     .selectFrom("observation_metrics")
@@ -139,19 +134,14 @@ export async function getMetric(db: Database, id: string): Promise<ObservationMe
   return row && toMetric(row);
 }
 
-/** Live metrics by name (archived included), or the trashed ones, latest first. */
-export async function listMetrics(
-  db: Database,
-  options: ListOptions = {},
-): Promise<ObservationMetric[]> {
-  const query = queryBuilder(db).selectFrom("observation_metrics").selectAll();
-  const rows = await (options.trashed
-    ? query.where("deleted_at", "is not", null).orderBy("deleted_at", "desc")
-    : query
-        .where("deleted_at", "is", null)
-        .orderBy("name", (ob) => ob.collate("nocase"))
-        .orderBy("id")
-  ).execute();
+/** Every metric by name, archived included. */
+export async function listMetrics(db: Database): Promise<ObservationMetric[]> {
+  const rows = await queryBuilder(db)
+    .selectFrom("observation_metrics")
+    .selectAll()
+    .orderBy("name", (ob) => ob.collate("nocase"))
+    .orderBy("id")
+    .execute();
   return rows.map(toMetric);
 }
 
@@ -195,7 +185,7 @@ export async function updateMetric(
 ): Promise<ObservationMetric> {
   const label = `Observation metric ${id}`;
   await transaction(db, async () => {
-    const metric = await requireLiveMetric(db, id);
+    const metric = await requireMetric(db, id);
     await queryBuilder(db)
       .updateTable("observation_metrics")
       .set({
@@ -232,7 +222,7 @@ export async function reviseMetric(
     input.constraints,
   );
   await transaction(db, async () => {
-    const metric = await requireLiveMetric(db, id);
+    const metric = await requireMetric(db, id);
     const current = await requireVersion(db, id, metric.schemaVersion);
     if (sameShape(current, shape)) return;
     const version = metric.schemaVersion + 1;
@@ -253,7 +243,7 @@ export async function setMetricArchived(
   archived: boolean,
 ): Promise<void> {
   await transaction(db, async () => {
-    await requireLiveMetric(db, id);
+    await requireMetric(db, id);
     const t = now();
     await queryBuilder(db)
       .updateTable("observation_metrics")
@@ -263,26 +253,26 @@ export async function setMetricArchived(
   });
 }
 
-/**
- * Moves the metric to the trash with its live observations, all under one new
- * `deletion_id`, which is returned. Its versions stay, as definitions do.
- */
-export async function deleteMetric(db: Database, id: string): Promise<string> {
-  const deletionId = newId();
+/** What `deleteMetric` would delete with the metric, for the user to confirm. */
+export async function previewMetricDeletion(
+  db: Database,
+  id: string,
+): Promise<{ observations: number }> {
+  await requireMetric(db, id);
+  const { n } = await queryBuilder(db)
+    .selectFrom("observations")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("metric_id", "=", id)
+    .executeTakeFirstOrThrow();
+  return { observations: n };
+}
+
+/** Deletes the metric with its versions and observations. See `previewMetricDeletion`. */
+export async function deleteMetric(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
-    const q = queryBuilder(db);
-    await requireLiveMetric(db, id);
-    const t = now();
-    const trash = { deleted_at: t, deletion_id: deletionId, updated_at: t };
-    await q.updateTable("observation_metrics").set(trash).where("id", "=", id).execute();
-    await q
-      .updateTable("observations")
-      .set(trash)
-      .where("metric_id", "=", id)
-      .where("deleted_at", "is", null)
-      .execute();
+    await requireMetric(db, id);
+    await queryBuilder(db).deleteFrom("observation_metrics").where("id", "=", id).execute();
   });
-  return deletionId;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +280,7 @@ export async function deleteMetric(db: Database, id: string): Promise<string> {
 
 /**
  * Records the metric's value for `date`, validated against its current
- * version: inserts the day's observation, or revises the live one, moving it
+ * version: inserts the day's observation, or revises it, moving it
  * to the current version. A `multi_enum` value replaces the selections.
  *
  * `writtenBy` (default `manual`) is the writer. The user always wins: an
@@ -321,7 +311,7 @@ export async function recordObservation(
 
   const { id, skipped } = await transaction(db, async () => {
     const q = queryBuilder(db);
-    const metric = await requireLiveMetric(db, metricId);
+    const metric = await requireMetric(db, metricId);
     if (metric.archivedAt !== null) throw new Error(`${metricLabel}: archived`);
     const version = await requireVersion(db, metricId, metric.schemaVersion);
     const existing = await q
@@ -329,7 +319,6 @@ export async function recordObservation(
       .select(["id", "written_by"])
       .where("metric_id", "=", metricId)
       .where("date", "=", date)
-      .where("deleted_at", "is", null)
       .executeTakeFirst();
     const id = existing?.id ?? newId();
     // Validated even when skipped, so bad input never passes silently.
@@ -391,25 +380,24 @@ export async function recordObservation(
   return { observation: (await getObservation(db, id)) as Observation, skipped };
 }
 
-/** The observation with `id`, trashed or not, or `undefined` (also once purged). */
+/** The observation with `id`, or `undefined`. */
 export async function getObservation(db: Database, id: string): Promise<Observation | undefined> {
   const row = await queryBuilder(db)
     .selectFrom("observations")
     .selectAll()
     .where("id", "=", id)
-    .where("purged_at", "is", null)
     .executeTakeFirst();
   return row && (await toObservations(db, [row]))[0];
 }
 
 /**
- * The metric's live observations, latest day first, optionally only those from
- * `from` to `to` inclusive; or its trashed (unpurged) ones, latest deletion first.
+ * The metric's observations, latest day first, optionally only those from
+ * `from` to `to` inclusive.
  */
 export async function listObservations(
   db: Database,
   metricId: string,
-  options: ListOptions & { from?: LocalDate; to?: LocalDate } = {},
+  options: { from?: LocalDate; to?: LocalDate } = {},
 ): Promise<Observation[]> {
   let query = queryBuilder(db)
     .selectFrom("observations")
@@ -428,107 +416,20 @@ export async function listObservations(
     }
     query = query.where("date", op, date);
   }
-  const rows = await (options.trashed
-    ? query
-        .where("deleted_at", "is not", null)
-        .where("purged_at", "is", null)
-        .orderBy("deleted_at", "desc")
-    : query.where("deleted_at", "is", null).orderBy("date", "desc")
-  ).execute();
-  return toObservations(db, rows);
+  return toObservations(db, await query.orderBy("date", "desc").execute());
 }
 
-/** Moves the observation to the trash; returns the `deletion_id`. */
-export async function deleteObservation(db: Database, id: string): Promise<string> {
-  const deletionId = newId();
+/** Deletes the observation. */
+export async function deleteObservation(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
     const q = queryBuilder(db);
-    const live = await q
+    const found = await q
       .selectFrom("observations")
       .select("id")
       .where("id", "=", id)
-      .where("deleted_at", "is", null)
       .executeTakeFirst();
-    if (!live) throw new Error(`Observation ${id}: not found`);
-    const t = now();
-    await q
-      .updateTable("observations")
-      .set({ deleted_at: t, deletion_id: deletionId, updated_at: t })
-      .where("id", "=", id)
-      .execute();
-  });
-  return deletionId;
-}
-
-// ---------------------------------------------------------------------------
-// Restore
-
-/**
- * Restores every metric and observation trashed under `deletionId`. Refuses,
- * restoring nothing, if any of them was purged, if a restored observation's
- * metric is still in the trash, or if its day already has a live observation.
- */
-export async function restoreObservationRecords(db: Database, deletionId: string): Promise<void> {
-  await transaction(db, async () => {
-    const q = queryBuilder(db);
-    // Only observations can be purged; metrics count as unpurged.
-    const trashed = q
-      .selectFrom("observation_metrics")
-      .select(sql<number | null>`NULL`.as("purged_at"))
-      .where("deletion_id", "=", deletionId)
-      .unionAll(
-        q.selectFrom("observations").select("purged_at").where("deletion_id", "=", deletionId),
-      );
-    const counts = await q
-      .selectFrom(trashed.as("trashed"))
-      .select((eb) => [
-        eb.fn.countAll<number>().as("n"),
-        eb.fn.count<number>("purged_at").as("purged"),
-      ])
-      .executeTakeFirstOrThrow();
-    if (counts.n === 0) throw new Error(`Deletion ${deletionId}: nothing in the trash`);
-    if (counts.purged > 0) throw new Error(`Deletion ${deletionId}: purged, cannot be restored`);
-
-    // A metric trashed by another deletion stays in the trash, so its observations cannot return.
-    const orphan = await q
-      .selectFrom("observations as o")
-      .innerJoin("observation_metrics as m", "m.id", "o.metric_id")
-      .select("o.id")
-      .where("o.deletion_id", "=", deletionId)
-      .where("m.deletion_id", "<>", deletionId)
-      .limit(1)
-      .executeTakeFirst();
-    if (orphan) {
-      throw new Error(`Observation ${orphan.id}: cannot be restored while its metric is deleted`);
-    }
-
-    const clash = await q
-      .selectFrom("observations as o")
-      .innerJoin("observations as live", (join) =>
-        join.onRef("live.metric_id", "=", "o.metric_id").onRef("live.date", "=", "o.date"),
-      )
-      .select(["o.id", "o.date", "live.id as liveId"])
-      .where("o.deletion_id", "=", deletionId)
-      .where("live.deleted_at", "is", null)
-      .limit(1)
-      .executeTakeFirst();
-    if (clash) {
-      throw new Error(
-        `Observation ${clash.id}: cannot be restored, observation ${clash.liveId} is recorded for ${clash.date}`,
-      );
-    }
-
-    const restore = { deleted_at: null, deletion_id: null, updated_at: now() };
-    await q
-      .updateTable("observation_metrics")
-      .set(restore)
-      .where("deletion_id", "=", deletionId)
-      .execute();
-    await q
-      .updateTable("observations")
-      .set(restore)
-      .where("deletion_id", "=", deletionId)
-      .execute();
+    if (!found) throw new Error(`Observation ${id}: not found`);
+    await q.deleteFrom("observations").where("id", "=", id).execute();
   });
 }
 
@@ -549,9 +450,9 @@ async function insertVersion(db: Database, metricId: string, version: number, sh
     .execute();
 }
 
-async function requireLiveMetric(db: Database, id: string): Promise<ObservationMetric> {
+async function requireMetric(db: Database, id: string): Promise<ObservationMetric> {
   const metric = await getMetric(db, id);
-  if (!metric || metric.deletedAt !== null) throw new Error(`Observation metric ${id}: not found`);
+  if (!metric) throw new Error(`Observation metric ${id}: not found`);
   return metric;
 }
 
@@ -575,8 +476,6 @@ function toMetric(row: MetricRow): ObservationMetric {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
-    deletedAt: row.deleted_at,
-    deletionId: row.deletion_id,
   };
 }
 
@@ -596,11 +495,7 @@ function toVersion(row: VersionRow): ObservationMetricVersion {
   };
 }
 
-/**
- * The observations in `rows`, with their values decoded by their version. A
- * purge clears `date` and the value, so purged rows must be filtered out
- * first; mapping one is a bug and throws.
- */
+/** The observations in `rows`, with their values decoded by their version. */
 async function toObservations(db: Database, rows: ObservationRow[]): Promise<Observation[]> {
   if (rows.length === 0) return [];
   const q = queryBuilder(db);
@@ -630,14 +525,6 @@ async function toObservations(db: Database, rows: ObservationRow[]): Promise<Obs
 
   return rows.map((row) => {
     const label = `Observation ${row.id}`;
-    if (
-      row.date === null ||
-      row.source === null ||
-      row.written_by === null ||
-      row.written_at === null
-    ) {
-      throw new Error(`${label}: purged`);
-    }
     const version = versions.get(`${row.metric_id}/${row.metric_version}`) as MetricShape;
     let value: Value;
     if (version.valueType === "multi_enum") {
@@ -664,8 +551,6 @@ async function toObservations(db: Database, rows: ObservationRow[]): Promise<Obs
       writtenAt: row.written_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      deletedAt: row.deleted_at,
-      deletionId: row.deletion_id,
     };
   });
 }

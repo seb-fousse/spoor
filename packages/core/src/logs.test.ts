@@ -16,9 +16,9 @@ import {
   logFieldInput,
   moveChildEntry,
   type NewLogField,
+  previewLogEntryDeletion,
   previewLogTypeDeletion,
   reorderLogFields,
-  restoreLogRecords,
   reviseLogTypeFields,
   setLogTypeArchived,
   updateLogEntry,
@@ -156,8 +156,6 @@ describe("logs", () => {
         createdAt: 1_000,
         updatedAt: 1_000,
         archivedAt: null,
-        deletedAt: null,
-        deletionId: null,
       });
       expect(await getLogType(db, type.id)).toEqual(type);
       expect(
@@ -196,14 +194,13 @@ describe("logs", () => {
       expect(await rows("log_fields")).toEqual([]);
     });
 
-    it("lists live types by name, archived included, or the trashed ones", async () => {
+    it("lists types by name, archived included", async () => {
       const b = await simpleType("b");
       const a = await simpleType("A");
       await setLogTypeArchived(db, b.id, true);
       expect((await listLogTypes(db)).map((t) => t.name)).toEqual(["A", "b"]);
       await deleteLogType(db, a.id);
       expect((await listLogTypes(db)).map((t) => t.name)).toEqual(["b"]);
-      expect((await listLogTypes(db, { trashed: true })).map((t) => t.name)).toEqual(["A"]);
     });
 
     it("renames and redescribes, bumping updated_at", async () => {
@@ -231,7 +228,7 @@ describe("logs", () => {
       await createLogEntry(db, { logTypeId: type.id, occurredAt: T0 });
     });
 
-    it("needs a live parent type, fixed at creation", async () => {
+    it("needs an existing parent type, fixed at creation", async () => {
       const missing = newId();
       await expect(
         createLogType(db, { name: "Set", parentTypeId: missing, fields: [] }),
@@ -260,11 +257,12 @@ describe("logs", () => {
       await expect(setLogTypeArchived(db, type.id, true)).rejects.toThrow(notFound);
       await expect(reviseLogTypeFields(db, type.id, [])).rejects.toThrow(notFound);
       await expect(reorderLogFields(db, type.id, [field.id])).rejects.toThrow(notFound);
-      await expect(updateLogField(db, field.id, { name: "x" })).rejects.toThrow(notFound);
+      await expect(updateLogField(db, field.id, { name: "x" })).rejects.toThrow(
+        `Log field ${field.id}: not found`,
+      );
       await expect(previewLogTypeDeletion(db, type.id)).rejects.toThrow(notFound);
       await expect(deleteLogType(db, type.id)).rejects.toThrow(notFound);
-      // Its fields stay readable, for its trashed entries.
-      expect(await getLogTypeVersionFields(db, type.id)).toEqual([field]);
+      await expect(getLogTypeVersionFields(db, type.id)).rejects.toThrow(notFound);
     });
   });
 
@@ -417,8 +415,6 @@ describe("logs", () => {
         externalId: null,
         createdAt: 5_000,
         updatedAt: 5_000,
-        deletedAt: null,
-        deletionId: null,
         resolved: { occurredAt: T0, precision: "instant", timeZone: TZ },
         day: "2026-10-27",
         values: {},
@@ -458,16 +454,18 @@ describe("logs", () => {
         source: "import",
         externalId: "1",
       });
+      const again = {
+        logTypeId: type.id,
+        occurredAt: T0,
+        source: "import",
+        externalId: "1",
+      };
+      await expect(createLogEntry(db, again)).rejects.toThrow(
+        `log entry ${first.id} already has external id "1" from import`,
+      );
+      // A deleted entry leaves nothing behind, so a re-run import adds it again.
       await deleteLogEntry(db, first.id);
-      // Trashed entries keep theirs, so a re-run import finds them.
-      await expect(
-        createLogEntry(db, {
-          logTypeId: type.id,
-          occurredAt: T0,
-          source: "import",
-          externalId: "1",
-        }),
-      ).rejects.toThrow(`log entry ${first.id} already has external id "1" from import`);
+      await createLogEntry(db, again);
       await createLogEntry(db, {
         logTypeId: type.id,
         occurredAt: T0,
@@ -581,23 +579,29 @@ describe("logs", () => {
         );
         await deleteThing(db, people[1]);
         await expect(create({ [f.withPeople]: [people[1]] })).rejects.toThrow(
-          new RegExp(`field ${f.withPeople}: thing ${people[1]} is deleted`),
+          new RegExp(`field ${f.withPeople}: thing ${people[1]} not found`),
         );
         expect(await rows("log_entries")).toEqual([]);
       });
 
-      it("keeps a stored reference to a thing deleted since", async () => {
-        const { type, alien, people, f } = await setupMovies();
+      it("loses a reference to a thing deleted since, and asks again for a required one", async () => {
+        const { type, alien, movie, people, f } = await setupMovies();
         const entry = await createLogEntry(db, {
           logTypeId: type.id,
           occurredAt: T0,
-          values: { [f.film]: alien, [f.withPeople]: [people[0]] },
+          values: { [f.film]: alien, [f.rating]: 3, [f.withPeople]: [people[0], people[1]] },
         });
         await deleteThing(db, people[0]);
-        const { entry: updated } = await updateLogEntry(db, entry.id, {
-          values: { [f.withPeople]: [people[0], people[1]] },
+        await deleteThing(db, alien);
+        expect((await getLogEntry(db, entry.id))?.values).toEqual({
+          [f.rating]: 3,
+          [f.withPeople]: [people[1]],
         });
-        expect(updated.values[f.withPeople]).toEqual([people[0], people[1]].sort());
+        await expect(updateLogEntry(db, entry.id, { values: { [f.rating]: 4 } })).rejects.toThrow(
+          new RegExp(`field ${f.film}: is required`),
+        );
+        const heat = await thing(movie, "Heat");
+        await updateLogEntry(db, entry.id, { values: { [f.film]: heat, [f.rating]: 4 } });
       });
     });
   });
@@ -851,7 +855,7 @@ describe("logs", () => {
   });
 
   describe("listing", () => {
-    it("lists live entries latest first, within [from, to)", async () => {
+    it("lists entries latest first, within [from, to)", async () => {
       const type = await simpleType();
       const make = (h: number) =>
         createLogEntry(db, { logTypeId: type.id, occurredAt: T0 + h * H });
@@ -864,9 +868,6 @@ describe("logs", () => {
       ).toEqual([c.id]);
       await deleteLogEntry(db, c.id);
       expect((await listLogEntries(db, type.id)).map((e) => e.id)).toEqual([b.id, a.id]);
-      expect((await listLogEntries(db, type.id, { trashed: true })).map((e) => e.id)).toEqual([
-        c.id,
-      ]);
     });
   });
 
@@ -938,7 +939,7 @@ describe("logs", () => {
 
       vi.setSystemTime(2_000);
       await mergeThings(db, alien, alienCopy);
-      const deletionId = await mergeThings(db, alex, sam);
+      await mergeThings(db, alex, sam);
 
       // `both` named Alex and Sam: one row each, now one row for Alex.
       expect(await getLogEntry(db, both.id)).toMatchObject({
@@ -963,54 +964,30 @@ describe("logs", () => {
       expect(film.map((r) => [r.value_ref, r.written_by, r.written_at])).toEqual([
         [alien, "manual", 2_000],
       ]);
-      // A merge trashes no log records, so it is not a log deletion to restore.
-      await expect(restoreLogRecords(db, deletionId)).rejects.toThrow(/nothing in the trash/);
-    });
-
-    it("redirects a new reference to a merged thing to its survivor", async () => {
-      const { type, alien, people, f } = await setupMovies();
-      await mergeThings(db, people[0], people[1]);
-      const entry = await createLogEntry(db, {
-        logTypeId: type.id,
-        occurredAt: T0,
-        values: { [f.film]: alien, [f.withPeople]: [people[1]] },
-      });
-      expect(entry.values[f.withPeople]).toEqual([people[0]]);
+      expect(await rows("log_entries")).toHaveLength(3);
     });
   });
 
-  describe("trash", () => {
-    it("deletes an entry with its children, and restores them together", async () => {
+  describe("delete", () => {
+    it("previews, then deletes an entry with its children and values", async () => {
       const { workout, set, f } = await setupWorkouts();
       const entry = await createLogEntry(db, { logTypeId: workout.id, occurredAt: T0 });
-      const children = [];
       for (const n of [1, 2]) {
-        children.push(
-          await createLogEntry(db, {
-            logTypeId: set.id,
-            parentEntryId: entry.id,
-            values: { [f.reps]: n },
-          }),
-        );
+        await createLogEntry(db, {
+          logTypeId: set.id,
+          parentEntryId: entry.id,
+          values: { [f.reps]: n },
+        });
       }
-      const deletionId = await deleteLogEntry(db, entry.id);
+      expect(await previewLogEntryDeletion(db, entry.id)).toEqual({ childEntries: 2 });
+      await deleteLogEntry(db, entry.id);
 
-      expect(await rows("log_entries", "deletion_id = ?", [deletionId])).toHaveLength(3);
-      expect(await listLogEntries(db, workout.id)).toEqual([]);
-      expect(await listChildEntries(db, entry.id)).toEqual([]);
-      expect((await listChildEntries(db, entry.id, { trashed: true })).map((c) => c.id)).toEqual(
-        children.map((c) => c.id),
-      );
-      // A trashed child still resolves its trashed parent's time.
-      expect((await getLogEntry(db, children[0].id))?.resolved.occurredAt).toBe(T0);
+      expect(await rows("log_entries")).toEqual([]);
+      expect(await rows("log_field_values")).toEqual([]);
       await expect(deleteLogEntry(db, entry.id)).rejects.toThrow(/not found/);
-
-      await restoreLogRecords(db, deletionId);
-      expect(await listChildEntries(db, entry.id)).toHaveLength(2);
-      expect(await getLogEntry(db, entry.id)).toMatchObject({ deletedAt: null, deletionId: null });
     });
 
-    it("deletes a child alone, which cannot return while its parent is deleted", async () => {
+    it("deletes a child alone", async () => {
       const { workout, set, f } = await setupWorkouts();
       const entry = await createLogEntry(db, { logTypeId: workout.id, occurredAt: T0 });
       const child = await createLogEntry(db, {
@@ -1018,21 +995,13 @@ describe("logs", () => {
         parentEntryId: entry.id,
         values: { [f.reps]: 1 },
       });
-      const childDeletion = await deleteLogEntry(db, child.id);
-      expect((await getLogEntry(db, entry.id))?.deletedAt).toBeNull();
-      const parentDeletion = await deleteLogEntry(db, entry.id);
-
-      await expect(restoreLogRecords(db, childDeletion)).rejects.toThrow(
-        `Log entry ${child.id}: cannot be restored while its parent entry is deleted`,
-      );
-      // Restoring the parent leaves the separately deleted child in the trash.
-      await restoreLogRecords(db, parentDeletion);
+      expect(await previewLogEntryDeletion(db, child.id)).toEqual({ childEntries: 0 });
+      await deleteLogEntry(db, child.id);
+      expect(await getLogEntry(db, entry.id)).toBeDefined();
       expect(await listChildEntries(db, entry.id)).toEqual([]);
-      await restoreLogRecords(db, childDeletion);
-      expect(await listChildEntries(db, entry.id)).toHaveLength(1);
     });
 
-    it("cascades a type delete to its entries and child types, after a preview", async () => {
+    it("previews, then deletes a type with its child types, fields and entries", async () => {
       const { workout, set, f } = await setupWorkouts();
       const rep = await createLogType(db, { name: "Rep", parentTypeId: set.id, fields: [] });
       const other = await simpleType();
@@ -1046,60 +1015,24 @@ describe("logs", () => {
         });
         await createLogEntry(db, { logTypeId: rep.id, parentEntryId: s.id });
       }
-      // Already in the trash, so not counted or moved.
-      const trashedEntry = await createLogEntry(db, { logTypeId: workout.id, occurredAt: T0 });
-      const entryDeletion = await deleteLogEntry(db, trashedEntry.id);
 
       expect(await previewLogTypeDeletion(db, workout.id)).toEqual({ types: 3, entries: 6 });
       expect(await previewLogTypeDeletion(db, set.id)).toEqual({ types: 2, entries: 4 });
-      const deletionId = await deleteLogType(db, workout.id);
+      await deleteLogType(db, workout.id);
 
-      expect(await rows("log_types", "deletion_id = ?", [deletionId])).toHaveLength(3);
-      expect(await rows("log_entries", "deletion_id = ?", [deletionId])).toHaveLength(6);
       expect((await listLogTypes(db)).map((t) => t.id)).toEqual([other.id]);
-      expect((await getLogEntry(db, trashedEntry.id))?.deletionId).toBe(entryDeletion);
-
-      // The separately deleted entry cannot return while its type is deleted.
-      await expect(restoreLogRecords(db, entryDeletion)).rejects.toThrow(
-        `Log entry ${trashedEntry.id}: cannot be restored while its log type is deleted`,
-      );
-      await restoreLogRecords(db, deletionId);
-      expect(await listLogTypes(db)).toHaveLength(4);
-      expect(await listLogEntries(db, workout.id)).toHaveLength(2);
-      expect(await listLogEntries(db, rep.id)).toHaveLength(2);
-      await restoreLogRecords(db, entryDeletion);
-      expect(await listLogEntries(db, workout.id)).toHaveLength(3);
-    });
-
-    it("keeps a separately deleted child type in the trash", async () => {
-      const { workout, set } = await setupWorkouts();
-      const setDeletion = await deleteLogType(db, set.id);
-      const workoutDeletion = await deleteLogType(db, workout.id);
-      await expect(restoreLogRecords(db, setDeletion)).rejects.toThrow(
-        `Log type ${set.id}: cannot be restored while its parent type is deleted`,
-      );
-      await restoreLogRecords(db, workoutDeletion);
-      expect((await listLogTypes(db)).map((t) => t.id)).toEqual([workout.id]);
-      await restoreLogRecords(db, setDeletion);
-      expect(await listLogTypes(db)).toHaveLength(2);
-    });
-
-    it("refuses an unknown or purged deletion", async () => {
-      await expect(restoreLogRecords(db, "nope")).rejects.toThrow(/nothing in the trash/);
-
-      const type = await simpleType();
-      const entry = await createLogEntry(db, { logTypeId: type.id, occurredAt: T0 });
-      const deletionId = await deleteLogEntry(db, entry.id);
-      await db.execute(
-        `UPDATE log_entries SET purged_at = 1, occurred_at = NULL, precision = NULL,
-           time_zone = NULL, source = NULL WHERE id = ?`,
-        [entry.id],
-      );
-      await expect(restoreLogRecords(db, deletionId)).rejects.toThrow(
-        `Deletion ${deletionId}: purged, cannot be restored`,
-      );
-      expect(await getLogEntry(db, entry.id)).toBeUndefined();
-      expect(await listLogEntries(db, type.id, { trashed: true })).toEqual([]);
+      for (const table of [
+        "log_type_versions",
+        "log_fields",
+        "log_field_versions",
+        "log_entries",
+      ]) {
+        expect(
+          (await rows(table)).every((r) => r.log_type_id === other.id),
+          table,
+        ).toBe(true);
+      }
+      expect(await rows("log_entries")).toHaveLength(1);
     });
   });
 
@@ -1127,29 +1060,18 @@ describe("logs", () => {
 
       await insert({ ...top, id: newId() });
       await insert({ ...child, id: newId() });
+      await expect(insert({ ...top, id: newId(), source: null })).rejects.toThrow(/NOT NULL/);
       for (const bad of [
         { ...top, occurred_at: null, precision: null, time_zone: null },
         { ...top, precision: null },
         { ...top, precision: "week" },
         { ...top, ended_at: -1 },
-        { ...top, source: null },
         { ...top, position: 1 },
         { ...child, position: null },
         { ...child, ended_at: 5 },
       ]) {
         await expect(insert({ ...bad, id: newId() }), JSON.stringify(bad)).rejects.toThrow(/CHECK/);
       }
-      // The tombstone a purge leaves.
-      await insert({
-        id: newId(),
-        log_type_id: set.id,
-        log_type_version: 1,
-        created_at: 0,
-        updated_at: 0,
-        deleted_at: 1,
-        deletion_id: newId(),
-        purged_at: 2,
-      });
       await expect(insert({ ...top, id: newId(), log_type_version: 2 })).rejects.toThrow(
         /FOREIGN KEY/,
       );

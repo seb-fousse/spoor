@@ -39,7 +39,7 @@ pnpm test
 
 - [**Conventional Commits**](https://www.conventionalcommits.org) with package
   scopes, enforced by commitlint in a git hook:
-  - `feat(core): add the trash to log entries`
+  - `feat(core): add child entries to log entries`
   - `fix(desktop): stop crash on empty import`
   - `docs: explain the export round-trip guarantee`
 - The body explains **why**; the diff shows what.

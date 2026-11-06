@@ -33,9 +33,6 @@ Every table lists all of its fields. Shared fields mean the same everywhere:
 | `created_at` | When the record was created. |
 | `updated_at` | Bumped on every change. |
 | `archived_at` | Definitions only. Retired: not offered for new records, still visible and valid for existing ones. |
-| `deleted_at` | When the record went to the trash. |
-| `deletion_id` | UUID shared by every record trashed by one delete action. |
-| `purged_at` | Data entries only. When the entry's content was erased. |
 
 All timestamps are UTC (see [Storage](#storage)).
 
@@ -44,47 +41,39 @@ All timestamps are UTC (see [Storage](#storage)).
 never changed, with only `id` and `created_at`.
 
 **Child rows** (`ObservationSelection`, `LogFieldValue`, `ThingFieldValue`)
-have no lifecycle of their own. They follow their parent's trash and purge
-state, and changing one bumps the parent's `updated_at`.
+have no lifecycle of their own. They are deleted with their parent, and
+changing one bumps the parent's `updated_at`.
 
-### Deletion and the trash
+### Deleting
 
-**Data entries** (intervals, observations, log entries, things) go to the trash
-when deleted and can be restored from it. Seven days after `deleted_at`, or
-when the trash is emptied, an entry is **purged**: its child rows are removed
-and its content columns cleared. The tombstone keeps only `id`, the reference
-to its definition, `created_at`, `updated_at`, `deleted_at`, `deletion_id`
-(so its group can no longer be restored), `purged_at`, and, for a thing,
-`merged_into_id`.
+Deleting is immediate and permanent: there is no trash and no undo. The
+database deletes what depends on a record through `ON DELETE CASCADE` foreign
+keys, and runs with `PRAGMA secure_delete = ON` so deleted content is
+overwritten in the file. A deletion cannot reach exports written before it.
 
-Tombstones let a future sync propagate deletions, and keep references to
-purged things resolvable. Content columns are therefore nullable in storage;
-core requires them on unpurged entries. The database runs with
-`PRAGMA secure_delete = ON` so erased content is overwritten. A purge cannot
-reach exports written before it.
-
-**Definitions** are never purged. Deleting one hides it, but the row and its
-versions stay so tombstones still resolve. Deleting a definition cascades:
-
-| Deleting | Also trashes |
+| Deleting | Also deletes |
 | -------- | ------------ |
 | Timeline | Its categories and their intervals. |
 | Timeline category | Its intervals. |
-| Observation metric | Its observations. |
-| Log type | Its entries, and every log type whose `parent_type_id` is this type, with their entries. |
-| Thing type | Its things. |
+| Observation metric | Its versions and observations. |
+| Log type | Its fields, versions and entries, and every log type whose `parent_type_id` is this type, with theirs. |
+| Log entry | Its values and its child entries. |
+| Thing type | Its fields, versions and things, as deleting each thing does. |
+| Thing | Its values, and every `ref` and `multi_ref` value referring to it. |
 
-Before a cascade the user sees what it removes, with counts (“This deletes the
-Movie watched log type and its 214 entries”), and must confirm. Cascades do not
-follow `ref` and `multi_ref` values: deleting the `Person` type trashes every
-person, but entries that referred to them remain and show them as deleted.
+Two links are cleared instead: a timeline category linked to a deleted thing
+loses its `thing_id` and keeps its name, and a timeline whose
+`default_thing_type_id` is deleted no longer has one. A required `ref` whose
+thing was deleted is left empty, so the record needs another before its values
+can next be saved.
 
-Restoring any record restores everything sharing its `deletion_id`. An entry
-cannot be restored while its definition is deleted. After seven days the
-group's entries are purged; its definitions stay hidden.
+Before deleting, the user sees what else goes, with counts (“This also deletes
+214 entries”), and must confirm. To retire a definition without losing data,
+archive it instead. Archiving never cascades. Archiving a timeline stops all
+its categories being offered.
 
-Archiving never cascades. Archiving a timeline stops all its categories being
-offered.
+A future sync will need to carry deletions to other devices. The planned
+operation log records them as operations, so these tables keep no tombstones.
 
 ### Source
 
@@ -149,7 +138,6 @@ one category. Examples: **Activities**, **Location**, **People**.
 | `default_thing_type_id` | Nullable. UI only: when creating a category, offer things of this type first. Enforces nothing. |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-| `deleted_at`, `deletion_id` | |
 
 On an **exclusive** timeline (Activities, Location: “what was I doing?”) no two
 intervals overlap. On a **non-exclusive** one (People: “who was I with?”) only
@@ -170,16 +158,15 @@ An untyped enum option owned by one timeline, such as “Running” or “At hom
 | `thing_id` | Nullable. The [thing](#4-things) this category represents. |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-| `deleted_at`, `deletion_id` | |
 
 Intervals reference a category by ID, so renaming never changes their meaning.
 A category in use is retired by archiving it.
 
 A category with a `thing_id` represents that thing: “Alex” on a People timeline
 is the Person “Alex” that log entries refer to, so time with Alex and things
-done with Alex can be analysed together. Its `name` follows the thing's title
-and keeps the last title if the thing is deleted. A thing has at most one
-non-deleted category per timeline. Categories that are not things, such as
+done with Alex can be analysed together. Its `name` follows the thing's title;
+if the thing is deleted, the category is unlinked and keeps the last title. A
+thing has at most one category per timeline. Categories that are not things, such as
 “Commuting” on a Location timeline, have no `thing_id`.
 
 ### Timeline interval
@@ -193,10 +180,9 @@ non-deleted category per timeline. Categories that are not things, such as
 | `end_at` | `null` while ongoing. |
 | `time_zone` | IANA ID at creation; see [Days and time zones](#days-and-time-zones). |
 | `created_at`, `updated_at` | |
-| `deleted_at`, `deletion_id`, `purged_at` | |
 
 Intervals are half-open, `[start_at, end_at)`, with `end_at` after `start_at`;
-adjacent intervals do not overlap. Two non-deleted intervals overlap when each
+adjacent intervals do not overlap. Two intervals overlap when each
 starts before the other ends (an ongoing interval never ends). Overlap is a
 conflict on the same exclusive timeline, or in the same category on a
 non-exclusive one. So an exclusive timeline has at most one ongoing interval,
@@ -208,7 +194,7 @@ change closes the current interval and starts another.
 Core enforces the overlap rule, checking and writing in one transaction. There
 is no database trigger, because a future sync merge must apply a conflict
 policy rather than fail. A partial unique index on `category_id` where
-`end_at IS NULL AND deleted_at IS NULL` backs the one-ongoing-per-category rule.
+`end_at IS NULL` backs the one-ongoing-per-category rule.
 
 ## 2. Observations
 
@@ -225,7 +211,6 @@ Daily values, one per metric per day, independent of timelines.
 | `schema_version` | Current [version](#versioning). |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-| `deleted_at`, `deletion_id` | |
 
 ### Observation metric version
 
@@ -267,16 +252,14 @@ be edited freely. Any other option change creates a new version.
 | `source`, `external_id` | See [Source](#source). |
 | `written_by`, `written_at` | See [Provenance](#provenance). |
 | `created_at`, `updated_at` | |
-| `deleted_at`, `deletion_id`, `purged_at` | |
 
-At most one non-deleted observation per `(metric_id, date)`, enforced by a
-partial unique index; editing revises it. No observation means “not recorded”,
+At most one observation per `(metric_id, date)`, enforced by a unique index;
+editing revises it. No observation means “not recorded”,
 never `false`, zero, or a default.
 
 Recording a value validates it against the metric's current version, and a
 revision moves the observation to that version. Nothing can be recorded on an
-archived metric. A trashed observation cannot be restored while another is
-recorded for its `(metric_id, date)`.
+archived metric.
 
 ### Observation selection
 
@@ -307,12 +290,10 @@ workout, or a diary entry.
 | `schema_version` | Current [version](#versioning). |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-| `deleted_at`, `deletion_id` | |
 
-A `parent_type_id` must name a live log type. Since it never changes and a
-parent always exists before its children, the types form a tree with no
-cycles. A child type can have child types of its own. A log type cannot be
-restored while its parent type is deleted.
+A `parent_type_id` must name an existing log type. Since it never changes and
+a parent always exists before its children, the types form a tree with no
+cycles. A child type can have child types of its own.
 
 ### Log type version
 
@@ -328,7 +309,7 @@ A version's field set is exactly its `LogFieldVersion` rows.
 ### Log field
 
 A field's identity across versions. It is retired by a version that omits it
-and deleted with its type, so it has no archive or trash state.
+and deleted with its type, so it has no archive state.
 
 | Field | Meaning |
 | ----- | ------- |
@@ -384,7 +365,6 @@ rewatch is a second entry referring to the same movie.
 | `position` | Order among siblings; null for top-level entries. A new child goes after its siblings. |
 | `source`, `external_id` | See [Source](#source). |
 | `created_at`, `updated_at` | |
-| `deleted_at`, `deletion_id`, `purged_at` | |
 
 An entry's day is the day containing `occurred_at` in its `time_zone`.
 
@@ -420,10 +400,8 @@ LogEntry W1  Workout  occurred_at=18:00  ended_at=19:00   notes="Leg day"
 A child's type must name its parent's type as `parent_type_id`. A child is an
 ordinary entry with its own values and version. With `occurred_at`,
 `precision`, and `time_zone` null it inherits its parent's, and it always
-belongs to its parent's day. Deleting a parent trashes its children under the
-same `deletion_id`, and purging it purges them, each leaving a tombstone. A
-child can also be deleted alone, and cannot be restored while its parent is
-deleted.
+belongs to its parent's day. Deleting a parent deletes its children; a child
+can also be deleted alone.
 
 Only a type with a `parent_type_id` has child entries, and its entries are
 always child entries. Archiving the parent type does not stop children being
@@ -468,7 +446,6 @@ Thing definitions mirror log definitions and use the same value types.
 | `schema_version` | Current [version](#versioning). |
 | `created_at`, `updated_at` | |
 | `archived_at` | |
-| `deleted_at`, `deletion_id` | |
 
 ### Thing type version
 
@@ -514,9 +491,7 @@ year, and a `ref` to a Person for director.
 | `thing_type_id` | |
 | `thing_type_version` | Version the values were validated against. |
 | `source`, `external_id` | See [Source](#source). |
-| `merged_into_id` | Nullable; see [Merging things](#merging-things). |
 | `created_at`, `updated_at` | |
-| `deleted_at`, `deletion_id`, `purged_at` | |
 
 ### Thing field value
 
@@ -528,8 +503,8 @@ year, and a `ref` to a Person for director.
 | `value` | Typed value valid for the thing's version. |
 | `written_by`, `written_at` | See [Provenance](#provenance). |
 
-Same rules as [log field values](#log-field-value). References to a deleted or
-purged thing stay valid and show it as deleted.
+Same rules as [log field values](#log-field-value). Deleting a thing deletes the
+values that refer to it (see [Deleting](#deleting)).
 
 ### Merging things
 
@@ -542,13 +517,10 @@ the user picks the survivor and the duplicate, then core:
 2. Re-points every category linked to the duplicate. If the survivor already
    has a category on that timeline, the duplicate's intervals move to the
    survivor's category, intervals that now overlap or touch are joined, and the
-   duplicate's category is trashed.
-3. Sets the duplicate's `merged_into_id` and trashes it.
+   duplicate's category is deleted.
+3. Deletes the duplicate, which nothing refers to any more.
 
 Field values are not merged; the user copies over what they want.
-`merged_into_id` survives the purge, so a reference to the duplicate arriving
-later, for example from another device, is redirected to the survivor,
-following the chain if the survivor was itself merged.
 
 ## Settings
 
@@ -572,7 +544,7 @@ and thing references the version it was validated against:
 
 Value shape lives only on version records. Definition rows hold what can change
 without reinterpreting values: names, descriptions, option labels, field
-positions, title fields, `schema_version`, and lifecycle fields. Renaming,
+positions, title fields, `schema_version`, and `archived_at`. Renaming,
 reordering, and relabelling therefore never create a version. Timeline
 categories are not versioned.
 
@@ -627,13 +599,13 @@ LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
 - Versioned JSON with a top-level `schemaVersion`, plus one CSV per table.
 - Includes every table above.
 - Round-trip is a core requirement: export then import reproduces IDs,
-  timestamps, versions, values, sources, and trash and purge state exactly.
+  timestamps, versions, values, sources, and archive state exactly.
 - Import validates definitions and values and refuses invalid data rather than
   dropping or altering it. It checks the whole file before writing anything, so
   a refused import changes nothing.
 - Records use camelCase field names. Instants are ISO 8601 UTC, booleans are
   `true`/`false`, and a setting's `value` is its JSON value. Every row is
-  exported in every state: live, archived, trashed, and purged.
+  exported, archived ones included.
 - `schemaVersion` is the version of this format, not of the database. A file
   with a newer version is refused. A table missing from the file is treated as
   empty, so an export from an older Spoor still imports.

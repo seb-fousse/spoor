@@ -26,7 +26,6 @@ import {
   type LogField,
   type LogFieldInput,
   type LogType,
-  type LogTypeDeletion,
   listChildEntries,
   listLogEntries,
   listLogTypes,
@@ -37,9 +36,9 @@ import {
   optionLabel,
   PRECISIONS,
   type Precision,
+  previewLogEntryDeletion,
   previewLogTypeDeletion,
   reorderLogFields,
-  restoreLogRecords,
   reviseLogTypeFields,
   setLogTypeArchived,
   type ThingType,
@@ -47,7 +46,7 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
-import { Trash } from "./Trash";
+import { effect, useConfirmDelete } from "./ConfirmDelete";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a
@@ -60,9 +59,7 @@ type Run = (action: () => Promise<unknown>) => void;
 
 export function Logs({ db }: { db: Database }) {
   const [types, setTypes] = useState<LogType[]>([]);
-  const [trashed, setTrashed] = useState<LogType[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pending, setPending] = useState<{ type: LogType; preview: LogTypeDeletion } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -74,27 +71,36 @@ export function Logs({ db }: { db: Database }) {
       .finally(() => setVersion((v) => v + 1));
   };
 
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([listLogTypes(db), listLogTypes(db, { trashed: true })])
-      .then(([live, trash]) => {
-        setTypes(live);
-        setTrashed(trash);
-      })
+    listLogTypes(db)
+      .then(setTypes)
       .catch((e: Error) => setError(e.message));
   }, [db, version]);
 
   const selected = types.find((t) => t.id === selectedId);
   const nameOf = (id: string | null) => types.find((t) => t.id === id)?.name ?? "?";
 
-  // The spec requires the cascade's counts before the user confirms.
   const askDelete = (type: LogType) =>
-    run(async () => setPending({ type, preview: await previewLogTypeDeletion(db, type.id) }));
+    confirmDelete(
+      `the ${type.name} log type`,
+      () => deleteLogType(db, type.id),
+      async () => {
+        const n = await previewLogTypeDeletion(db, type.id);
+        return [
+          effect("deletes", n.types - 1, "child type"),
+          effect("deletes", n.entries, "entry", "entries"),
+        ];
+      },
+    );
 
   return (
     <Stack component="section" gap="sm">
       <Title order={2}>Logs</Title>
       {error && <Alert color="red">{error}</Alert>}
+      {deleteDialog}
 
       <LogTypeForm
         db={db}
@@ -131,33 +137,6 @@ export function Logs({ db }: { db: Database }) {
           </Group>
         ))}
       </Stack>
-      {pending && (
-        <Group gap="xs">
-          <Text size="sm">
-            This deletes the {pending.type.name} log type
-            {pending.preview.types > 1 && `, ${pending.preview.types - 1} child type(s)`} and{" "}
-            {pending.preview.entries} entries.
-          </Text>
-          <Button
-            size="xs"
-            variant="light"
-            color="red"
-            onClick={() => {
-              setPending(null);
-              run(() => deleteLogType(db, pending.type.id));
-            }}
-          >
-            Confirm
-          </Button>
-          <Button size="xs" variant="default" onClick={() => setPending(null)}>
-            Cancel
-          </Button>
-        </Group>
-      )}
-      <Trash
-        items={trashed.map((t) => ({ id: t.id, label: t.name, deletionId: t.deletionId }))}
-        onRestore={(deletionId) => run(() => restoreLogRecords(db, deletionId))}
-      />
 
       {selected && (
         <LogTypeDetail db={db} type={selected} types={types} version={version} run={run} />
@@ -353,16 +332,10 @@ function LogTypeDetail({
   const fields = useVersionFields(db, type.id, type.schemaVersion, version);
   const [rows, setRows] = useState<FieldRow[] | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
-  const [trashedEntries, setTrashedEntries] = useState<LogEntry[]>([]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
-    Promise.all([listLogEntries(db, type.id), listLogEntries(db, type.id, { trashed: true })]).then(
-      ([live, trash]) => {
-        setEntries(live);
-        setTrashedEntries(trash);
-      },
-    );
+    listLogEntries(db, type.id).then(setEntries);
   }, [db, type.id, version]);
 
   const move = (i: number, by: number) => {
@@ -462,14 +435,6 @@ function LogTypeDetail({
           />
         ))}
       </Stack>
-      <Trash
-        items={trashedEntries.map((e) => ({
-          id: e.id,
-          label: formatTime(e),
-          deletionId: e.deletionId,
-        }))}
-        onRestore={(deletionId) => run(() => restoreLogRecords(db, deletionId))}
-      />
     </Stack>
   );
 }
@@ -494,7 +459,7 @@ function EntryItem({
   db: Database;
   entry: LogEntry;
   types: LogType[];
-  /** A child entry's place among its live siblings, 1 first. */
+  /** A child entry's place among its siblings, 1 first. */
   place?: { index: number; count: number };
   version: number;
   run: Run;
@@ -503,6 +468,7 @@ function EntryItem({
   const titles = useRefTitles(db, fields, entry);
   const [children, setChildren] = useState<LogEntry[]>([]);
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
   useEffect(() => {
@@ -566,11 +532,25 @@ function EntryItem({
           size="xs"
           variant="light"
           color="red"
-          onClick={() => run(() => deleteLogEntry(db, entry.id))}
+          onClick={() =>
+            confirmDelete(
+              `the entry of ${formatTime(entry)}`,
+              () => deleteLogEntry(db, entry.id),
+              async () => [
+                effect(
+                  "deletes",
+                  (await previewLogEntryDeletion(db, entry.id)).childEntries,
+                  "child entry",
+                  "child entries",
+                ),
+              ],
+            )
+          }
         >
           Delete
         </Button>
       </Group>
+      {deleteDialog}
       {(children.length > 0 || childTypes.length > 0) && (
         <Stack gap={4} pl="md">
           {children.map((child, i) => (
@@ -878,7 +858,7 @@ function useThings(db: Database, thingTypeId: string | null) {
   return things;
 }
 
-/** The titles of the things an entry refers to, deleted ones included. */
+/** The titles of the things an entry refers to. */
 function useRefTitles(db: Database, fields: LogField[], entry: LogEntry) {
   const [titles, setTitles] = useState(new Map<string, string>());
   useEffect(() => {

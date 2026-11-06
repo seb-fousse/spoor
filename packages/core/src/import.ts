@@ -18,7 +18,7 @@ const TABLES: readonly TableSpec[] = ALL_TABLES;
  * empty database, keeping every id, timestamp and state as written.
  *
  * Every value is validated before the database is touched. The inserts then run in
- * one transaction: the database constraints enforce foreign keys and trash and purge
+ * one transaction: the database constraints enforce foreign keys and per-row
  * consistency, and each table's `check` enforces the cross-record rules only core
  * knows, such as interval overlap. A refused or failed import changes nothing.
  * Invalid data is refused, never dropped or altered.

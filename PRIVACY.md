@@ -33,16 +33,13 @@ is. Treat an export as sensitive as its contents.
 
 ## Deleting your data
 
-A deleted entry stays in the trash for seven days. After that, or when you
-empty the trash, its content is erased and overwritten on disk; only a marker
-recording that it existed remains.
+Deleting is immediate and permanent: there is no trash. Spoor shows what else
+a deletion removes, such as a log type's entries, and asks you to confirm.
+The deleted content is then erased and overwritten on disk, with nothing left
+behind to record that it existed.
 
-A deletion cannot reach:
-
-- **Exports already written.** Delete those files yourself.
-- **Names of deleted definitions.** Deleting a log type, timeline, or metric
-  erases its entries, but its name and settings stay in the file, hidden, so
-  nothing that referred to it breaks.
+A deletion cannot reach **exports already written**. Delete those files
+yourself.
 
 ## People and places
 

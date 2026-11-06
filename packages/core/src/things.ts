@@ -1,6 +1,5 @@
-import { type Selectable, sql } from "kysely";
+import type { Selectable } from "kysely";
 import {
-  assertNotMerge,
   createFirstVersion,
   draftFields,
   type FieldDefinition,
@@ -10,7 +9,6 @@ import {
   type NewField,
   readValues,
   reorderFields,
-  resolveMergedThings,
   reviseFields,
   setValues,
   THING_TABLES,
@@ -23,7 +21,7 @@ import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { type Instant, now } from "./time";
-import type { ListOptions } from "./timelines";
+
 import { transaction } from "./transaction";
 import type { Value } from "./values";
 
@@ -36,10 +34,11 @@ import type { Value } from "./values";
  * whose value names each thing in references, categories and merging. A
  * timeline category linked to a thing stores the title as its name, updated
  * here whenever the title changes, so it keeps the last title once the thing
- * is deleted.
+ * is deleted and the category unlinked.
  *
- * Reads return only live records unless asked for the trash. Purged things are
- * never returned. Every write runs in one transaction.
+ * Deleting is permanent. Deleting a thing also removes the references to it
+ * held by other things and log entries; `previewThingDeletion` counts them
+ * first so the user can confirm. Every write runs in one transaction.
  */
 
 export interface ThingType {
@@ -53,8 +52,6 @@ export interface ThingType {
   createdAt: Instant;
   updatedAt: Instant;
   archivedAt: Instant | null;
-  deletedAt: Instant | null;
-  deletionId: string | null;
 }
 
 export interface Thing {
@@ -64,14 +61,20 @@ export interface Thing {
   thingTypeVersion: number;
   source: string;
   externalId: string | null;
-  /** The thing this one was merged into, if any. */
-  mergedIntoId: string | null;
   /** Stored values by field id; fields without a value are absent. */
   values: Record<string, Value>;
   createdAt: Instant;
   updatedAt: Instant;
-  deletedAt: Instant | null;
-  deletionId: string | null;
+}
+
+/** What deleting things would delete or change, for the user to confirm. */
+export interface ThingDeletion {
+  /** The things deleted. */
+  things: number;
+  /** References to them from other things and from log entries, which are removed. */
+  references: number;
+  /** Timeline categories linked to them, which are unlinked and keep their names. */
+  categories: number;
 }
 
 type ThingTypeRow = Selectable<DB["thing_types"]>;
@@ -122,7 +125,7 @@ export async function createThingType(
   return (await getThingType(db, id)) as ThingType;
 }
 
-/** The thing type with `id` in any state, or `undefined`. */
+/** The thing type with `id`, or `undefined`. */
 export async function getThingType(db: Database, id: string): Promise<ThingType | undefined> {
   const row = await queryBuilder(db)
     .selectFrom("thing_types")
@@ -132,19 +135,14 @@ export async function getThingType(db: Database, id: string): Promise<ThingType 
   return row && toThingType(row);
 }
 
-/** Live thing types by name (archived included), or the trashed ones, latest first. */
-export async function listThingTypes(
-  db: Database,
-  options: ListOptions = {},
-): Promise<ThingType[]> {
-  const query = queryBuilder(db).selectFrom("thing_types").selectAll();
-  const rows = await (options.trashed
-    ? query.where("deleted_at", "is not", null).orderBy("deleted_at", "desc")
-    : query
-        .where("deleted_at", "is", null)
-        .orderBy("name", (ob) => ob.collate("nocase"))
-        .orderBy("id")
-  ).execute();
+/** Every thing type by name, archived included. */
+export async function listThingTypes(db: Database): Promise<ThingType[]> {
+  const rows = await queryBuilder(db)
+    .selectFrom("thing_types")
+    .selectAll()
+    .orderBy("name", (ob) => ob.collate("nocase"))
+    .orderBy("id")
+    .execute();
   return rows.map(toThingType);
 }
 
@@ -158,7 +156,7 @@ export async function updateThingType(
   patch: { name?: string; description?: string | null; titleFieldId?: string },
 ): Promise<ThingType> {
   await transaction(db, async () => {
-    const type = await requireLiveThingType(db, id);
+    const type = await requireThingType(db, id);
     if (patch.titleFieldId !== undefined) {
       const fields = await getVersionFields(db, THING_TABLES, id, type.schemaVersion);
       const field = fields.find((f) => f.id === patch.titleFieldId);
@@ -196,7 +194,7 @@ export async function reviseThingTypeFields(
   fields: readonly FieldInput[],
 ): Promise<ThingType> {
   await transaction(db, async () => {
-    const type = await requireLiveThingType(db, id);
+    const type = await requireThingType(db, id);
     const title = fields.find((f) => f.id === type.titleFieldId);
     if (!title) {
       throw new Error(`Thing type ${id}: title field ${type.titleFieldId} cannot be retired`);
@@ -215,7 +213,7 @@ export async function updateThingField(
   patch: { name?: string; optionLabels?: Record<string, string> },
 ): Promise<void> {
   await transaction(db, async () => {
-    await requireLiveThingType(db, thingTypeId);
+    await requireThingType(db, thingTypeId);
     const field = await queryBuilder(db)
       .selectFrom("thing_fields")
       .select("id")
@@ -234,7 +232,7 @@ export async function reorderThingFields(
   fieldIds: readonly string[],
 ): Promise<void> {
   await transaction(db, async () => {
-    await requireLiveThingType(db, thingTypeId);
+    await requireThingType(db, thingTypeId);
     await reorderFields(db, THING_TABLES, thingTypeId, fieldIds, now());
   });
 }
@@ -257,7 +255,7 @@ export async function setThingTypeArchived(
   archived: boolean,
 ): Promise<void> {
   await transaction(db, async () => {
-    await requireLiveThingType(db, id);
+    await requireThingType(db, id);
     const t = now();
     await queryBuilder(db)
       .updateTable("thing_types")
@@ -267,42 +265,22 @@ export async function setThingTypeArchived(
   });
 }
 
-/** What deleting the type would trash with it, for the confirmation. */
-export async function previewThingTypeDeletion(
-  db: Database,
-  id: string,
-): Promise<{ things: number }> {
-  await requireLiveThingType(db, id);
-  const { n } = await queryBuilder(db)
-    .selectFrom("things")
-    .select((eb) => eb.fn.countAll<number>().as("n"))
-    .where("thing_type_id", "=", id)
-    .where("deleted_at", "is", null)
-    .executeTakeFirstOrThrow();
-  return { things: n };
+/** What `deleteThingType` would delete or change, for the user to confirm. */
+export async function previewThingTypeDeletion(db: Database, id: string): Promise<ThingDeletion> {
+  await requireThingType(db, id);
+  return previewDeletion(db, "thing_type_id", id);
 }
 
 /**
- * Moves the type to the trash with its live things, under one new
- * `deletion_id`, which is returned. References to those things remain and show
- * them as deleted.
+ * Deletes the type with its fields, versions and things, as `deleteThing` does
+ * each. A timeline offering it as its default thing type no longer has one.
+ * See `previewThingTypeDeletion`.
  */
-export async function deleteThingType(db: Database, id: string): Promise<string> {
-  const deletionId = newId();
+export async function deleteThingType(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
-    const q = queryBuilder(db);
-    await requireLiveThingType(db, id);
-    const t = now();
-    const trash = { deleted_at: t, deletion_id: deletionId, updated_at: t };
-    await q.updateTable("thing_types").set(trash).where("id", "=", id).execute();
-    await q
-      .updateTable("things")
-      .set(trash)
-      .where("thing_type_id", "=", id)
-      .where("deleted_at", "is", null)
-      .execute();
+    await requireThingType(db, id);
+    await queryBuilder(db).deleteFrom("thing_types").where("id", "=", id).execute();
   });
-  return deletionId;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +312,7 @@ export async function createThing(
   }
   await transaction(db, async () => {
     const q = queryBuilder(db);
-    const type = await requireLiveThingType(db, input.thingTypeId);
+    const type = await requireThingType(db, input.thingTypeId);
     if (type.archivedAt !== null) throw new Error(`Thing type ${type.id}: archived`);
     if (externalId !== null) {
       const existing = await q
@@ -373,41 +351,29 @@ export async function createThing(
   return (await getThing(db, id)) as Thing;
 }
 
-/** The thing with `id`, trashed or not, with its values, or `undefined` (also once purged). */
+/** The thing with `id`, with its values, or `undefined`. */
 export async function getThing(db: Database, id: string): Promise<Thing | undefined> {
   const row = await queryBuilder(db)
     .selectFrom("things")
     .selectAll()
     .where("id", "=", id)
-    .where("purged_at", "is", null)
     .executeTakeFirst();
   return row && withValues(db, row);
 }
 
-/** The type's live things by title, or its trashed (unpurged) ones, latest first. */
-export async function listThings(
-  db: Database,
-  thingTypeId: string,
-  options: ListOptions = {},
-): Promise<Thing[]> {
-  const query = queryBuilder(db)
+/** The type's things by title. */
+export async function listThings(db: Database, thingTypeId: string): Promise<Thing[]> {
+  const rows = await queryBuilder(db)
     .selectFrom("things as t")
     .innerJoin("thing_types as ty", "ty.id", "t.thing_type_id")
     .leftJoin("thing_field_values as v", (join) =>
       join.onRef("v.thing_id", "=", "t.id").onRef("v.field_id", "=", "ty.title_field_id"),
     )
     .selectAll("t")
-    .where("t.thing_type_id", "=", thingTypeId);
-  const rows = await (options.trashed
-    ? query
-        .where("t.deleted_at", "is not", null)
-        .where("t.purged_at", "is", null)
-        .orderBy("t.deleted_at", "desc")
-    : query
-        .where("t.deleted_at", "is", null)
-        .orderBy("v.value_text", (ob) => ob.collate("nocase"))
-        .orderBy("t.id")
-  ).execute();
+    .where("t.thing_type_id", "=", thingTypeId)
+    .orderBy("v.value_text", (ob) => ob.collate("nocase"))
+    .orderBy("t.id")
+    .execute();
   return Promise.all(rows.map((row) => withValues(db, row)));
 }
 
@@ -424,7 +390,7 @@ export async function updateThingValues(
   options: { writtenBy?: string } = {},
 ): Promise<{ thing: Thing; skipped: string[] }> {
   const { skipped } = await transaction(db, async () => {
-    const thing = await requireLiveThing(db, id);
+    const thing = await requireThing(db, id);
     const t = now();
     const result = await setValues(
       db,
@@ -448,9 +414,8 @@ export async function updateThingValues(
 }
 
 /**
- * The thing's title: the value of its type's title field, also while trashed.
- * `undefined` for an unknown or purged thing, or one whose version predates its
- * type's current title field.
+ * The thing's title: the value of its type's title field. `undefined` for an
+ * unknown thing, or one whose version predates its type's current title field.
  */
 export async function getThingTitle(db: Database, id: string): Promise<string | undefined> {
   const row = await queryBuilder(db)
@@ -465,79 +430,22 @@ export async function getThingTitle(db: Database, id: string): Promise<string | 
   return row?.value_text ?? undefined;
 }
 
-/**
- * The thing `id` was merged into, following the chain if that one was merged
- * too; `id` itself if it was never merged; `undefined` if it is unknown.
- */
-export async function resolveThing(db: Database, id: string): Promise<string | undefined> {
-  const known = await queryBuilder(db)
-    .selectFrom("things")
-    .select("id")
-    .where("id", "=", id)
-    .executeTakeFirst();
-  return known && (await resolveMergedThings(db, [id])).get(id);
+/** What `deleteThing` would delete or change, for the user to confirm. */
+export async function previewThingDeletion(db: Database, id: string): Promise<ThingDeletion> {
+  await requireThing(db, id);
+  return previewDeletion(db, "id", id);
 }
 
-/** Moves the thing to the trash; returns the `deletion_id`. References to it remain. */
-export async function deleteThing(db: Database, id: string): Promise<string> {
-  const deletionId = newId();
-  await transaction(db, async () => {
-    await requireLiveThing(db, id);
-    const t = now();
-    await queryBuilder(db)
-      .updateTable("things")
-      .set({ deleted_at: t, deletion_id: deletionId, updated_at: t })
-      .where("id", "=", id)
-      .execute();
-  });
-  return deletionId;
-}
-
-// ---------------------------------------------------------------------------
-// Restore
-
 /**
- * Restores every thing type and thing trashed under `deletionId`. Refuses,
- * restoring nothing, if any of them was purged or merged into another thing, or
- * if a restored thing's type is still in the trash under another deletion.
+ * Deletes the thing with its values. A `ref` or `multi_ref` value referring to
+ * it, in another thing or a log entry, is removed, leaving that field without
+ * it; a timeline category linked to it is unlinked and keeps its name. See
+ * `previewThingDeletion`.
  */
-export async function restoreThingRecords(db: Database, deletionId: string): Promise<void> {
+export async function deleteThing(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
-    const q = queryBuilder(db);
-    // Only things can be purged; types count as unpurged.
-    const unpurged = sql<number | null>`NULL`.as("purged_at");
-    const trashed = q
-      .selectFrom("thing_types")
-      .select(unpurged)
-      .where("deletion_id", "=", deletionId)
-      .unionAll(q.selectFrom("things").select("purged_at").where("deletion_id", "=", deletionId));
-    const counts = await q
-      .selectFrom(trashed.as("trashed"))
-      .select((eb) => [
-        eb.fn.countAll<number>().as("n"),
-        eb.fn.count<number>("purged_at").as("purged"),
-      ])
-      .executeTakeFirstOrThrow();
-    if (counts.n === 0) throw new Error(`Deletion ${deletionId}: nothing in the trash`);
-    if (counts.purged > 0) throw new Error(`Deletion ${deletionId}: purged, cannot be restored`);
-    await assertNotMerge(db, deletionId);
-
-    // A type trashed by another deletion stays in the trash, so its things cannot return.
-    const orphan = await q
-      .selectFrom("things as t")
-      .innerJoin("thing_types as ty", "ty.id", "t.thing_type_id")
-      .select("t.id")
-      .where("t.deletion_id", "=", deletionId)
-      .where("ty.deletion_id", "<>", deletionId)
-      .limit(1)
-      .executeTakeFirst();
-    if (orphan) {
-      throw new Error(`Thing ${orphan.id}: cannot be restored while its parent is deleted`);
-    }
-
-    const restore = { deleted_at: null, deletion_id: null, updated_at: now() };
-    await q.updateTable("thing_types").set(restore).where("deletion_id", "=", deletionId).execute();
-    await q.updateTable("things").set(restore).where("deletion_id", "=", deletionId).execute();
+    await requireThing(db, id);
+    await queryBuilder(db).deleteFrom("things").where("id", "=", id).execute();
   });
 }
 
@@ -550,22 +458,53 @@ function assertTitleShape(typeId: string, fieldId: string, valueType: string, re
   }
 }
 
-async function requireLiveThingType(db: Database, id: string): Promise<ThingType> {
+async function requireThingType(db: Database, id: string): Promise<ThingType> {
   const type = await getThingType(db, id);
-  if (!type || type.deletedAt !== null) throw new Error(`Thing type ${id}: not found`);
+  if (!type) throw new Error(`Thing type ${id}: not found`);
   return type;
 }
 
-/** Live things are never purged, so the row maps cleanly. */
-async function requireLiveThing(db: Database, id: string): Promise<ThingRow> {
+async function requireThing(db: Database, id: string): Promise<ThingRow> {
   const row = await queryBuilder(db)
     .selectFrom("things")
     .selectAll()
     .where("id", "=", id)
-    .where("deleted_at", "is", null)
     .executeTakeFirst();
   if (!row) throw new Error(`Thing ${id}: not found`);
   return row;
+}
+
+/** What deleting the things whose `column` is `value` would delete or change. */
+async function previewDeletion(
+  db: Database,
+  column: "id" | "thing_type_id",
+  value: string,
+): Promise<ThingDeletion> {
+  const q = queryBuilder(db);
+  const doomed = q.selectFrom("things").select("id").where(column, "=", value);
+  const { things } = await q
+    .selectFrom("things")
+    .select((eb) => eb.fn.countAll<number>().as("things"))
+    .where(column, "=", value)
+    .executeTakeFirstOrThrow();
+  // A thing's own values go with it, so only other things' references count.
+  const fromThings = await q
+    .selectFrom("thing_field_values")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("value_ref", "in", doomed)
+    .where("thing_id", "not in", doomed)
+    .executeTakeFirstOrThrow();
+  const fromEntries = await q
+    .selectFrom("log_field_values")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("value_ref", "in", doomed)
+    .executeTakeFirstOrThrow();
+  const { categories } = await q
+    .selectFrom("timeline_categories")
+    .select((eb) => eb.fn.countAll<number>().as("categories"))
+    .where("thing_id", "in", doomed)
+    .executeTakeFirstOrThrow();
+  return { things, references: fromThings.n + fromEntries.n, categories };
 }
 
 async function withValues(db: Database, row: ThingRow): Promise<Thing> {
@@ -587,28 +526,18 @@ function toThingType(row: ThingTypeRow): ThingType {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
-    deletedAt: row.deleted_at,
-    deletionId: row.deletion_id,
   };
 }
 
-/**
- * The thing in `row`. A purge clears `source`, so purged rows must be filtered
- * out first; mapping one is a bug and throws.
- */
 function toThing(row: ThingRow, values: Record<string, Value>): Thing {
-  if (row.purged_at !== null || row.source === null) throw new Error(`Thing ${row.id}: purged`);
   return {
     id: row.id,
     thingTypeId: row.thing_type_id,
     thingTypeVersion: row.thing_type_version,
     source: row.source,
     externalId: row.external_id,
-    mergedIntoId: row.merged_into_id,
     values,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    deletedAt: row.deleted_at,
-    deletionId: row.deletion_id,
   };
 }

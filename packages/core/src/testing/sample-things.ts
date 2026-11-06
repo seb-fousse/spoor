@@ -1,4 +1,3 @@
-import { newId } from "../ids";
 import { mergeThings } from "../merge";
 import type { Database } from "../platform/index";
 import {
@@ -15,12 +14,10 @@ import { createCategory, createInterval, createTimeline } from "../timelines";
 
 /**
  * TEST-ONLY. Thing types, things and values for the round-trip test: every value
- * column, live/archived/trashed types, two versions with a retired field, and
- * live, trashed, merged and purged things, plus a timeline and a category that
- * refer to them.
+ * column, an archived type, two versions with a retired field, and things
+ * merged and deleted, plus a timeline and categories that refer to them.
  *
- * Operations that do not exist yet write raw SQL: the purge's tombstone and a
- * timeline's default thing type.
+ * Setting a timeline's default thing type has no operation yet, so it is raw SQL.
  */
 
 const H = 3_600_000;
@@ -100,7 +97,7 @@ export async function populateThings(db: Database): Promise<void> {
     },
   });
 
-  // An archived type, and a trashed one with its thing.
+  // An archived type, and a deleted one with its thing.
   const place = await createThingType(db, { name: "Place", fields: [name] });
   await setThingTypeArchived(db, place.id, true);
   const old = await createThingType(db, { name: "Old", fields: [name] });
@@ -108,7 +105,7 @@ export async function populateThings(db: Database): Promise<void> {
   await deleteThingType(db, old.id);
 
   // A timeline offering people first, with categories that are things, and a
-  // duplicate merged into the survivor: one category moves, one is trashed.
+  // duplicate merged into the survivor: one category moves, one is deleted.
   const people = await createTimeline(db, { name: "People", exclusive: false });
   await db.execute("UPDATE timelines SET default_thing_type_id = ? WHERE id = ?", [
     person.id,
@@ -127,12 +124,4 @@ export async function populateThings(db: Database): Promise<void> {
     thingId: duplicate.id,
   });
   await mergeThings(db, survivor.id, duplicate.id);
-
-  // The purge operation does not exist yet, so write the tombstone it will leave.
-  await db.execute(
-    `INSERT INTO things
-       (id, thing_type_id, thing_type_version, created_at, updated_at, deleted_at, deletion_id, purged_at)
-     VALUES (?, ?, 2, ?, ?, ?, ?, ?)`,
-    [newId(), person.id, t, t, t + 1, newId(), t + 2],
-  );
 }

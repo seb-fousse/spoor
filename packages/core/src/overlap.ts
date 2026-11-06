@@ -3,9 +3,9 @@ import { queryBuilder } from "./query";
 
 /**
  * The overlap rule (see docs/data-spec.md § 1. Timelines), checked across every
- * live interval at once: two non-deleted intervals overlap when each starts
- * before the other ends, and an ongoing one never ends. Overlap conflicts on an
- * exclusive timeline, or within one category on a non-exclusive one.
+ * interval at once: two intervals overlap when each starts before the other
+ * ends, and an ongoing one never ends. Overlap conflicts on an exclusive
+ * timeline, or within one category on a non-exclusive one.
  *
  * Internal to core: not exported from the barrel.
  */
@@ -25,8 +25,6 @@ export async function findOverlap(
     )
     .innerJoin("timelines as t", "t.id", "a.timeline_id")
     .select(["a.timeline_id as timelineId", "a.id as a", "b.id as b"])
-    .where("a.deleted_at", "is", null)
-    .where("b.deleted_at", "is", null)
     .where((eb) => eb.or([eb("a.end_at", "is", null), eb("a.end_at", ">", eb.ref("b.start_at"))]))
     .where((eb) => eb.or([eb("b.end_at", "is", null), eb("b.end_at", ">", eb.ref("a.start_at"))]));
   if (options.timelineId !== undefined)
