@@ -353,6 +353,31 @@ export async function listObservations(
   return toObservations(db, await query.orderBy("date", "desc").execute());
 }
 
+/** An active metric and its observation on one day, `null` when unrecorded. */
+export interface MetricDay {
+  metric: ObservationMetric;
+  observation: Observation | null;
+}
+
+/** Every non-archived metric, in `listMetrics` order, with its observation on `date`. */
+export async function listDayObservations(db: Database, date: LocalDate): Promise<MetricDay[]> {
+  if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  const metrics = (await listMetrics(db)).filter((m) => m.archivedAt === null);
+  if (metrics.length === 0) return [];
+  const rows = await queryBuilder(db)
+    .selectFrom("observations")
+    .selectAll()
+    .where("date", "=", date)
+    .where(
+      "metric_id",
+      "in",
+      metrics.map((m) => m.id),
+    )
+    .execute();
+  const byMetric = new Map((await toObservations(db, rows)).map((o) => [o.metricId, o]));
+  return metrics.map((metric) => ({ metric, observation: byMetric.get(metric.id) ?? null }));
+}
+
 /** Deletes the observation. */
 export async function deleteObservation(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {

@@ -5,6 +5,7 @@ import {
   deleteObservation,
   getMetric,
   getObservation,
+  listDayObservations,
   listMetrics,
   listObservations,
   type ObservationMetric,
@@ -486,6 +487,32 @@ describe("observations", () => {
     ])("refuses %s", async (_, columns, error) => {
       const metric = await water();
       await expect(insert({ metric_id: metric.id, ...columns })).rejects.toThrow(error);
+    });
+  });
+
+  describe("day observations", () => {
+    it("pairs every active metric with its value on the day", async () => {
+      const w = await water();
+      const s = await symptoms();
+      const archived = await createMetric(db, { name: "Old", valueType: "boolean" });
+      await record(archived, "2026-10-19", true);
+      await setMetricArchived(db, archived.id, true);
+      const rec = await record(w, "2026-10-19", 3);
+      await record(w, "2026-10-18", 5);
+      const sym = await record(s, "2026-10-19", ["headache", "fever"]);
+      const day = await listDayObservations(db, "2026-10-19");
+      const order = (await listMetrics(db)).filter((m) => m.archivedAt === null).map((m) => m.id);
+      expect(day.map((d) => d.metric.id)).toEqual(order);
+      expect(day.find((d) => d.metric.id === w.id)?.observation).toEqual(rec);
+      expect(day.find((d) => d.metric.id === s.id)?.observation?.value).toEqual(sym.value);
+    });
+
+    it("gives null for an unrecorded metric", async () => {
+      const w = await water();
+      expect(await listDayObservations(db, "2026-10-19")).toEqual([
+        { metric: w, observation: null },
+      ]);
+      await expect(listDayObservations(db, "2026-13-01")).rejects.toThrow(/date/);
     });
   });
 });
