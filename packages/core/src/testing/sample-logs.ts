@@ -1,18 +1,19 @@
-import { createFields, draftFields, LOG_TABLES, MANUAL, setValues } from "../definitions";
+import type { Database } from "../db/platform";
+import { transaction } from "../db/transaction";
+import { createFields, draftFields, MANUAL, setValues } from "../definitions/engine";
+import { LOG_TABLES } from "../definitions/tables";
+import { now } from "../lib/time";
+import { createLogEntry, deleteLogEntry } from "../logs/entries";
 import {
   addLogField,
-  createLogEntry,
   createLogType,
-  deleteLogEntry,
   deleteLogField,
   deleteLogType,
   getLogTypeFields,
   setLogTypeArchived,
-} from "../logs";
-import type { Database } from "../platform/index";
-import { listThings, listThingTypes, type Thing, type ThingType } from "../things";
-import { now } from "../time";
-import { transaction } from "../transaction";
+} from "../logs/log-types";
+import { listThingTypes, type ThingType } from "../things/thing-types";
+import { listThings, type Thing } from "../things/things";
 
 /**
  * TEST-ONLY. Log types, entries and values for the round-trip test: every value

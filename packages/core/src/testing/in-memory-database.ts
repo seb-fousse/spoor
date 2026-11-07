@@ -1,5 +1,5 @@
 import BetterSqlite3 from "better-sqlite3";
-import type { Database } from "../platform/index";
+import type { Database } from "../db/platform";
 
 /**
  * A tiny, TEST-ONLY implementation of the `Database` seam backed by in-memory

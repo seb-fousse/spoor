@@ -1,12 +1,11 @@
+import type { Database } from "../db/platform";
 import {
   createMetric,
   deleteMetric,
-  deleteObservation,
-  recordObservation,
   setMetricArchived,
   updateMetric,
-} from "../observations";
-import type { Database } from "../platform/index";
+} from "../observations/metrics";
+import { deleteObservation, recordObservation } from "../observations/observations";
 
 /**
  * TEST-ONLY. Observation rows for `populate`: metrics, one archived and one

@@ -1,17 +1,18 @@
-import { mergeThings } from "../merge";
-import type { Database } from "../platform/index";
+import type { Database } from "../db/platform";
+import { now } from "../lib/time";
+import { mergeThings } from "../things/merge";
 import {
   addThingField,
-  createThing,
   createThingType,
-  deleteThing,
   deleteThingField,
   deleteThingType,
   getThingTypeFields,
   setThingTypeArchived,
-} from "../things";
-import { now } from "../time";
-import { createCategory, createInterval, createTimeline } from "../timelines";
+} from "../things/thing-types";
+import { createThing, deleteThing } from "../things/things";
+import { createCategory } from "../timelines/categories";
+import { createInterval } from "../timelines/intervals";
+import { createTimeline } from "../timelines/timelines";
 
 /**
  * TEST-ONLY. Thing types, things and values for the round-trip test: every value
