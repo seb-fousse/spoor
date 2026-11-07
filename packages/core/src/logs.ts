@@ -1,5 +1,13 @@
 import type { Selectable } from "kysely";
-import { dayOfEntry, isTimeZone, type Precision, truncateToPrecision } from "./days";
+import {
+  dayOf,
+  dayOfEntry,
+  daysSpanned,
+  isTimeZone,
+  type Precision,
+  startOfDay,
+  truncateToPrecision,
+} from "./days";
 import {
   addField,
   countFieldValues,
@@ -24,7 +32,15 @@ import type { Database } from "./platform/index";
 import { queryBuilder } from "./query";
 import type { DB } from "./schema/tables";
 import { getTimeZone } from "./settings";
-import { type Instant, instantToIso, isInstant, type LocalDate, now } from "./time";
+import {
+  addDays,
+  type Instant,
+  instantToIso,
+  isInstant,
+  isLocalDate,
+  type LocalDate,
+  now,
+} from "./time";
 import { transaction } from "./transaction";
 import type { Value } from "./values";
 
@@ -477,6 +493,86 @@ export async function listLogEntries(
       (a.position ?? 0) - (b.position ?? 0) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+}
+
+/** A top-level entry with its child entries, by position. */
+export interface DayLogEntry extends LogEntry {
+  children: LogEntry[];
+}
+
+/** One log type's entries on a day. */
+export interface DayLogGroup {
+  logType: LogType;
+  entries: DayLogEntry[];
+}
+
+/**
+ * The top-level entries on `date`, grouped by type in `listLogTypes` order
+ * (types without entries left out), earliest first, children nested. An entry
+ * is on the days it covers in its own time zone; `month` and `year` entries are
+ * on no day.
+ */
+export async function listDayLogEntries(db: Database, date: LocalDate): Promise<DayLogGroup[]> {
+  if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  // Stored zones vary, so narrow by a day either side in UTC and decide exactly below.
+  const lower = startOfDay(addDays(date, -1), "UTC");
+  const upper = startOfDay(addDays(date, 2), "UTC");
+  const q = queryBuilder(db);
+  const rows = await q
+    .selectFrom("log_entries")
+    .selectAll()
+    .where("parent_entry_id", "is", null)
+    .where("precision", "in", ["instant", "day"])
+    .where("occurred_at", "<", upper)
+    .where((eb) => eb(eb.fn.coalesce("ended_at", "occurred_at"), ">=", lower))
+    .execute();
+  const entries = (await toEntries(db, rows)).filter((e) => isOnDay(e, date));
+  if (entries.length === 0) return [];
+
+  const childRows = await q
+    .selectFrom("log_entries")
+    .selectAll()
+    .where(
+      "parent_entry_id",
+      "in",
+      entries.map((e) => e.id),
+    )
+    .execute();
+  const children = new Map<string, LogEntry[]>();
+  for (const child of await toEntries(db, childRows)) {
+    const parentId = child.parentEntryId as string;
+    children.set(parentId, [...(children.get(parentId) ?? []), child]);
+  }
+  for (const list of children.values()) {
+    list.sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || compareIds(a.id, b.id));
+  }
+
+  entries.sort((a, b) => a.resolved.occurredAt - b.resolved.occurredAt || compareIds(a.id, b.id));
+  const byType = new Map<string, DayLogEntry[]>();
+  for (const entry of entries) {
+    const list = byType.get(entry.logTypeId) ?? [];
+    list.push({ ...entry, children: children.get(entry.id) ?? [] });
+    byType.set(entry.logTypeId, list);
+  }
+  return (await listLogTypes(db))
+    .filter((t) => byType.has(t.id))
+    .map((logType) => ({ logType, entries: byType.get(logType.id) as DayLogEntry[] }));
+}
+
+/** True when a top-level entry covers `date` in its own time zone. */
+function isOnDay(entry: LogEntry, date: LocalDate): boolean {
+  const { occurredAt, precision, timeZone } = entry.resolved;
+  if (entryDay(entry.resolved) === null) return false;
+  let end = entry.endedAt ?? occurredAt;
+  // A day-precision end is the start of its last day, which it covers.
+  if (precision === "day" && entry.endedAt !== null) {
+    end = startOfDay(addDays(dayOf(end, timeZone), 1), timeZone);
+  }
+  return daysSpanned(occurredAt, end, timeZone).includes(date);
+}
+
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** The entry's child entries by position. */

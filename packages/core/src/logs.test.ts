@@ -13,6 +13,7 @@ import {
   getLogTypeFields,
   type LogType,
   listChildEntries,
+  listDayLogEntries,
   listLogEntries,
   listLogTypes,
   moveChildEntry,
@@ -1042,6 +1043,87 @@ describe("logs", () => {
       await expect(insert({ ...top, id: newId(), log_type_id: newId() })).rejects.toThrow(
         /FOREIGN KEY/,
       );
+    });
+  });
+
+  describe("day entries", () => {
+    const DAY = "2026-10-27";
+    const midnight = Date.UTC(2026, 9, 27, 23); // 00:00 on the 28th in Paris
+    const ids = async (date: string) =>
+      (await listDayLogEntries(db, date)).map((g) => [g.logType.id, g.entries.map((e) => e.id)]);
+
+    it("lists instant and day entries, not month or year ones", async () => {
+      const type = await createLogType(db, { name: "Note", fields: [] });
+      const instant = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: T0,
+        timeZone: TZ,
+      });
+      const day = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: T0,
+        precision: "day",
+        timeZone: TZ,
+      });
+      for (const precision of ["month", "year"] as const) {
+        await createLogEntry(db, { logTypeId: type.id, occurredAt: T0, precision, timeZone: TZ });
+      }
+      await createLogEntry(db, { logTypeId: type.id, occurredAt: T0 + 24 * H, timeZone: TZ });
+      expect(await ids(DAY)).toEqual([[type.id, [day.id, instant.id]]]);
+      expect(await listDayLogEntries(db, "2026-10-01")).toEqual([]);
+    });
+
+    it("lists an entry on each day it spans, by its own zone", async () => {
+      const type = await createLogType(db, { name: "Sleep", fields: [] });
+      const spans = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: midnight - 2 * H,
+        endedAt: midnight + 2 * H,
+        timeZone: TZ,
+      });
+      const toMidnight = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: midnight - 3 * H,
+        endedAt: midnight,
+        timeZone: TZ,
+      });
+      // 00:30 on the 28th in Paris, but 2026-10-27 in New York.
+      const elsewhere = await createLogEntry(db, {
+        logTypeId: type.id,
+        occurredAt: midnight + H / 2,
+        timeZone: "America/New_York",
+      });
+      expect(await ids(DAY)).toEqual([[type.id, [toMidnight.id, spans.id, elsewhere.id]]]);
+      expect(await ids("2026-10-28")).toEqual([[type.id, [spans.id]]]);
+    });
+
+    it("nests children under their parent and groups by type", async () => {
+      const { workout, set, f } = await setupWorkouts();
+      const note = await createLogType(db, { name: "Note", fields: [] });
+      const session = await createLogEntry(db, {
+        logTypeId: workout.id,
+        occurredAt: T0,
+        timeZone: TZ,
+      });
+      const second = await createLogEntry(db, {
+        logTypeId: set.id,
+        parentEntryId: session.id,
+        values: { [f.reps]: 8 },
+      });
+      const first = await createLogEntry(db, {
+        logTypeId: set.id,
+        parentEntryId: session.id,
+        position: 0,
+        values: { [f.reps]: 10 },
+      });
+      const memo = await createLogEntry(db, { logTypeId: note.id, occurredAt: T0, timeZone: TZ });
+      const groups = await listDayLogEntries(db, DAY);
+      const order = (await listLogTypes(db)).map((t) => t.id).filter((id) => id !== set.id);
+      expect(groups.map((g) => g.logType.id)).toEqual(order);
+      const w = groups.find((g) => g.logType.id === workout.id);
+      expect(w?.entries.map((e) => e.id)).toEqual([session.id]);
+      expect(w?.entries[0].children.map((c) => c.id)).toEqual([first.id, second.id]);
+      expect(groups.find((g) => g.logType.id === note.id)?.entries[0].id).toBe(memo.id);
     });
   });
 });
