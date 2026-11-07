@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { dayRange } from "./days";
 import type { Database } from "./platform/index";
 import { migrate } from "./schema/migrate";
 import { setTimeZone } from "./settings";
@@ -22,6 +23,7 @@ import {
   getTimeline,
   listCategories,
   listIntervals,
+  listIntervalsInRange,
   listTimelines,
   previewCategoryDeletion,
   previewTimelineDeletion,
@@ -419,6 +421,71 @@ describe("timelines", () => {
       expect((await listCategories(db, timeline.id)).map((c) => c.name)).toEqual(["Sleep"]);
       expect(await listIntervals(db, timeline.id)).toEqual([
         expect.objectContaining({ categoryId: categories[1].id }),
+      ]);
+    });
+  });
+  describe("intervals in range", () => {
+    const ids = (list: { id: string }[]) => list.map((i) => i.id);
+
+    it("includes overlapping, straddling and ongoing intervals", async () => {
+      const { timeline, categories } = await setup(false, ["A", "B", "C"]);
+      const [a, b, c] = categories.map((cat) => cat.id);
+      const before = await interval(a, 0, 10);
+      const straddleFrom = await interval(a, 10, 12);
+      const inside = await interval(b, 11, 13);
+      const straddleTo = await interval(c, 19, 21);
+      await interval(b, 20, 22);
+      const ongoing = await interval(a, 15, null);
+      expect(before.endAt).toBe(10 * H);
+      const found = await listIntervalsInRange(db, [timeline.id], { from: 10 * H, to: 20 * H });
+      expect(ids(found)).toEqual(ids([straddleFrom, inside, ongoing, straddleTo]));
+    });
+
+    it("excludes ongoing intervals starting at or after to", async () => {
+      const { timeline, categories } = await setup();
+      await interval(categories[0].id, 20, null);
+      expect(await listIntervalsInRange(db, [timeline.id], { from: 10 * H, to: 20 * H })).toEqual(
+        [],
+      );
+    });
+
+    it("covers only the given timelines, ordered by timeline", async () => {
+      const one = await setup();
+      const two = await setup();
+      const three = await setup();
+      const x = await interval(one.categories[0].id, 1, 2);
+      const y = await interval(two.categories[0].id, 1, 2);
+      await interval(three.categories[0].id, 1, 2);
+      const found = await listIntervalsInRange(db, [one.timeline.id, two.timeline.id], {
+        from: 0,
+        to: 5 * H,
+      });
+      expect(ids(found).sort()).toEqual(ids([x, y]).sort());
+      expect(found.map((i) => i.timelineId)).toEqual([one.timeline.id, two.timeline.id].sort());
+    });
+
+    it("returns nothing for no timelines, and rejects an empty range", async () => {
+      expect(await listIntervalsInRange(db, [], { from: 0, to: H })).toEqual([]);
+      await expect(listIntervalsInRange(db, ["x"], { from: H, to: H })).rejects.toThrow(/range/);
+    });
+
+    it("takes a day range built in a zone", async () => {
+      const { timeline, categories } = await setup();
+      const [start, end] = dayRange("2026-10-25", TZ); // 25 hours: DST ends
+      const late = await createInterval(db, {
+        categoryId: categories[0].id,
+        startAt: start - H,
+        endAt: start + H,
+        timeZone: TZ,
+      });
+      await createInterval(db, {
+        categoryId: categories[1].id,
+        startAt: end,
+        endAt: end + H,
+        timeZone: TZ,
+      });
+      expect(ids(await listIntervalsInRange(db, [timeline.id], { from: start, to: end }))).toEqual([
+        late.id,
       ]);
     });
   });

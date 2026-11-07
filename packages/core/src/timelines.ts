@@ -431,6 +431,35 @@ export async function listIntervals(db: Database, timelineId: string): Promise<T
 }
 
 /**
+ * The intervals of `timelineIds` overlapping the half-open range `[from, to)`,
+ * by timeline then start. Ongoing intervals count when they started before
+ * `to`. Build the range with `dayRange`/`startOfDay` in the `getTimeZone`
+ * zone; splitting intervals at midnight is left to `daysSpanned`.
+ */
+export async function listIntervalsInRange(
+  db: Database,
+  timelineIds: readonly string[],
+  range: { from: Instant; to: Instant },
+): Promise<TimelineInterval[]> {
+  const { from, to } = range;
+  if (!isInstant(from) || !isInstant(to) || to <= from) {
+    throw new Error(`Invalid interval range: [${from}, ${to})`);
+  }
+  if (timelineIds.length === 0) return [];
+  const rows = await queryBuilder(db)
+    .selectFrom("timeline_intervals")
+    .selectAll()
+    .where("timeline_id", "in", [...timelineIds])
+    .where("start_at", "<", to)
+    .where((eb) => eb.or([eb("end_at", "is", null), eb("end_at", ">", from)]))
+    .orderBy("timeline_id")
+    .orderBy("start_at")
+    .orderBy("id")
+    .execute();
+  return rows.map(toInterval);
+}
+
+/**
  * Changes an interval's category (within its timeline), start, or end
  * (`null` reopens it). Fails on any overlap conflict.
  */
