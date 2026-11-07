@@ -1,16 +1,9 @@
-import type { Database } from "../platform/index";
-import { TABLE_COLUMNS } from "../schema/tables";
-import { setSetting, setTimeZone } from "../settings";
-import {
-  createCategory,
-  createInterval,
-  createTimeline,
-  deleteCategory,
-  deleteInterval,
-  setCategoryArchived,
-  setTimelineArchived,
-  startInterval,
-} from "../timelines";
+import type { Database } from "../db/platform";
+import { TABLE_COLUMNS } from "../db/schema/tables";
+import { setSetting, setTimeZone } from "../settings/settings";
+import { createCategory, deleteCategory, setCategoryArchived } from "../timelines/categories";
+import { createInterval, deleteInterval, startInterval } from "../timelines/intervals";
+import { createTimeline, setTimelineArchived } from "../timelines/timelines";
 import { populateLogs } from "./sample-logs";
 import { populateObservations } from "./sample-observations";
 import { populateThings } from "./sample-things";

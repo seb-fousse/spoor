@@ -1,4 +1,4 @@
-//! SQLite access for the `Database` seam (`packages/core/src/platform`).
+//! SQLite access for the `Database` seam (`packages/core/src/db/platform.ts`).
 //!
 //! The frontend sends SQL and positional params over IPC; this module runs
 //! them against the single user-owned database file. One connection, behind a

@@ -1,0 +1,356 @@
+import type { Database } from "../db/platform";
+import type { DB } from "../db/schema/tables";
+import { findOverlap } from "../timelines/overlap";
+
+/**
+ * The export format and its table registry (see docs/data-spec.md § Export and import).
+ *
+ * `TABLES` lists every table that travels in an export. Export, import and their
+ * validation read it and never name a table, so a slice that adds tables extends
+ * export/import by adding entries here and fixtures to `roundtrip.test.ts`, with no
+ * new plumbing. `portable.test.ts` fails if a table or column is missing.
+ *
+ * To add a table:
+ * 1. Add an entry, after the tables it references: import inserts in this order.
+ *    A column referencing its own table is declared as `selfReference` instead.
+ * 2. Give every column a kind. A trailing `?` marks a nullable column.
+ * 3. Add a `check` for any rule core enforces that the database constraints cannot,
+ *    such as the overlap rule, so import refuses data core would never write.
+ * 4. Extend the fixture in `roundtrip.test.ts` so the table holds rows in every state
+ *    it has, such as archived.
+ *
+ * Unknown fields from a newer format are refused for now; the spec's rule to preserve
+ * them applies once a format newer than this one exists.
+ */
+
+/** Version of the export format, not of the database schema. Bumped only for a breaking change. */
+export const EXPORT_SCHEMA_VERSION = 1;
+
+/**
+ * How a column travels:
+ * - `text`: a string. `uuid`: a canonical UUID string.
+ * - `trimmed`: a non-empty string with no surrounding whitespace, as core stores
+ *   names and descriptions.
+ * - `zone`: an IANA time zone ID (see `isTimeZone`).
+ * - `int`: a safe integer. `real`: a finite number. `bool`: stored as 0/1, written as true/false.
+ * - `instant`: stored as epoch milliseconds, written as ISO 8601 UTC.
+ * - `json`: stored as JSON text, written as the parsed value.
+ */
+export type ColumnKind =
+  | "text"
+  | "trimmed"
+  | "zone"
+  | "uuid"
+  | "int"
+  | "real"
+  | "bool"
+  | "instant"
+  | "json";
+export type ColumnSpec = ColumnKind | `${ColumnKind}?`;
+
+interface TableSpec {
+  /** The top-level key in the export document. */
+  readonly key: string;
+  readonly table: keyof DB;
+  /** Rows are exported in this column's order, so the output is deterministic. */
+  readonly orderBy: string;
+  /** Import overwrites rows with this key instead of failing, and does not require the table empty. */
+  readonly upsertOn?: string;
+  /**
+   * A column referencing this same table. Import inserts each row after the row it
+   * references, whatever their order in the file.
+   */
+  readonly selfReference?: string;
+  /** Checked against `TABLE_COLUMNS` by `portable.test.ts`. */
+  readonly columns: Readonly<Record<string, ColumnSpec>>;
+  /**
+   * Cross-record rules the database cannot enforce. Import runs it after every
+   * insert, in the same transaction, and refuses the file if it names a problem.
+   */
+  readonly check?: (db: Database) => Promise<string | undefined>;
+}
+
+/** In foreign-key order: parents before the tables that reference them. */
+export const TABLES = [
+  {
+    key: "settings",
+    table: "settings",
+    orderBy: "key",
+    upsertOn: "key",
+    columns: { key: "text", value: "json", updated_at: "instant" },
+  },
+  {
+    key: "thingTypes",
+    table: "thing_types",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      title_field_id: "uuid",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+    },
+  },
+  {
+    key: "thingFields",
+    table: "thing_fields",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      thing_type_id: "uuid",
+      name: "trimmed",
+      position: "int",
+      value_type: "text",
+      required: "bool",
+      constraints: "json",
+      option_labels: "json",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "things",
+    table: "things",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      thing_type_id: "uuid",
+      source: "text",
+      external_id: "text?",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "thingFieldValues",
+    table: "thing_field_values",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      thing_id: "uuid",
+      field_id: "uuid",
+      value_bool: "bool?",
+      value_num: "real?",
+      value_enum: "text?",
+      value_text: "text?",
+      value_date: "text?",
+      value_instant: "instant?",
+      value_ref: "uuid?",
+      written_by: "text",
+      written_at: "instant",
+    },
+  },
+  {
+    key: "timelines",
+    table: "timelines",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      exclusive: "bool",
+      default_thing_type_id: "uuid?",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+    },
+  },
+  {
+    key: "timelineCategories",
+    table: "timeline_categories",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      timeline_id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      thing_id: "uuid?",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+    },
+  },
+  {
+    key: "timelineIntervals",
+    table: "timeline_intervals",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      timeline_id: "uuid",
+      category_id: "uuid",
+      start_at: "instant",
+      end_at: "instant?",
+      time_zone: "zone",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+    async check(db: Database) {
+      const overlap = await findOverlap(db);
+      return (
+        overlap &&
+        `intervals ${overlap.a} and ${overlap.b} overlap on timeline ${overlap.timelineId}`
+      );
+    },
+  },
+  {
+    key: "observationMetrics",
+    table: "observation_metrics",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      value_type: "text",
+      constraints: "json",
+      option_labels: "json",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+    },
+  },
+  {
+    key: "observations",
+    table: "observations",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      metric_id: "uuid",
+      date: "text",
+      value_bool: "bool?",
+      value_num: "real?",
+      value_enum: "text?",
+      source: "text",
+      external_id: "text?",
+      written_by: "text",
+      written_at: "instant",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "observationSelections",
+    table: "observation_selections",
+    orderBy: "id",
+    columns: { id: "uuid", observation_id: "uuid", option_key: "text" },
+  },
+  {
+    key: "logTypes",
+    table: "log_types",
+    orderBy: "id",
+    selfReference: "parent_type_id",
+    columns: {
+      id: "uuid",
+      name: "trimmed",
+      description: "trimmed?",
+      parent_type_id: "uuid?",
+      created_at: "instant",
+      updated_at: "instant",
+      archived_at: "instant?",
+    },
+  },
+  {
+    key: "logFields",
+    table: "log_fields",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      log_type_id: "uuid",
+      name: "trimmed",
+      position: "int",
+      value_type: "text",
+      required: "bool",
+      constraints: "json",
+      option_labels: "json",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "logEntries",
+    table: "log_entries",
+    orderBy: "id",
+    selfReference: "parent_entry_id",
+    columns: {
+      id: "uuid",
+      log_type_id: "uuid",
+      occurred_at: "instant?",
+      ended_at: "instant?",
+      precision: "text?",
+      time_zone: "zone?",
+      parent_entry_id: "uuid?",
+      position: "int?",
+      source: "text",
+      external_id: "text?",
+      created_at: "instant",
+      updated_at: "instant",
+    },
+  },
+  {
+    key: "logFieldValues",
+    table: "log_field_values",
+    orderBy: "id",
+    columns: {
+      id: "uuid",
+      log_entry_id: "uuid",
+      field_id: "uuid",
+      value_bool: "bool?",
+      value_num: "real?",
+      value_enum: "text?",
+      value_text: "text?",
+      value_date: "text?",
+      value_instant: "instant?",
+      value_ref: "uuid?",
+      written_by: "text",
+      written_at: "instant",
+    },
+  },
+] as const satisfies readonly TableSpec[];
+
+export type { TableSpec };
+
+export type TableKey = (typeof TABLES)[number]["key"];
+
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** One exported row, keyed by camelCase column name. */
+export type ExportRecord = Record<string, JsonValue>;
+
+export interface ExportDocument extends Partial<Record<TableKey, ExportRecord[]>> {
+  schemaVersion: number;
+  /** ISO 8601 UTC. */
+  exportedAt: string;
+}
+
+/** A column, parsed from its registry entry. */
+export interface Column {
+  /** Name in SQL, such as `created_at`. */
+  sql: string;
+  /** Name in the export, such as `createdAt`. */
+  name: string;
+  kind: ColumnKind;
+  nullable: boolean;
+}
+
+/** `created_at` as `createdAt`. */
+const camelCase = (snake: string) => snake.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+
+/** The columns of `spec` in registry order. */
+export function columnsOf(spec: TableSpec): Column[] {
+  return Object.entries(spec.columns).map(([sql, column]) => {
+    const nullable = column.endsWith("?");
+    return {
+      sql,
+      name: camelCase(sql),
+      kind: (nullable ? column.slice(0, -1) : column) as ColumnKind,
+      nullable,
+    };
+  });
+}
