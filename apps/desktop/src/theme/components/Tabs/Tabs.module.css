@@ -1,0 +1,9 @@
+/* Class names match Tabs' Styles API selectors. */
+.tab {
+  color: var(--app-text-muted);
+  font-weight: 500;
+
+  &:where([data-active]) {
+    color: var(--app-text);
+  }
+}

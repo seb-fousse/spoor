@@ -61,7 +61,6 @@ function App() {
         <Group h="100%" gap="xs">
           <Tooltip label="Back">
             <ActionIcon
-              variant="subtle"
               aria-label="Back"
               disabled={!canGoBack}
               onClick={() => window.history.back()}
@@ -71,7 +70,6 @@ function App() {
           </Tooltip>
           <Tooltip label="Forward">
             <ActionIcon
-              variant="subtle"
               aria-label="Forward"
               disabled={!canGoForward}
               onClick={() => window.history.forward()}
