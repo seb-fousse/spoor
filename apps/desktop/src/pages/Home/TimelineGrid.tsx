@@ -10,12 +10,14 @@ import {
 } from "@spoor/core";
 import {
   type CSSProperties,
+  type Dispatch,
   type KeyboardEvent,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
+import { dayKeyAction, isMac } from "./dayKeys";
 import {
   categoryColor,
   describeBlock,
@@ -23,7 +25,7 @@ import {
   layoutGrid,
   nowFraction,
 } from "./gridLayout";
-import { formatShortDay } from "./homeDays";
+import { formatShortDay, type HomeDaysAction } from "./homeDays";
 import classes from "./TimelineGrid.module.css";
 import { useGridData } from "./useGridData";
 
@@ -39,20 +41,17 @@ interface TimelineGridProps {
   days: LocalDate[];
   /** The day the rail shows, highlighted in the grid. Always one of `days`. */
   activeDay: LocalDate;
-  /** Called when the user picks a day from its header or column. */
-  onSelectDay: (day: LocalDate) => void;
-  /** Called with -1 or 1 when the user moves the active day with the arrow keys. */
-  onStepDay: (by: number) => void;
+  /** Changes the active day: picked from a header or column, or moved with the day keys. */
+  dispatch: Dispatch<HomeDaysAction>;
 }
 
 /**
  * Home's timeline grid. Each day is a column, each timeline a sub-column, and
  * there is one hour axis down the left. The two-tier header (days, then
  * timeline names) stays at the top while the hours scroll. The intervals are
- * read-only; clicking a day's header or column makes it the active day, and
- * the left and right arrow keys move it while the day headers have focus.
+ * read-only; clicking a day's header or column makes it the active day.
  */
-export function TimelineGrid({ db, days, activeDay, onSelectDay, onStepDay }: TimelineGridProps) {
+export function TimelineGrid({ db, days, activeDay, dispatch }: TimelineGridProps) {
   const data = useGridData(db, days);
 
   if (data.status === "loading") {
@@ -80,8 +79,7 @@ export function TimelineGrid({ db, days, activeDay, onSelectDay, onStepDay }: Ti
     <Grid
       days={days}
       activeDay={activeDay}
-      onSelectDay={onSelectDay}
-      onStepDay={onStepDay}
+      dispatch={dispatch}
       timeZone={data.timeZone}
       timelines={data.timelines}
       categories={data.categories}
@@ -93,22 +91,17 @@ export function TimelineGrid({ db, days, activeDay, onSelectDay, onStepDay }: Ti
 interface GridProps {
   days: LocalDate[];
   activeDay: LocalDate;
-  onSelectDay: (day: LocalDate) => void;
-  onStepDay: (by: number) => void;
+  dispatch: Dispatch<HomeDaysAction>;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   intervals: TimelineInterval[];
 }
 
-/** The arrow keys that move the active day, and by how much. */
-const STEP_KEYS: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1 };
-
 function Grid({
   days,
   activeDay,
-  onSelectDay,
-  onStepDay,
+  dispatch,
   timeZone,
   timelines,
   categories,
@@ -132,9 +125,10 @@ function Grid({
   }, []);
 
   // The day headers are one tab stop: only the active day's button is
-  // tabbable, and focus moves with the active day. An arrow key can push the
+  // tabbable, and focus moves with the active day. A day key can push the
   // window along, which replaces the focused button, so the new active day's
-  // button takes focus once it has rendered.
+  // button takes focus once it has rendered. Elsewhere on Home the same keys
+  // go to `useDayKeys`, which leaves alone the ones handled here.
   const headerRef = useRef<HTMLDivElement>(null);
   const focusDay = (day: LocalDate) =>
     headerRef.current
@@ -148,19 +142,17 @@ function Grid({
   });
 
   const onHeaderKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const by = STEP_KEYS[event.key];
-    if (by === undefined || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-      return;
-    }
+    const action = dayKeyAction(event, isMac());
+    if (!action) return;
     event.preventDefault();
     focusAfterStep.current = true;
-    onStepDay(by);
+    dispatch(action);
   };
 
-  // Clicking focuses the day's button, so the arrow keys work straight after.
+  // Clicking focuses the day's button, so the header keeps focus for the keys.
   // WebKit (the macOS webview) doesn't focus a button on click by itself.
   const select = (day: LocalDate) => {
-    onSelectDay(day);
+    dispatch({ type: "select", day });
     focusDay(day);
   };
 
@@ -189,7 +181,6 @@ function Grid({
               data-day={day}
               tabIndex={day === activeDay ? 0 : -1}
               aria-current={day === activeDay ? "date" : undefined}
-              aria-keyshortcuts="ArrowLeft ArrowRight"
               onClick={() => select(day)}
               onKeyDown={onHeaderKeyDown}
             >

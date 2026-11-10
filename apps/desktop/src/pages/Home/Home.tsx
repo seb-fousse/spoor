@@ -1,13 +1,14 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useToday } from "@hooks/useToday";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
-import { type Database, getTimeZone, type LocalDate } from "@spoor/core";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type Database, getTimeZone } from "@spoor/core";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
+import { useDayKeys } from "./useDayKeys";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
@@ -44,8 +45,8 @@ export function Home({ db }: { db: Database }) {
   const activeLabel = formatDay(days.activeDay);
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
-  const selectDay = useCallback((day: LocalDate) => dispatch({ type: "select", day }), []);
-  const stepDay = useCallback((by: number) => dispatch({ type: "stepActive", by }), []);
+  // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
+  useDayKeys(dispatch);
 
   return (
     // Fill the whole area above the bottom bar.
@@ -53,13 +54,7 @@ export function Home({ db }: { db: Database }) {
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
           <LeftHeader days={days} today={today} dispatch={dispatch} />
-          <TimelineGrid
-            db={db}
-            days={visibleDays}
-            activeDay={days.activeDay}
-            onSelectDay={selectDay}
-            onStepDay={stepDay}
-          />
+          <TimelineGrid db={db} days={visibleDays} activeDay={days.activeDay} dispatch={dispatch} />
         </div>
       </Splitter.Pane>
 
