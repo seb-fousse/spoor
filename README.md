@@ -4,12 +4,16 @@
 
 Track how you spend your time (timelines), daily values such as steps or mood
 (observations), events such as a movie watched or a workout (logs), and the
-people, places, and media those events involve (things). You define what to
-track; your data stays on your device.
+people, places, and media those events involve (things). View insights into
+what you track. Your data stays on your device.
 
 > **Status: scaffold.** Tooling and docs are in place; there are no features
 > yet. The data model in [`docs/data-spec.md`](docs/data-spec.md) is a draft.
 > Expect breaking changes.
+
+## Motivation
+
+Was inspired by this [r/dataisbeautiful post](https://www.reddit.com/r/dataisbeautiful/comments/101hvnv/oc_i_tracked_every_hour_of_my_life_for_5_years/) where someone tracked every hour of their life. I used their template and did it myself for a year-ish. It worked fairly well, but I found it wasn't as customizable as I wanted. I have a view of what I want my personal dashboard to look like, and I want anyone else to easily customize the app to their liking.
 
 ## Quickstart
 
