@@ -75,7 +75,12 @@ export function useGridData(db: Database, days: readonly LocalDate[]): GridData 
       meta.timelines.map((t) => t.id),
       range,
     )
-      .then((loaded) => !cancelled && setIntervals(loaded))
+      .then((loaded) => {
+        if (cancelled) return;
+        setIntervals(loaded);
+        // A good fetch clears an earlier one's error, so paging away recovers.
+        setError(null);
+      })
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;

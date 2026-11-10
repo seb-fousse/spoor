@@ -1,8 +1,8 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useToday } from "@hooks/useToday";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
-import type { Database } from "@spoor/core";
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { type Database, getTimeZone } from "@spoor/core";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
@@ -16,10 +16,25 @@ import { TimelineGrid } from "./TimelineGrid";
  * for now.
  */
 export function Home({ db }: { db: Database }) {
-  const today = useToday();
+  // Today in the `time_zone` setting, the zone the grid counts its days in.
+  // Until the setting loads it is the device's today. If the setting's date
+  // differs, the rollover below moves the window to it.
+  const [timeZone, setTimeZone] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
+    // On failure, keep the device's zone; the grid reports its own load errors.
+    getTimeZone(db)
+      .then((zone) => !cancelled && setTimeZone(zone))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [db]);
+  const today = useToday(timeZone);
   const [days, dispatch] = useReducer(homeDaysReducer, today, initialHomeDays);
 
-  // When midnight passes, move to the new today if the user was on the old one.
+  // When the date changes (midnight, or the zone loading), move to the new today
+  // if the user was on the old one.
   const previousToday = useRef(today);
   useEffect(() => {
     if (previousToday.current === today) return;
