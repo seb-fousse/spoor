@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { type DayKey, dayKeyAction, ownsArrowKeys } from "./dayKeys";
+import { type DayKey, dayKeyAction, dayShortcut, ownsArrowKeys } from "./dayKeys";
 
 function key(name: string, mods: Partial<Omit<DayKey, "key">> = {}): DayKey {
   return { key: name, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods };
@@ -43,6 +43,44 @@ describe("dayKeyAction", () => {
     expect(dayKeyAction(key("ArrowLeft", { shiftKey: true }), mac)).toBeNull();
     expect(dayKeyAction(key("ArrowLeft", { metaKey: true }), mac)).toBeNull();
     expect(dayKeyAction(key("ArrowLeft", { altKey: true, ctrlKey: true }), mac)).toBeNull();
+  });
+});
+
+describe("dayShortcut", () => {
+  it.each([true, false])("is a bare arrow for stepping a day (mac: %s)", (mac) => {
+    expect(dayShortcut(-1, false, mac)).toEqual({ label: "←", ariaKeys: "ArrowLeft" });
+    expect(dayShortcut(1, false, mac)).toEqual({ label: "→", ariaKeys: "ArrowRight" });
+  });
+
+  it("uses Option for paging on macOS", () => {
+    expect(dayShortcut(-1, true, true)).toEqual({ label: "⌥←", ariaKeys: "Alt+ArrowLeft" });
+    expect(dayShortcut(1, true, true)).toEqual({ label: "⌥→", ariaKeys: "Alt+ArrowRight" });
+  });
+
+  it("uses Ctrl for paging elsewhere", () => {
+    expect(dayShortcut(-1, true, false)).toEqual({
+      label: "Ctrl+←",
+      ariaKeys: "Control+ArrowLeft",
+    });
+    expect(dayShortcut(1, true, false)).toEqual({
+      label: "Ctrl+→",
+      ariaKeys: "Control+ArrowRight",
+    });
+  });
+
+  // The label must describe what dayKeyAction does with the same keys.
+  it.each([true, false])("matches dayKeyAction (mac: %s)", (mac) => {
+    for (const page of [false, true]) {
+      for (const by of [-1, 1] as const) {
+        const parts = dayShortcut(by, page, mac).ariaKeys.split("+");
+        const arrow = parts.at(-1) ?? "";
+        const event = key(arrow, {
+          altKey: parts.includes("Alt"),
+          ctrlKey: parts.includes("Control"),
+        });
+        expect(dayKeyAction(event, mac)).toEqual({ type: page ? "pageWindow" : "stepActive", by });
+      }
+    }
   });
 });
 

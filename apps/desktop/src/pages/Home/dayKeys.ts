@@ -1,3 +1,4 @@
+import type { Shortcut } from "@components/ArrowButtons";
 import type { HomeDaysAction } from "./homeDays";
 
 /**
@@ -20,6 +21,20 @@ export function dayKeyAction(event: DayKey, mac: boolean): HomeDaysAction | null
   if (wordJump) return { type: "pageWindow", by };
   if (event.altKey || event.ctrlKey) return null;
   return { type: "stepActive", by };
+}
+
+/**
+ * The key that moves the active day by `by` (-1 or 1), or with `page` the key
+ * that pages the window, written the platform's way: "⌥←" on macOS,
+ * "Ctrl+←" elsewhere.
+ */
+export function dayShortcut(by: -1 | 1, page: boolean, mac: boolean): Shortcut {
+  const arrow = by < 0 ? "←" : "→";
+  const key = by < 0 ? "ArrowLeft" : "ArrowRight";
+  if (!page) return { label: arrow, ariaKeys: key };
+  return mac
+    ? { label: `⌥${arrow}`, ariaKeys: `Alt+${key}` }
+    : { label: `Ctrl+${arrow}`, ariaKeys: `Control+${key}` };
 }
 
 /** Whether this is macOS, where Alt rather than Ctrl jumps by a word. */
