@@ -26,6 +26,7 @@ import { ModalTheme } from "./Modal/Modal";
 import { MultiSelectTheme } from "./MultiSelect/MultiSelect";
 import { NativeSelectTheme } from "./NativeSelect/NativeSelect";
 import { NumberInputTheme } from "./NumberInput/NumberInput";
+import { SegmentedControlTheme } from "./SegmentedControl/SegmentedControl";
 import { SelectTheme } from "./Select/Select";
 import { SplitterTheme } from "./Splitter/Splitter";
 import { TabsTheme } from "./Tabs/Tabs";
@@ -45,6 +46,7 @@ export const components = {
   MultiSelect: MultiSelectTheme,
   NativeSelect: NativeSelectTheme,
   NumberInput: NumberInputTheme,
+  SegmentedControl: SegmentedControlTheme,
   Select: SelectTheme,
   Splitter: SplitterTheme,
   Tabs: TabsTheme,

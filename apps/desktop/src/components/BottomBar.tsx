@@ -1,4 +1,5 @@
-import { ActionIcon, Group, Tabs } from "@mantine/core";
+import { ArrowButtons } from "@components/ArrowButtons";
+import { Tabs } from "@mantine/core";
 import { type RouteId, routes } from "@routes";
 import classes from "./BottomBar.module.css";
 
@@ -13,24 +14,14 @@ interface BottomBarProps {
 export function BottomBar({ route, navigate, canGoBack, canGoForward }: BottomBarProps) {
   return (
     <div className={classes.bar}>
-      <Group gap={0} className={classes.history} wrap="nowrap">
-        <ActionIcon
-          aria-label="Back"
-          className={classes.historyButton}
-          disabled={!canGoBack}
-          onClick={() => window.history.back()}
-        >
-          ‹
-        </ActionIcon>
-        <ActionIcon
-          aria-label="Forward"
-          className={classes.historyButton}
-          disabled={!canGoForward}
-          onClick={() => window.history.forward()}
-        >
-          ›
-        </ActionIcon>
-      </Group>
+      <ArrowButtons
+        backLabel="Back"
+        forwardLabel="Forward"
+        onBack={() => window.history.back()}
+        onForward={() => window.history.forward()}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+      />
 
       <Tabs
         inverted
