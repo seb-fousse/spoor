@@ -1,3 +1,5 @@
+import { effect, useConfirmDelete } from "@components/ConfirmDelete";
+import { FieldList } from "@components/FieldList";
 import {
   Alert,
   Button,
@@ -41,8 +43,6 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
-import { effect, useConfirmDelete } from "./ConfirmDelete";
-import { FieldList } from "./FieldList";
 
 type Run = (action: () => Promise<unknown>) => void;
 

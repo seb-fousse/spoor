@@ -1,3 +1,11 @@
+import { effect, useConfirmDelete } from "@components/ConfirmDelete";
+import {
+  FieldList,
+  type NewFieldDraft,
+  NewFieldInputs,
+  newFieldDraft,
+  toNewField,
+} from "@components/FieldList";
 import {
   Alert,
   Button,
@@ -45,14 +53,6 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useEffect, useState } from "react";
-import { effect, useConfirmDelete } from "./ConfirmDelete";
-import {
-  FieldList,
-  type NewFieldDraft,
-  NewFieldInputs,
-  newFieldDraft,
-  toNewField,
-} from "./FieldList";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a

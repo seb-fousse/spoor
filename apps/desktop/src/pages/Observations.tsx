@@ -1,3 +1,4 @@
+import { effect, useConfirmDelete } from "@components/ConfirmDelete";
 import {
   Alert,
   Button,
@@ -34,7 +35,6 @@ import {
   type Value,
 } from "@spoor/core";
 import { type FormEvent, useEffect, useState } from "react";
-import { effect, useConfirmDelete } from "./ConfirmDelete";
 
 type Run = (action: () => Promise<unknown>) => void;
 
