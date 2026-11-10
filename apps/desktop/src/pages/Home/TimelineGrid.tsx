@@ -105,7 +105,8 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
   } as CSSProperties;
 
   return (
-    <div ref={scrollRef} className={classes.scroller} style={style}>
+    <div className={classes.grid} style={style}>
+      {/* Outside the scroller, so only the hours scroll. */}
       <div className={classes.header}>
         <div className={classes.corner} />
         {days.map((day) => (
@@ -122,25 +123,27 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
         ))}
       </div>
 
-      <div className={classes.body}>
-        <div className={classes.gutter} aria-hidden="true">
-          {HOURS.map((h) => (
-            <div key={h} className={classes.hour}>
-              {h > 0 && <span>{`${String(h).padStart(2, "0")}:00`}</span>}
-            </div>
+      <div ref={scrollRef} className={classes.scroller}>
+        <div className={classes.body}>
+          <div className={classes.gutter} aria-hidden="true">
+            {HOURS.map((h) => (
+              <div key={h} className={classes.hour}>
+                {h > 0 && <span>{`${String(h).padStart(2, "0")}:00`}</span>}
+              </div>
+            ))}
+          </div>
+
+          {days.map((day) => (
+            <DayColumn
+              key={day}
+              blocks={layout.get(day)}
+              timelines={timelines}
+              categories={categories}
+              timeZone={timeZone}
+              nowAt={day === today ? nowFraction(now, day, timeZone) : null}
+            />
           ))}
         </div>
-
-        {days.map((day) => (
-          <DayColumn
-            key={day}
-            blocks={layout.get(day)}
-            timelines={timelines}
-            categories={categories}
-            timeZone={timeZone}
-            nowAt={day === today ? nowFraction(now, day, timeZone) : null}
-          />
-        ))}
       </div>
     </div>
   );
@@ -181,30 +184,45 @@ interface BlockProps {
   timeZone: string;
 }
 
+/**
+ * One interval's piece of the day, drawn as its segments: one rectangle per
+ * stretch with the same width, which fit together with overlapping blocks. The
+ * label sits in the first segment. The outer corners are rounded where the
+ * interval really starts and ends.
+ */
 function Block({ block, category, timeZone }: BlockProps) {
   const color = categoryColor(block.interval.categoryId);
   const name = category?.name ?? "Unknown category";
-  const style = {
-    "--top": block.top,
-    "--height": block.height,
-    "--lane": block.lane,
-    "--lanes": block.laneCount,
+  const title = describeBlock(block, name, timeZone);
+  const colors = {
     // Mantine's variant colours, which follow the light/dark scheme.
     "--block-bg": `var(--mantine-color-${color}-light)`,
     "--block-fg": `var(--mantine-color-${color}-light-color)`,
     "--block-accent": `var(--mantine-color-${color}-filled)`,
-  } as CSSProperties;
+  };
+  const last = block.segments.length - 1;
 
-  return (
+  return block.segments.map((segment, i) => (
     <div
+      // Segments never move between blocks, and a block's segments keep their order.
+      // biome-ignore lint/suspicious/noArrayIndexKey: see above.
+      key={i}
       className={classes.block}
-      style={style}
-      title={describeBlock(block, name, timeZone)}
-      data-starts-before={block.startsBefore || undefined}
-      data-ends-after={block.endsAfter || undefined}
-      data-ongoing={block.ongoing || undefined}
+      style={
+        {
+          ...colors,
+          "--top": segment.top,
+          "--height": segment.height,
+          "--lane": segment.lane,
+          "--lanes": segment.lanes,
+        } as CSSProperties
+      }
+      title={title}
+      data-round-top={(i === 0 && !block.startsBefore) || undefined}
+      data-round-bottom={(i === last && !block.endsAfter && !block.ongoing) || undefined}
+      data-ongoing={(i === last && block.ongoing) || undefined}
     >
-      <span className={classes.blockLabel}>{name}</span>
+      {i === 0 && <span className={classes.blockLabel}>{name}</span>}
     </div>
-  );
+  ));
 }

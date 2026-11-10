@@ -3,15 +3,28 @@
  * one sub-column per timeline. The header and the body share one column
  * template, so they always line up.
  */
-.scroller {
+.grid {
   --gutter: 3.5rem;
   --columns: var(--gutter) repeat(var(--days), minmax(0, 1fr));
   --hour-line: color-mix(in srgb, var(--app-border) 45%, transparent);
 
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/*
+ * Only the hours scroll. Both the header and the scroller reserve the
+ * scrollbar's gutter, so their columns stay the same width and line up, with
+ * or without a classic scrollbar.
+ */
+.scroller {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* Loading and empty states fill the pane. */
@@ -21,12 +34,12 @@
   text-align: center;
 }
 
-/* Two tiers: the day, then the timeline names. Stays put while the hours scroll. */
+/* Two tiers: the day, then the timeline names. */
 .header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: grid;
+  flex-shrink: 0;
+  overflow: hidden;
+  scrollbar-gutter: stable;
   grid-template-columns: var(--columns);
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface-raised);
@@ -141,9 +154,10 @@
 }
 
 /*
- * An interval's piece of the day. Its offset, length and lane come in as
- * unitless custom properties: fractions of the day, and a lane out of
- * `--lanes`.
+ * One segment of an interval's piece of the day. Its offset, length and slot
+ * come in as unitless custom properties: fractions of the day, and a slot out
+ * of `--lanes`. Corners are square unless the segment is where the interval
+ * really starts or ends.
  */
 .block {
   position: absolute;
@@ -156,29 +170,25 @@
   padding: 2px 4px;
   overflow: hidden;
   border-left: 3px solid var(--block-accent);
-  border-radius: var(--mantine-radius-xs);
   background: var(--block-bg);
   color: var(--block-fg);
   font-size: 11px;
   line-height: 1.2;
 }
 
-/* Square the edges where the interval carries on past the day. */
-.block[data-starts-before] {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+.block[data-round-top] {
+  border-top-left-radius: var(--mantine-radius-xs);
+  border-top-right-radius: var(--mantine-radius-xs);
 }
 
-.block[data-ends-after] {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+.block[data-round-bottom] {
+  border-bottom-left-radius: var(--mantine-radius-xs);
+  border-bottom-right-radius: var(--mantine-radius-xs);
 }
 
 /* Still going: an open, dashed end at now. */
 .block[data-ongoing] {
   border-bottom: 2px dashed var(--block-accent);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
 }
 
 .blockLabel {

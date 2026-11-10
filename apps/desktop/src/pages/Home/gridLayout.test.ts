@@ -1,10 +1,10 @@
 import type { Timeline, TimelineInterval } from "@spoor/core";
 import { describe, expect, it } from "vitest";
 import {
-  assignLanes,
   CATEGORY_COLORS,
   categoryColor,
   describeBlock,
+  fitSegments,
   layoutGrid,
   nowFraction,
   splitByDay,
@@ -142,7 +142,7 @@ describe("splitByDay", () => {
   });
 });
 
-describe("assignLanes", () => {
+describe("fitSegments", () => {
   const blocksOf = (...spans: [string, string][]) =>
     splitByDay(
       spans.map(([s, e]) => interval(`2026-11-08T${s}:00.000`, `2026-11-08T${e}:00.000`)),
@@ -150,50 +150,84 @@ describe("assignLanes", () => {
       ZONE,
       NOW,
     );
-  const lanes = (...spans: [string, string][]) =>
-    assignLanes(blocksOf(...spans)).map((b) => [b.lane, b.laneCount]);
+  /** Each block's segments as [from hour, to hour, slot, slots]. */
+  const segmentsOf = (...spans: [string, string][]) =>
+    fitSegments(blocksOf(...spans)).map((b) =>
+      b.segments.map((s) => [hours(s.top), hours(s.top + s.height), s.lane, s.lanes]),
+    );
+  const hours = (fraction: number) => Math.round(fraction * 24 * 100) / 100;
 
-  it("puts two overlapping blocks side by side", () => {
-    expect(lanes(["09:00", "11:00"], ["10:00", "12:00"])).toEqual([
-      [0, 2],
-      [1, 2],
+  it("goes full width, then halves, then full width again when A overlaps the start of B", () => {
+    expect(segmentsOf(["09:00", "11:00"], ["10:00", "12:00"])).toEqual([
+      [
+        [9, 10, 0, 1],
+        [10, 11, 0, 2],
+      ],
+      [
+        [10, 11, 1, 2],
+        [11, 12, 0, 1],
+      ],
     ]);
   });
 
-  it("uses three lanes when three blocks overlap at once", () => {
-    expect(lanes(["09:00", "12:00"], ["10:00", "12:00"], ["11:00", "12:00"])).toEqual([
-      [0, 3],
-      [1, 3],
-      [2, 3],
+  it("splits three ways while three blocks overlap", () => {
+    expect(segmentsOf(["09:00", "12:00"], ["10:00", "12:00"], ["11:00", "12:00"])).toEqual([
+      [
+        [9, 10, 0, 1],
+        [10, 11, 0, 2],
+        [11, 12, 0, 3],
+      ],
+      [
+        [10, 11, 1, 2],
+        [11, 12, 1, 3],
+      ],
+      [[11, 12, 2, 3]],
     ]);
   });
 
-  it("reuses a lane once it is free", () => {
-    expect(lanes(["09:00", "10:00"], ["09:30", "11:00"], ["10:00", "10:30"])).toEqual([
-      [0, 2],
-      [1, 2],
-      [0, 2],
+  it("moves a block over when one before it ends", () => {
+    expect(segmentsOf(["09:00", "11:00"], ["09:30", "12:00"], ["10:00", "12:00"])).toEqual([
+      [
+        [9, 9.5, 0, 1],
+        [9.5, 10, 0, 2],
+        [10, 11, 0, 3],
+      ],
+      [
+        [9.5, 10, 1, 2],
+        [10, 11, 1, 3],
+        [11, 12, 0, 2],
+      ],
+      [
+        [10, 11, 2, 3],
+        [11, 12, 1, 2],
+      ],
     ]);
   });
 
-  it("gives a block that overlaps nothing the full width", () => {
-    expect(lanes(["09:00", "11:00"], ["10:00", "12:00"], ["14:00", "15:00"])).toEqual([
-      [0, 2],
-      [1, 2],
-      [0, 1],
+  it("keeps a block that overlaps nothing as one full-width segment", () => {
+    expect(segmentsOf(["09:00", "10:00"], ["14:00", "15:00"])).toEqual([
+      [[9, 10, 0, 1]],
+      [[14, 15, 0, 1]],
     ]);
   });
 
   it("treats touching blocks as not overlapping", () => {
-    expect(lanes(["09:00", "10:00"], ["10:00", "11:00"])).toEqual([
-      [0, 1],
-      [0, 1],
+    expect(segmentsOf(["09:00", "10:00"], ["10:00", "11:00"])).toEqual([
+      [[9, 10, 0, 1]],
+      [[10, 11, 0, 1]],
+    ]);
+  });
+
+  it("gives a zero-length block a slot beside what is running at its instant", () => {
+    expect(segmentsOf(["09:00", "11:00"], ["10:00", "10:00"])).toEqual([
+      [[9, 11, 0, 1]],
+      [[10, 10, 1, 2]],
     ]);
   });
 });
 
 describe("layoutGrid", () => {
-  it("groups blocks by day and timeline, with lanes only on non-exclusive timelines", () => {
+  it("groups blocks by day and timeline, fitting blocks together only on non-exclusive timelines", () => {
     const layout = layoutGrid(
       [
         interval("2026-11-08T09:00:00.000", "2026-11-08T11:00:00.000", { timelineId: "free" }),
@@ -208,8 +242,8 @@ describe("layoutGrid", () => {
     expect([...layout.keys()]).toEqual(DAYS);
     expect(layout.get("2026-11-07")?.get("free")).toEqual([]);
     const day = layout.get("2026-11-08");
-    expect(day?.get("free")?.map((b) => b.laneCount)).toEqual([2, 2]);
-    expect(day?.get("only")?.map((b) => b.laneCount)).toEqual([1]);
+    expect(day?.get("free")?.map((b) => b.segments.length)).toEqual([2, 2]);
+    expect(day?.get("only")?.map((b) => b.segments.length)).toEqual([1]);
   });
 
   it("drops intervals of timelines that are not shown", () => {

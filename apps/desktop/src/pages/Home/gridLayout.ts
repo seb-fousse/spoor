@@ -16,9 +16,24 @@ import {
  * The grid has one column per day and, inside it, one sub-column per timeline.
  * An interval becomes one block per day it touches, clipped to that day.
  * Ongoing intervals run until `now`. On a non-exclusive timeline, overlapping
- * blocks share their sub-column in lanes. No React here, so it can be tested
- * directly.
+ * blocks share their sub-column like tetris pieces: at every moment the
+ * blocks active then split the full width between them. No React here, so it
+ * can be tested directly.
  */
+
+/**
+ * A stretch of a block with one width. A block that overlaps nothing has one
+ * segment. A block that overlaps others is cut wherever the set of blocks
+ * sharing the column changes.
+ */
+export interface BlockSegment {
+  /** Offset and length as fractions of the day, from 0 to 1. */
+  top: number;
+  height: number;
+  /** The block's slot, out of `lanes` equal side-by-side slots. */
+  lane: number;
+  lanes: number;
+}
 
 /** One interval's piece on one day. */
 export interface GridBlock {
@@ -36,9 +51,8 @@ export interface GridBlock {
   /** Offset and length as fractions of the day, from 0 to 1. */
   top: number;
   height: number;
-  /** Which lane the block uses, out of `laneCount` side-by-side lanes. */
-  lane: number;
-  laneCount: number;
+  /** The block's stretches, top to bottom, which together cover `top` to `top + height`. */
+  segments: BlockSegment[];
 }
 
 /** Blocks by day, then by timeline id. */
@@ -46,8 +60,8 @@ export type GridLayout = Map<LocalDate, Map<string, GridBlock[]>>;
 
 /**
  * Splits `intervals` into one block per day of `days`, a run of consecutive
- * dates, oldest first. Days are counted in `timeZone`. Every block starts in
- * lane 0 of 1.
+ * dates, oldest first. Days are counted in `timeZone`. Every block starts as
+ * one full-width segment.
  */
 export function splitByDay(
   intervals: readonly TimelineInterval[],
@@ -87,6 +101,8 @@ export function splitByDay(
       const pieceStart = Math.max(start, dayStart);
       const pieceEnd = Math.min(end, dayEnd);
       const length = dayEnd - dayStart;
+      const top = (pieceStart - dayStart) / length;
+      const height = (pieceEnd - pieceStart) / length;
       blocks.push({
         interval,
         day,
@@ -95,10 +111,9 @@ export function splitByDay(
         ongoing: interval.endAt === null && end <= dayEnd,
         startsBefore: start < dayStart,
         endsAfter: end > dayEnd,
-        top: (pieceStart - dayStart) / length,
-        height: (pieceEnd - pieceStart) / length,
-        lane: 0,
-        laneCount: 1,
+        top,
+        height,
+        segments: [{ top, height, lane: 0, lanes: 1 }],
       });
     }
   }
@@ -106,39 +121,69 @@ export function splitByDay(
 }
 
 /**
- * Gives overlapping blocks side-by-side lanes. Each block takes the first lane
- * that is free when it starts. A block's `laneCount` is the number of lanes in
- * its overlap cluster, so a block that overlaps nothing keeps the full width.
- * Returns new blocks ordered by start.
+ * Fits overlapping blocks together like tetris pieces, so the column is always
+ * full. Time is cut at every start and end. In each stretch, the blocks active
+ * then split the width equally, in start order. If A overlaps the start of B,
+ * A is full width, then A and B are half each, then B is full width. Returns
+ * new blocks ordered by start.
  */
-export function assignLanes(blocks: readonly GridBlock[]): GridBlock[] {
-  const sorted = [...blocks].sort((a, b) => a.start - b.start || a.end - b.end);
-  const result: GridBlock[] = [];
-  let cluster: GridBlock[] = [];
-  let laneEnds: Instant[] = [];
-  let clusterEnd = -Infinity;
+/** A segment while it is being built, in instants rather than fractions. */
+interface Stretch {
+  from: Instant;
+  to: Instant;
+  lane: number;
+  lanes: number;
+}
 
-  const closeCluster = () => {
-    for (const block of cluster) result.push({ ...block, laneCount: laneEnds.length });
-    cluster = [];
-    laneEnds = [];
-  };
+export function fitSegments(blocks: readonly GridBlock[]): GridBlock[] {
+  const sorted = [...blocks].sort(
+    (a, b) => a.start - b.start || a.end - b.end || (a.interval.id < b.interval.id ? -1 : 1),
+  );
+  const cuts = [...new Set(sorted.flatMap((b) => [b.start, b.end]))].sort((a, b) => a - b);
+  const pieces = new Map<GridBlock, Stretch[]>(sorted.map((b) => [b, []]));
 
-  for (const block of sorted) {
-    if (block.start >= clusterEnd) closeCluster();
-    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= block.start);
-    if (lane === -1) lane = laneEnds.push(block.end) - 1;
-    else laneEnds[lane] = block.end;
-    cluster.push({ ...block, lane });
-    clusterEnd = Math.max(clusterEnd, block.end);
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const from = cuts[i] as Instant;
+    const to = cuts[i + 1] as Instant;
+    const active = sorted.filter((b) => b.start <= from && b.end >= to);
+    active.forEach((b, lane) => {
+      const own = pieces.get(b) as Stretch[];
+      const previous = own.at(-1);
+      // Stretches with the same slot join into one segment.
+      if (previous && previous.lane === lane && previous.lanes === active.length) {
+        previous.to = to;
+      } else {
+        own.push({ from, to, lane, lanes: active.length });
+      }
+    });
   }
-  closeCluster();
-  return result;
+  // A zero-length block covers no stretch. It takes a slot among the blocks
+  // running at its instant.
+  for (const b of sorted) {
+    if (b.start !== b.end) continue;
+    const active = sorted.filter((o) => o === b || (o.start <= b.start && b.start < o.end));
+    pieces
+      .get(b)
+      ?.push({ from: b.start, to: b.end, lane: active.indexOf(b), lanes: active.length });
+  }
+
+  return sorted.map((b) => {
+    // Map instants to fractions of the day along the block itself.
+    const span = b.end - b.start;
+    const at = (t: Instant) => (span === 0 ? b.top : b.top + ((t - b.start) / span) * b.height);
+    const segments = (pieces.get(b) ?? []).map(({ from, to, lane, lanes }) => ({
+      top: at(from),
+      height: at(to) - at(from),
+      lane,
+      lanes,
+    }));
+    return { ...b, segments };
+  });
 }
 
 /**
- * The whole grid: blocks by day and timeline. Lanes are only used on
- * non-exclusive timelines, because intervals on an exclusive one never overlap.
+ * The whole grid: blocks by day and timeline. Blocks are only fitted together
+ * on non-exclusive timelines, because intervals on an exclusive one never overlap.
  */
 export function layoutGrid(
   intervals: readonly TimelineInterval[],
@@ -156,7 +201,7 @@ export function layoutGrid(
   const exclusive = new Map(timelines.map((t) => [t.id, t.exclusive]));
   for (const byTimeline of layout.values()) {
     for (const [timelineId, blocks] of byTimeline) {
-      if (exclusive.get(timelineId) === false) byTimeline.set(timelineId, assignLanes(blocks));
+      if (exclusive.get(timelineId) === false) byTimeline.set(timelineId, fitSegments(blocks));
     }
   }
   return layout;
