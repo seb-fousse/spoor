@@ -96,8 +96,9 @@
   }
 }
 
-/* At the right edge, the arrows' divider goes on their left, against Today. */
-.endArrows {
+/* At the right edge, the arrows' divider goes on their left, against Today.
+   Scoped under .bar so it outranks ArrowButtons' own border, whatever the CSS order. */
+.bar .endArrows {
   border-right: 0;
   border-left: 1px solid var(--app-border);
 }

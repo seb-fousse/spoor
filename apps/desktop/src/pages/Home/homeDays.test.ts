@@ -181,3 +181,18 @@ describe("isAtToday", () => {
     expect(isAtToday(state, TODAY)).toBe(true);
   });
 });
+
+describe("rollover", () => {
+  const TOMORROW = "2026-11-10";
+
+  it("follows the new day when the user was on today", () => {
+    const state = run(initialHomeDays(TODAY), { type: "rollover", from: TODAY, to: TOMORROW });
+    expect(state).toEqual({ activeDay: TOMORROW, windowEnd: TOMORROW, range: "5days" });
+  });
+
+  it("leaves a user who was looking at another day where they are", () => {
+    const before = run(initialHomeDays(TODAY), { type: "stepActive", by: -2 });
+    const after = run(before, { type: "rollover", from: TODAY, to: TOMORROW });
+    expect(after).toBe(before);
+  });
+});

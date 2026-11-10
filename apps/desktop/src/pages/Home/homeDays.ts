@@ -34,7 +34,9 @@ export type HomeDaysAction =
   /** Make `day` the active day, moving the window only if it is not visible. */
   | { type: "select"; day: LocalDate }
   /** Show `range` days, keeping the window's end unless the active day would drop out. */
-  | { type: "setRange"; range: DayRange };
+  | { type: "setRange"; range: DayRange }
+  /** The date changed (midnight passed): follow it if the user was on the old today. */
+  | { type: "rollover"; from: LocalDate; to: LocalDate };
 
 export function rangeLength(range: DayRange): number {
   const found = RANGES.find((r) => r.value === range);
@@ -79,6 +81,11 @@ export function homeDaysReducer(state: HomeDays, action: HomeDaysAction): HomeDa
       // Shrinking can leave the active day behind; re-anchor on it.
       return isVisible(next, state.activeDay) ? next : { ...next, windowEnd: state.activeDay };
     }
+    case "rollover":
+      // Someone looking at another day keeps it; only "today" moves on.
+      return isAtToday(state, action.from)
+        ? { ...state, activeDay: action.to, windowEnd: action.to }
+        : state;
   }
 }
 
@@ -109,35 +116,34 @@ function isVisible(state: HomeDays, day: LocalDate): boolean {
 }
 
 // A LocalDate parses as UTC midnight, so formatting in UTC gives back the same date.
-const UTC = { timeZone: "UTC" } as const;
+const FORMATS = {
+  day: { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" },
+  range: { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
+
+// Building a formatter is far slower than using one, and Home formats on every render.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(format: keyof typeof FORMATS, locale?: string): Intl.DateTimeFormat {
+  const key = `${format}|${locale ?? ""}`;
+  let found = formatters.get(key);
+  if (!found) {
+    found = new Intl.DateTimeFormat(locale, FORMATS[format]);
+    formatters.set(key, found);
+  }
+  return found;
+}
 
 /** `date` with a short weekday, such as "Mon, 9 Nov 2026". */
 export function formatDay(date: LocalDate, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    ...UTC,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(Date.parse(date));
+  return formatter("day", locale).format(Date.parse(date));
 }
 
 /** The window as a compact label, such as "5 – 9 Nov 2026" or "Mon, 9 Nov 2026". */
 export function formatWindow(state: HomeDays, locale?: string): string {
-  const end = Date.parse(state.windowEnd);
-  if (state.range === "day") {
-    return new Intl.DateTimeFormat(locale, {
-      ...UTC,
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    }).format(end);
-  }
-  return new Intl.DateTimeFormat(locale, {
-    ...UTC,
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).formatRange(Date.parse(windowStart(state)), end);
+  if (state.range === "day") return formatDay(state.windowEnd, locale);
+  return formatter("range", locale).formatRange(
+    Date.parse(windowStart(state)),
+    Date.parse(state.windowEnd),
+  );
 }

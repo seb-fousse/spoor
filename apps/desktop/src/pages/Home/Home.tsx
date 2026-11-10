@@ -1,7 +1,7 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useToday } from "@hooks/useToday";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
-import { useReducer } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
 import { RailHeader } from "./RailHeader";
@@ -16,6 +16,14 @@ import { TimelineToolbar } from "./TimelineToolbar";
 export function Home() {
   const today = useToday();
   const [days, dispatch] = useReducer(homeDaysReducer, today, initialHomeDays);
+
+  // When midnight passes, move to the new today if the user was on the old one.
+  const previousToday = useRef(today);
+  useEffect(() => {
+    if (previousToday.current === today) return;
+    dispatch({ type: "rollover", from: previousToday.current, to: today });
+    previousToday.current = today;
+  }, [today]);
   const activeLabel = formatDay(days.activeDay);
 
   return (
