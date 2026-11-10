@@ -27,6 +27,7 @@ import { MultiSelectTheme } from "./MultiSelect/MultiSelect";
 import { NativeSelectTheme } from "./NativeSelect/NativeSelect";
 import { NumberInputTheme } from "./NumberInput/NumberInput";
 import { SelectTheme } from "./Select/Select";
+import { SplitterTheme } from "./Splitter/Splitter";
 import { TabsTheme } from "./Tabs/Tabs";
 import { TextInputTheme } from "./TextInput/TextInput";
 import { TooltipTheme } from "./Tooltip/Tooltip";
@@ -45,6 +46,7 @@ export const components = {
   NativeSelect: NativeSelectTheme,
   NumberInput: NumberInputTheme,
   Select: SelectTheme,
+  Splitter: SplitterTheme,
   Tabs: TabsTheme,
   TextInput: TextInputTheme,
   Tooltip: TooltipTheme,

@@ -1,15 +1,40 @@
-import { Stack, Text, Title } from "@mantine/core";
+import { FluidSplitter } from "@components/FluidSplitter";
+import { Splitter, Stack, Text, Title } from "@mantine/core";
 
-/** Placeholder Home page: it will show today's timelines, logs and metrics. */
+/**
+ * Home: a timeline on the left (70%) and a side column on the right (at least
+ * 30%), split evenly between the day's observations above and an entry point
+ * for adding logs below. All placeholders for now.
+ */
 export function Home() {
   return (
-    <Stack gap="xs">
-      <Title order={2}>Home</Title>
-      <Text c="dimmed">Your timelines, logs and metrics at a glance will live here.</Text>
-      <Text c="dimmed" size="sm">
-        Early development — this is a scaffold, not a usable app yet. Your data stays on your
-        device.
-      </Text>
-    </Stack>
+    // Fill the whole area above the bottom bar.
+    <FluidSplitter h="calc(100dvh - var(--app-shell-footer-height))">
+      <Splitter.Pane defaultSize={70} max={70}>
+        <Stack gap="xs" p="md">
+          <Title order={2}>Timeline</Title>
+          <Text c="dimmed">Today's timeline will live here.</Text>
+        </Stack>
+      </Splitter.Pane>
+
+      <Splitter.Pane defaultSize={30} min={30}>
+        {/* Observations above, logs below, split evenly. */}
+        <FluidSplitter orientation="vertical" h="100%">
+          <Splitter.Pane defaultSize={50}>
+            <Stack gap="xs" p="md">
+              <Title order={3}>Observations</Title>
+              <Text c="dimmed">Today's observations will live here.</Text>
+            </Stack>
+          </Splitter.Pane>
+
+          <Splitter.Pane defaultSize={50}>
+            <Stack gap="xs" p="md">
+              <Title order={3}>Add log</Title>
+              <Text c="dimmed">The entry point for adding a log will live here.</Text>
+            </Stack>
+          </Splitter.Pane>
+        </FluidSplitter>
+      </Splitter.Pane>
+    </FluidSplitter>
   );
 }

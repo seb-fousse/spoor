@@ -4,21 +4,19 @@ import type { MantineColorsTuple } from "@mantine/core";
  * The app's color palettes: ten shades each, lightest first, as Mantine
  * expects. They drive `primaryColor` and the `color` prop on components.
  *
- * `brand` copies Mantine's blue for now so the app looks the same as it did.
- * Replace it with ten shades generated from the brand color
- * (https://mantine.dev/colors-generator/).
+ * `brand` is a cyanotype / blueprint blue.
  */
 export const brand: MantineColorsTuple = [
-  "#e7f5ff",
-  "#d0ebff",
-  "#a5d8ff",
-  "#74c0fc",
-  "#4dabf7",
-  "#339af0",
-  "#228be6",
-  "#1c7ed6",
-  "#1971c2",
-  "#1864ab",
+  "#e8f1ff",
+  "#d0e2fb",
+  "#a3c5f5",
+  "#72a6ef",
+  "#4a8bea",
+  "#2f78e6",
+  "#1f6ae0",
+  "#1259c9",
+  "#0b4ca8",
+  "#053f8f",
 ];
 
 export const colors = { brand };

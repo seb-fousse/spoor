@@ -19,9 +19,9 @@ export { cssVariablesResolver } from "./tokens";
 export const theme = createTheme({
   colors,
   primaryColor: "brand",
-  defaultRadius: "md",
+  defaultRadius: "xs",
   fontFamily: fonts.sans,
   fontFamilyMonospace: fonts.mono,
-  headings: { fontFamily: fonts.sans, fontWeight: "600" },
+  headings: { fontFamily: fonts.mono, fontWeight: "600" },
   components,
 });
