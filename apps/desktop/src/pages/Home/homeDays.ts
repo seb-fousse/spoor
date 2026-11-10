@@ -118,6 +118,7 @@ function isVisible(state: HomeDays, day: LocalDate): boolean {
 // A LocalDate parses as UTC midnight, so formatting in UTC gives back the same date.
 const FORMATS = {
   day: { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" },
+  short: { timeZone: "UTC", weekday: "short", day: "numeric" },
   range: { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" },
 } satisfies Record<string, Intl.DateTimeFormatOptions>;
 
@@ -137,6 +138,11 @@ function formatter(format: keyof typeof FORMATS, locale?: string): Intl.DateTime
 /** `date` with a short weekday, such as "Mon, 9 Nov 2026". */
 export function formatDay(date: LocalDate, locale?: string): string {
   return formatter("day", locale).format(Date.parse(date));
+}
+
+/** `date` as a weekday and day of the month, such as "Mon 9", for column headers. */
+export function formatShortDay(date: LocalDate, locale?: string): string {
+  return formatter("short", locale).format(Date.parse(date));
 }
 
 /** The window as a compact label, such as "5 – 9 Nov 2026" or "Mon, 9 Nov 2026". */

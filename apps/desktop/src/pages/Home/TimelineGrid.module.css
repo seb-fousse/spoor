@@ -1,0 +1,211 @@
+/*
+ * The timeline grid: an hour gutter, then one column per day, each split into
+ * one sub-column per timeline. The header and the body share one column
+ * template, so they always line up.
+ */
+.scroller {
+  --gutter: 3.5rem;
+  --columns: var(--gutter) repeat(var(--days), minmax(0, 1fr));
+  --hour-line: color-mix(in srgb, var(--app-border) 45%, transparent);
+
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Loading and empty states fill the pane. */
+.state {
+  flex: 1;
+  padding: var(--mantine-spacing-md);
+  text-align: center;
+}
+
+/* Two tiers: the day, then the timeline names. Stays put while the hours scroll. */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: var(--columns);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+  font-family: var(--app-font-mono);
+}
+
+.corner {
+  border-right: 1px solid var(--app-border);
+}
+
+.dayHead {
+  min-width: 0;
+}
+
+.dayHead + .dayHead {
+  border-left: 1px solid var(--app-border);
+}
+
+.dayLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--app-border);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--app-text);
+}
+
+.dayHead[data-today] .dayLabel {
+  color: var(--app-accent);
+  font-weight: 700;
+}
+
+.timelineNames {
+  display: grid;
+  grid-template-columns: repeat(var(--timelines), minmax(0, 1fr));
+}
+
+.timelineName {
+  height: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 24px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text-muted);
+}
+
+.timelineName + .timelineName {
+  border-left: 1px dashed var(--hour-line);
+}
+
+/* The 24 hours. */
+.body {
+  display: grid;
+  grid-template-columns: var(--columns);
+  height: calc(24 * var(--hour-height));
+}
+
+.gutter {
+  border-right: 1px solid var(--app-border);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  color: var(--app-text-muted);
+}
+
+.hour {
+  position: relative;
+  height: var(--hour-height);
+}
+
+/* Each label sits centred on the line at the top of its hour. */
+.hour > span {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  transform: translateY(-50%);
+}
+
+/* A day column, with a hairline at every hour. */
+.day {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--timelines), minmax(0, 1fr));
+  min-width: 0;
+  background-image: linear-gradient(to bottom, var(--hour-line) 1px, transparent 1px);
+  background-size: 100% var(--hour-height);
+}
+
+.day + .day {
+  border-left: 1px solid var(--app-border);
+}
+
+.day[data-today] {
+  background-color: color-mix(in srgb, var(--app-accent) 5%, transparent);
+}
+
+.subColumn {
+  position: relative;
+  min-width: 0;
+}
+
+.subColumn + .subColumn {
+  border-left: 1px dashed var(--hour-line);
+}
+
+/*
+ * An interval's piece of the day. Its offset, length and lane come in as
+ * unitless custom properties: fractions of the day, and a lane out of
+ * `--lanes`.
+ */
+.block {
+  position: absolute;
+  top: calc(var(--top) * 100%);
+  left: calc(var(--lane) * 100% / var(--lanes) + 1px);
+  box-sizing: border-box;
+  width: calc(100% / var(--lanes) - 2px);
+  height: calc(var(--height) * 100%);
+  min-height: 3px;
+  padding: 2px 4px;
+  overflow: hidden;
+  border-left: 3px solid var(--block-accent);
+  border-radius: var(--mantine-radius-xs);
+  background: var(--block-bg);
+  color: var(--block-fg);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+/* Square the edges where the interval carries on past the day. */
+.block[data-starts-before] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.block[data-ends-after] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Still going: an open, dashed end at now. */
+.block[data-ongoing] {
+  border-bottom: 2px dashed var(--block-accent);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.blockLabel {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Now, across all of today's sub-columns. */
+.nowLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 0;
+  border-top: 2px solid var(--app-accent);
+  pointer-events: none;
+}
+
+.nowLine::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--app-accent);
+}

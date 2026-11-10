@@ -21,7 +21,7 @@ const migrated = migrate(db);
 function Page({ route, db }: { route: RouteId; db: Database }) {
   switch (route) {
     case "home":
-      return <Home />;
+      return <Home db={db} />;
     case "analytics":
       return <Analytics />;
     case "timelines":
