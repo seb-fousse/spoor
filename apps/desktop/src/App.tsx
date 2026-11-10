@@ -1,15 +1,6 @@
+import { BottomBar } from "@components/BottomBar";
 import { useHistoryRoute } from "@hooks/useHistoryRoute";
-import {
-  ActionIcon,
-  Alert,
-  AppShell,
-  Center,
-  Group,
-  Loader,
-  Tabs,
-  Title,
-  Tooltip,
-} from "@mantine/core";
+import { Alert, AppShell, Center, Loader } from "@mantine/core";
 import { Analytics } from "@pages/Analytics";
 import { Home } from "@pages/Home";
 import { Logs } from "@pages/Logs";
@@ -18,7 +9,7 @@ import { Settings } from "@pages/Settings";
 import { Things } from "@pages/Things";
 import { Timelines } from "@pages/Timelines";
 import { createTauriDatabase } from "@platform/database";
-import { type RouteId, routes } from "@routes";
+import type { RouteId } from "@routes";
 import { type Database, migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 
@@ -56,33 +47,7 @@ function App() {
   }, []);
 
   return (
-    <AppShell header={{ height: 56 }} padding="md">
-      <AppShell.Header px="md">
-        <Group h="100%" gap="xs">
-          <Tooltip label="Back">
-            <ActionIcon
-              aria-label="Back"
-              disabled={!canGoBack}
-              onClick={() => window.history.back()}
-            >
-              ‹
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Forward">
-            <ActionIcon
-              aria-label="Forward"
-              disabled={!canGoForward}
-              onClick={() => window.history.forward()}
-            >
-              ›
-            </ActionIcon>
-          </Tooltip>
-          <Title order={3} ml="xs">
-            Spoor
-          </Title>
-        </Group>
-      </AppShell.Header>
-
+    <AppShell footer={{ height: 44 }} padding="md">
       <AppShell.Main>
         {status === "ready" ? (
           <Page route={route} db={db} />
@@ -98,15 +63,12 @@ function App() {
       </AppShell.Main>
 
       <AppShell.Footer>
-        <Tabs inverted value={route} onChange={(value) => value && navigate(value as RouteId)}>
-          <Tabs.List justify="flex-start">
-            {routes.map(({ id, label }) => (
-              <Tabs.Tab key={id} value={id}>
-                {label}
-              </Tabs.Tab>
-            ))}
-          </Tabs.List>
-        </Tabs>
+        <BottomBar
+          route={route}
+          navigate={navigate}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+        />
       </AppShell.Footer>
     </AppShell>
   );

@@ -1,0 +1,39 @@
+.bar {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+.history {
+  border-right: 1px solid var(--app-border);
+}
+
+.historyButton {
+  height: 100%;
+  width: 44px;
+  border-radius: 0;
+  font-family: var(--app-font-mono);
+  font-size: 20px;
+  color: var(--app-text);
+  background: transparent;
+
+  &:hover:where(:not(:disabled, [data-disabled])) {
+    background: var(--app-surface-hover);
+  }
+
+  /* Mute only the arrow, like an unselected tab; keep the background. */
+  &:where(:disabled, [data-disabled]) {
+    background: transparent;
+    color: var(--app-text-muted);
+    opacity: 0.5;
+  }
+
+  &:where(:not(:last-child)) {
+    border-right: 1px solid var(--app-border);
+  }
+}
+
+.tabs {
+  flex: 1;
+  min-width: 0;
+}

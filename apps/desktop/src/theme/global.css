@@ -3,7 +3,12 @@
  * (see main.tsx); this file is unlayered, so its rules always win.
  */
 body {
-  background: var(--app-surface);
+  background-color: var(--app-surface);
+  /* Faint drafting grid. */
+  background-image:
+    linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
   color: var(--app-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
