@@ -12,7 +12,7 @@ import {
   RANGES,
 } from "./homeDays";
 
-interface TimelineToolbarProps {
+interface LeftHeaderProps {
   days: HomeDays;
   today: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
@@ -20,16 +20,16 @@ interface TimelineToolbarProps {
 
 /**
  * Above the timeline: the visible days and how many to show on the left; on
- * the right, back to today (resetting the rail's day too) and the arrows that
+ * the right, back to today (resetting the right header's day too) and the arrows that
  * page the days.
  */
-export function TimelineToolbar({ days, today, dispatch }: TimelineToolbarProps) {
+export function LeftHeader({ days, today, dispatch }: LeftHeaderProps) {
   const atToday = isAtToday(days, today);
 
   return (
-    <div className={classes.toolbar}>
+    <div className={classes.leftHeader}>
       <div className={classes.bar}>
-        <div className={`${classes.label} ${classes.fixedLabel}`} aria-live="polite">
+        <div className={`${classes.label} ${classes.leftLabel}`} aria-live="polite">
           <span>{formatWindow(days)}</span>
         </div>
 

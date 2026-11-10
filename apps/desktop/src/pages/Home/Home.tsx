@@ -4,8 +4,8 @@ import { Splitter, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useReducer, useRef } from "react";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
-import { RailHeader } from "./RailHeader";
-import { TimelineToolbar } from "./TimelineToolbar";
+import { LeftHeader } from "./LeftHeader";
+import { RightHeader } from "./RightHeader";
 
 /**
  * Home: a timeline on the left (70%) and a rail for the active day on the
@@ -31,7 +31,7 @@ export function Home() {
     <FluidSplitter h="calc(100dvh - var(--app-shell-footer-height))">
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
-          <TimelineToolbar days={days} today={today} dispatch={dispatch} />
+          <LeftHeader days={days} today={today} dispatch={dispatch} />
           <Stack gap="xs" p="md">
             <Title order={2}>Timeline</Title>
             <Text c="dimmed">The timeline for {windowDays(days).join(", ")} will live here.</Text>
@@ -41,7 +41,7 @@ export function Home() {
 
       <Splitter.Pane defaultSize={30} min={30}>
         <div className={classes.column}>
-          <RailHeader activeDay={days.activeDay} dispatch={dispatch} />
+          <RightHeader activeDay={days.activeDay} dispatch={dispatch} />
 
           {/* Observations above, logs below, split evenly. */}
           <div className={classes.fill}>

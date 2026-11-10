@@ -13,8 +13,9 @@
 
 /*
  * Header bars, in the bottom bar's blueprint style: hairline dividers, mono
- * labels. The timeline's reads date · range toggle ··· Today · ‹ ›; the
- * rail's reads date ··· ‹ ›. Every item is one 44px row; a narrow pane wraps the bar onto two.
+ * labels. The left header reads date · range toggle ··· Today · ‹ ›; the
+ * right header reads date ··· ‹ ›. Every item is one 44px row; a narrow pane
+ * wraps the bar onto two.
  */
 .bar {
   display: flex;
@@ -43,8 +44,8 @@
   white-space: nowrap;
 }
 
-/* One width whatever the dates say, so the range toggle after it never shifts. */
-.fixedLabel {
+/* The left header's date: one width whatever it says, so the range toggle after it never shifts. */
+.leftLabel {
   box-sizing: content-box;
   width: 18ch;
   justify-content: center;
@@ -104,10 +105,10 @@
 }
 
 /*
- * The rail's date: like the timeline's, one width whatever it says, centered,
- * with an edge on its right.
+ * The right header's date: like the left header's, one width whatever it
+ * says, centered, with an edge on its right.
  */
-.railLabel {
+.rightLabel {
   box-sizing: content-box;
   width: 18ch;
   justify-content: center;
@@ -129,28 +130,28 @@
 }
 
 /*
- * When the timeline pane is too narrow for one row, the date takes a full row
- * of its own on top and the controls share the row below, as in the rail.
+ * When the left pane is too narrow for one row, the date takes a full row of
+ * its own on top and the controls share the row below.
  */
-.toolbar {
+.leftHeader {
   container-type: inline-size;
   flex-shrink: 0;
 }
 
 @container (max-width: 560px) {
-  .toolbar .label {
+  .leftHeader .label {
     order: -1;
     flex-basis: 100%;
     border-bottom: 1px solid var(--app-border);
   }
 
   /* With the date moved up, the toggle starts the row at the pane's edge. */
-  .toolbar .ranges {
+  .leftHeader .ranges {
     border-left: 0;
   }
 
   /* Tighter options, so toggle, Today and arrows still share one row. */
-  .toolbar .ranges label {
+  .leftHeader .ranges label {
     padding-inline: var(--mantine-spacing-xs);
   }
 }

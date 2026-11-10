@@ -4,16 +4,16 @@ import type { Dispatch } from "react";
 import classes from "./Home.module.css";
 import { formatDay, type HomeDaysAction } from "./homeDays";
 
-interface RailHeaderProps {
+interface RightHeaderProps {
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
 }
 
-/** Above the rail: the active day, and arrows at the right edge to step it a day at a time. */
-export function RailHeader({ activeDay, dispatch }: RailHeaderProps) {
+/** Above the right pane (the rail): the active day, and arrows at the right edge to step it a day at a time. */
+export function RightHeader({ activeDay, dispatch }: RightHeaderProps) {
   return (
     <div className={classes.bar}>
-      <div className={`${classes.label} ${classes.railLabel}`} aria-live="polite">
+      <div className={`${classes.label} ${classes.rightLabel}`} aria-live="polite">
         <span>{formatDay(activeDay)}</span>
       </div>
 
