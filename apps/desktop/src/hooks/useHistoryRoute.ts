@@ -1,6 +1,6 @@
 import { useWindowEvent } from "@mantine/hooks";
+import { parseRoute, type RouteId } from "@routes";
 import { useState } from "react";
-import { parseRoute, type RouteId } from "./routes";
 
 // The History API can't say whether there is somewhere to go back or forward
 // to, so each entry we push records its position in `history.state`. The

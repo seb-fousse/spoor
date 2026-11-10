@@ -1,3 +1,4 @@
+import { useHistoryRoute } from "@hooks/useHistoryRoute";
 import {
   ActionIcon,
   Alert,
@@ -9,18 +10,17 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
+import { Analytics } from "@pages/Analytics";
+import { Home } from "@pages/Home";
+import { Logs } from "@pages/Logs";
+import { Observations } from "@pages/Observations";
+import { Settings } from "@pages/Settings";
+import { Things } from "@pages/Things";
+import { Timelines } from "@pages/Timelines";
+import { createTauriDatabase } from "@platform/database";
+import { type RouteId, routes } from "@routes";
 import { type Database, migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
-import { Logs } from "./Logs";
-import { Observations } from "./Observations";
-import { Analytics } from "./pages/Analytics";
-import { Home } from "./pages/Home";
-import { Settings } from "./pages/Settings";
-import { createTauriDatabase } from "./platform/database";
-import { type RouteId, routes } from "./routes";
-import { Things } from "./Things";
-import { Timelines } from "./Timelines";
-import { useHistoryRoute } from "./useHistoryRoute";
 
 const db = createTauriDatabase();
 // Started once at module load, not in the effect: StrictMode runs effects
