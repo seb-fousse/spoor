@@ -1,11 +1,11 @@
 import { ActionIcon, Kbd, Tooltip } from "@mantine/core";
-import type { ReactElement } from "react";
+import { Fragment, type ReactElement } from "react";
 import classes from "./ArrowButtons.module.css";
 
 /** A keyboard shortcut that does what a button does. */
 export interface Shortcut {
-  /** As shown in the tooltip, such as "⌥←". */
-  label: string;
+  /** The keys as shown in the tooltip, one `Kbd` each, such as ["⌥", "←"]. */
+  keys: string[];
   /** In `aria-keyshortcuts` form, such as "Alt+ArrowLeft". */
   ariaKeys: string;
 }
@@ -80,7 +80,17 @@ function WithShortcut({
   if (!shortcut) return children;
   return (
     <Tooltip
-      label={<Kbd>{shortcut.label}</Kbd>}
+      label={
+        // One key per Kbd, joined with "+"; kept left-to-right whatever the page's direction.
+        <span dir="ltr">
+          {shortcut.keys.map((key, i) => (
+            <Fragment key={key}>
+              {i > 0 && " + "}
+              <Kbd>{key}</Kbd>
+            </Fragment>
+          ))}
+        </span>
+      }
       position="bottom"
       withArrow={false}
       openDelay={250}

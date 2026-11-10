@@ -48,22 +48,22 @@ describe("dayKeyAction", () => {
 
 describe("dayShortcut", () => {
   it.each([true, false])("is a bare arrow for stepping a day (mac: %s)", (mac) => {
-    expect(dayShortcut(-1, false, mac)).toEqual({ label: "←", ariaKeys: "ArrowLeft" });
-    expect(dayShortcut(1, false, mac)).toEqual({ label: "→", ariaKeys: "ArrowRight" });
+    expect(dayShortcut(-1, false, mac)).toEqual({ keys: ["←"], ariaKeys: "ArrowLeft" });
+    expect(dayShortcut(1, false, mac)).toEqual({ keys: ["→"], ariaKeys: "ArrowRight" });
   });
 
   it("uses Option for paging on macOS", () => {
-    expect(dayShortcut(-1, true, true)).toEqual({ label: "⌥←", ariaKeys: "Alt+ArrowLeft" });
-    expect(dayShortcut(1, true, true)).toEqual({ label: "⌥→", ariaKeys: "Alt+ArrowRight" });
+    expect(dayShortcut(-1, true, true)).toEqual({ keys: ["⌥", "←"], ariaKeys: "Alt+ArrowLeft" });
+    expect(dayShortcut(1, true, true)).toEqual({ keys: ["⌥", "→"], ariaKeys: "Alt+ArrowRight" });
   });
 
   it("uses Ctrl for paging elsewhere", () => {
     expect(dayShortcut(-1, true, false)).toEqual({
-      label: "Ctrl+←",
+      keys: ["Ctrl", "←"],
       ariaKeys: "Control+ArrowLeft",
     });
     expect(dayShortcut(1, true, false)).toEqual({
-      label: "Ctrl+→",
+      keys: ["Ctrl", "→"],
       ariaKeys: "Control+ArrowRight",
     });
   });

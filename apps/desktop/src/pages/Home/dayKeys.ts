@@ -24,22 +24,22 @@ export function dayKeyAction(event: DayKey, mac: boolean): HomeDaysAction | null
 }
 
 /**
- * The key that moves the active day by `by` (-1 or 1), or with `page` the key
- * that pages the window, written the platform's way: "⌥←" on macOS,
- * "Ctrl+←" elsewhere.
+ * The key that moves the active day by `by` (-1 or 1), or with `page` the keys
+ * that page the window, written the platform's way: ⌥ + ← on macOS,
+ * Ctrl + ← elsewhere.
  */
 export function dayShortcut(by: -1 | 1, page: boolean, mac: boolean): Shortcut {
   const arrow = by < 0 ? "←" : "→";
   const key = by < 0 ? "ArrowLeft" : "ArrowRight";
-  if (!page) return { label: arrow, ariaKeys: key };
+  if (!page) return { keys: [arrow], ariaKeys: key };
   return mac
-    ? { label: `⌥${arrow}`, ariaKeys: `Alt+${key}` }
-    : { label: `Ctrl+${arrow}`, ariaKeys: `Control+${key}` };
+    ? { keys: ["⌥", arrow], ariaKeys: `Alt+${key}` }
+    : { keys: ["Ctrl", arrow], ariaKeys: `Control+${key}` };
 }
 
 /** Whether this is macOS, where Alt rather than Ctrl jumps by a word. */
 export function isMac(): boolean {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  return typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 }
 
 /** Roles whose widgets use the arrow keys themselves (or sit in a dialog). */
