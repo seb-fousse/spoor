@@ -1,0 +1,155 @@
+/* Home's frame: a header bar on top of each side, the content below. */
+.column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.fill {
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * Header bars, in the bottom bar's blueprint style: hairline dividers, mono
+ * labels. The timeline's reads date · range toggle ··· Today · ‹ ›; the
+ * rail's reads date ··· ‹ ›. Every item is one 44px row; a narrow pane wraps the bar onto two.
+ */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  min-height: 44px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+}
+
+.bar > * {
+  height: 44px;
+}
+
+/* The date, sized to its text; truncates first when the bar is short of room. */
+.label {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--mantine-spacing-md);
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-sm);
+  white-space: nowrap;
+}
+
+/* One width whatever the dates say, so the range toggle after it never shifts. */
+.fixedLabel {
+  box-sizing: content-box;
+  width: 18ch;
+  justify-content: center;
+}
+
+.label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The timeline bar's right end: Today, as a full-height cell. */
+.end {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* The range toggle follows the date, as its own boxed group of cells. */
+.ranges {
+  flex-shrink: 0;
+  border-inline: 1px solid var(--app-border);
+}
+
+/* Back to today: an arrow and a mono word in a hairline cell, like a bottom-bar tab. */
+.today {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-shrink: 0;
+  padding: 0 var(--mantine-spacing-md);
+  border-left: 1px solid var(--app-border);
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-text);
+  background: transparent;
+
+  &:hover:where(:not(:disabled, [data-disabled])) {
+    background: var(--app-surface-hover);
+  }
+
+  /* Fade the word and icon only (not with opacity), so the divider keeps its color. */
+  &:where(:disabled, [data-disabled]) {
+    color: color-mix(in srgb, var(--app-text-muted) 50%, transparent);
+    cursor: default;
+  }
+}
+
+/* At the right edge, the arrows' divider goes on their left, against Today. */
+.endArrows {
+  border-right: 0;
+  border-left: 1px solid var(--app-border);
+}
+
+/*
+ * The rail's date: like the timeline's, one width whatever it says, centered,
+ * with an edge on its right.
+ */
+.railLabel {
+  box-sizing: content-box;
+  width: 18ch;
+  justify-content: center;
+  border-right: 1px solid var(--app-border);
+}
+
+/* Takes the bar's leftover space, so this item sits against the right edge. */
+.pushRight {
+  margin-left: auto;
+}
+
+.todayIcon {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  /* The path is drawn clockwise; mirror it so it turns counter-clockwise, then
+     turn it half a turn so the arrowhead sits at the top left. */
+  transform: scaleX(-1) rotate(180deg);
+}
+
+/*
+ * When the timeline pane is too narrow for one row, the date takes a full row
+ * of its own on top and the controls share the row below, as in the rail.
+ */
+.toolbar {
+  container-type: inline-size;
+  flex-shrink: 0;
+}
+
+@container (max-width: 560px) {
+  .toolbar .label {
+    order: -1;
+    flex-basis: 100%;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  /* With the date moved up, the toggle starts the row at the pane's edge. */
+  .toolbar .ranges {
+    border-left: 0;
+  }
+
+  /* Tighter options, so toggle, Today and arrows still share one row. */
+  .toolbar .ranges label {
+    padding-inline: var(--mantine-spacing-xs);
+  }
+}
