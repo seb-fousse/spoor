@@ -21,7 +21,6 @@ export const cssVariablesResolver: CSSVariablesResolver = (theme) => ({
     "--app-text-muted": "#76695a",
     "--app-accent": theme.colors[theme.primaryColor][6],
     // Mantine's own body color, so built-in components match our surface.
-    "--app-grid-line": "rgb(42 33 24 / 0.05)",
     "--mantine-color-body": "#f5f0e6",
   },
   dark: {
@@ -32,7 +31,6 @@ export const cssVariablesResolver: CSSVariablesResolver = (theme) => ({
     "--app-text": "#ece3d3",
     "--app-text-muted": "#a39683",
     "--app-accent": theme.colors[theme.primaryColor][4],
-    "--app-grid-line": "rgb(236 227 211 / 0.06)",
     "--mantine-color-body": "#1c1814",
   },
 });

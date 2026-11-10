@@ -1,0 +1,21 @@
+/* Class names match Splitter's Styles API selectors. */
+.handle {
+  background-color: var(--app-border);
+  transition: background-color 100ms ease;
+
+  /* The line is 1px wide; widen the grab area without changing its look. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline: -4px;
+  }
+
+  /* Same color as the selected tab's text. :active holds while dragging. */
+  &:hover,
+  &:active,
+  &:focus-visible {
+    background-color: var(--app-text);
+    transition-delay: 0.25s;
+  }
+}

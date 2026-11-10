@@ -1,6 +1,6 @@
 import { BottomBar } from "@components/BottomBar";
 import { useHistoryRoute } from "@hooks/useHistoryRoute";
-import { Alert, AppShell, Center, Loader } from "@mantine/core";
+import { Alert, AppShell, Box, Center, Loader } from "@mantine/core";
 import { Analytics } from "@pages/Analytics";
 import { Home } from "@pages/Home";
 import { Logs } from "@pages/Logs";
@@ -47,16 +47,19 @@ function App() {
   }, []);
 
   return (
-    <AppShell footer={{ height: 44 }} padding="md">
+    <AppShell footer={{ height: 44 }} padding={0}>
       <AppShell.Main>
         {status === "ready" ? (
-          <Page route={route} db={db} />
+          // Home fills the whole area edge to edge; other pages get padding.
+          <Box p={route === "home" ? 0 : "md"}>
+            <Page route={route} db={db} />
+          </Box>
         ) : status === "migrating" ? (
-          <Center>
+          <Center p="md">
             <Loader />
           </Center>
         ) : (
-          <Alert color="red" title="Could not open the database">
+          <Alert m="md" color="red" title="Could not open the database">
             {status}
           </Alert>
         )}
