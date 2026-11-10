@@ -1,8 +1,8 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useToday } from "@hooks/useToday";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
-import { type Database, getTimeZone } from "@spoor/core";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type Database, getTimeZone, type LocalDate } from "@spoor/core";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
@@ -44,6 +44,7 @@ export function Home({ db }: { db: Database }) {
   const activeLabel = formatDay(days.activeDay);
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
+  const selectDay = useCallback((day: LocalDate) => dispatch({ type: "select", day }), []);
 
   return (
     // Fill the whole area above the bottom bar.
@@ -51,7 +52,12 @@ export function Home({ db }: { db: Database }) {
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
           <LeftHeader days={days} today={today} dispatch={dispatch} />
-          <TimelineGrid db={db} days={visibleDays} />
+          <TimelineGrid
+            db={db}
+            days={visibleDays}
+            activeDay={days.activeDay}
+            onSelectDay={selectDay}
+          />
         </div>
       </Splitter.Pane>
 

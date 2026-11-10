@@ -30,14 +30,19 @@ interface TimelineGridProps {
   db: Database;
   /** The visible days, oldest first. */
   days: LocalDate[];
+  /** The day the rail shows, highlighted in the grid. Always one of `days`. */
+  activeDay: LocalDate;
+  /** Called when the user picks a day from its header or column. */
+  onSelectDay: (day: LocalDate) => void;
 }
 
 /**
- * Home's timeline grid, read-only. Each day is a column, each timeline a
- * sub-column, and there is one hour axis down the left. The two-tier header
- * (days, then timeline names) stays at the top while the hours scroll.
+ * Home's timeline grid. Each day is a column, each timeline a sub-column, and
+ * there is one hour axis down the left. The two-tier header (days, then
+ * timeline names) stays at the top while the hours scroll. The intervals are
+ * read-only; clicking a day's header or column makes it the active day.
  */
-export function TimelineGrid({ db, days }: TimelineGridProps) {
+export function TimelineGrid({ db, days, activeDay, onSelectDay }: TimelineGridProps) {
   const data = useGridData(db, days);
 
   if (data.status === "loading") {
@@ -64,6 +69,8 @@ export function TimelineGrid({ db, days }: TimelineGridProps) {
   return (
     <Grid
       days={days}
+      activeDay={activeDay}
+      onSelectDay={onSelectDay}
       timeZone={data.timeZone}
       timelines={data.timelines}
       categories={data.categories}
@@ -74,13 +81,23 @@ export function TimelineGrid({ db, days }: TimelineGridProps) {
 
 interface GridProps {
   days: LocalDate[];
+  activeDay: LocalDate;
+  onSelectDay: (day: LocalDate) => void;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   intervals: TimelineInterval[];
 }
 
-function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
+function Grid({
+  days,
+  activeDay,
+  onSelectDay,
+  timeZone,
+  timelines,
+  categories,
+  intervals,
+}: GridProps) {
   const now = useNow();
   const today = dayOf(now, timeZone);
   const layout = useMemo(
@@ -110,8 +127,21 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
       <div className={classes.header}>
         <div className={classes.corner} />
         {days.map((day) => (
-          <div key={day} className={classes.dayHead} data-today={day === today || undefined}>
-            <div className={classes.dayLabel}>{formatShortDay(day)}</div>
+          <div
+            key={day}
+            className={classes.dayHead}
+            data-today={day === today || undefined}
+            data-active={day === activeDay || undefined}
+          >
+            {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
+            <button
+              type="button"
+              className={classes.dayLabel}
+              aria-current={day === activeDay ? "date" : undefined}
+              onClick={() => onSelectDay(day)}
+            >
+              {formatShortDay(day)}
+            </button>
             <div className={classes.timelineNames}>
               {timelines.map((t) => (
                 <div key={t.id} className={classes.timelineName} title={t.name}>
@@ -141,6 +171,8 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
               categories={categories}
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
+              active={day === activeDay}
+              onSelect={() => onSelectDay(day)}
             />
           ))}
         </div>
@@ -156,11 +188,31 @@ interface DayColumnProps {
   timeZone: string;
   /** Where the now line goes, as a fraction of the day, or `null` when it is not today. */
   nowAt: number | null;
+  /** Whether this is the active day, which gets the accent outline. */
+  active: boolean;
+  /** Makes this the active day. */
+  onSelect: () => void;
 }
 
-function DayColumn({ blocks, timelines, categories, timeZone, nowAt }: DayColumnProps) {
+function DayColumn({
+  blocks,
+  timelines,
+  categories,
+  timeZone,
+  nowAt,
+  active,
+  onSelect,
+}: DayColumnProps) {
   return (
-    <div className={classes.day} data-today={nowAt !== null || undefined}>
+    // A mouse shortcut only: the day's header button is the keyboard way to select it.
+    // biome-ignore lint/a11y/noStaticElementInteractions: see above.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: see above.
+    <div
+      className={classes.day}
+      data-today={nowAt !== null || undefined}
+      data-active={active || undefined}
+      onClick={onSelect}
+    >
       {timelines.map((t) => (
         <div key={t.id} className={classes.subColumn}>
           {blocks?.get(t.id)?.map((block) => (
