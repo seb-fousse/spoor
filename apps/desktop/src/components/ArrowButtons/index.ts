@@ -1,1 +1,1 @@
-export { ArrowButtons, type Shortcut } from "./ArrowButtons";
+export { ArrowButtons } from "./ArrowButtons";
