@@ -8,7 +8,14 @@ import {
   type TimelineCategory,
   type TimelineInterval,
 } from "@spoor/core";
-import { type CSSProperties, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import {
   categoryColor,
   describeBlock,
@@ -34,15 +41,18 @@ interface TimelineGridProps {
   activeDay: LocalDate;
   /** Called when the user picks a day from its header or column. */
   onSelectDay: (day: LocalDate) => void;
+  /** Called with -1 or 1 when the user moves the active day with the arrow keys. */
+  onStepDay: (by: number) => void;
 }
 
 /**
  * Home's timeline grid. Each day is a column, each timeline a sub-column, and
  * there is one hour axis down the left. The two-tier header (days, then
  * timeline names) stays at the top while the hours scroll. The intervals are
- * read-only; clicking a day's header or column makes it the active day.
+ * read-only; clicking a day's header or column makes it the active day, and
+ * the left and right arrow keys move it while the day headers have focus.
  */
-export function TimelineGrid({ db, days, activeDay, onSelectDay }: TimelineGridProps) {
+export function TimelineGrid({ db, days, activeDay, onSelectDay, onStepDay }: TimelineGridProps) {
   const data = useGridData(db, days);
 
   if (data.status === "loading") {
@@ -71,6 +81,7 @@ export function TimelineGrid({ db, days, activeDay, onSelectDay }: TimelineGridP
       days={days}
       activeDay={activeDay}
       onSelectDay={onSelectDay}
+      onStepDay={onStepDay}
       timeZone={data.timeZone}
       timelines={data.timelines}
       categories={data.categories}
@@ -83,16 +94,21 @@ interface GridProps {
   days: LocalDate[];
   activeDay: LocalDate;
   onSelectDay: (day: LocalDate) => void;
+  onStepDay: (by: number) => void;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   intervals: TimelineInterval[];
 }
 
+/** The arrow keys that move the active day, and by how much. */
+const STEP_KEYS: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1 };
+
 function Grid({
   days,
   activeDay,
   onSelectDay,
+  onStepDay,
   timeZone,
   timelines,
   categories,
@@ -115,6 +131,39 @@ function Grid({
     scrollRef.current?.scrollTo({ top: initialTop.current });
   }, []);
 
+  // The day headers are one tab stop: only the active day's button is
+  // tabbable, and focus moves with the active day. An arrow key can push the
+  // window along, which replaces the focused button, so the new active day's
+  // button takes focus once it has rendered.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const focusDay = (day: LocalDate) =>
+    headerRef.current
+      ?.querySelector<HTMLButtonElement>(`button[data-day="${day}"]`)
+      ?.focus({ preventScroll: true });
+  const focusAfterStep = useRef(false);
+  useEffect(() => {
+    if (!focusAfterStep.current) return;
+    focusAfterStep.current = false;
+    focusDay(activeDay);
+  });
+
+  const onHeaderKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const by = STEP_KEYS[event.key];
+    if (by === undefined || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    focusAfterStep.current = true;
+    onStepDay(by);
+  };
+
+  // Clicking focuses the day's button, so the arrow keys work straight after.
+  // WebKit (the macOS webview) doesn't focus a button on click by itself.
+  const select = (day: LocalDate) => {
+    onSelectDay(day);
+    focusDay(day);
+  };
+
   const style = {
     "--days": days.length,
     "--timelines": timelines.length,
@@ -124,7 +173,7 @@ function Grid({
   return (
     <div className={classes.grid} style={style}>
       {/* Outside the scroller, so only the hours scroll. */}
-      <div className={classes.header}>
+      <div ref={headerRef} className={classes.header}>
         <div className={classes.corner} />
         {days.map((day) => (
           <div
@@ -137,8 +186,12 @@ function Grid({
             <button
               type="button"
               className={classes.dayLabel}
+              data-day={day}
+              tabIndex={day === activeDay ? 0 : -1}
               aria-current={day === activeDay ? "date" : undefined}
-              onClick={() => onSelectDay(day)}
+              aria-keyshortcuts="ArrowLeft ArrowRight"
+              onClick={() => select(day)}
+              onKeyDown={onHeaderKeyDown}
             >
               {formatShortDay(day)}
             </button>
@@ -172,7 +225,7 @@ function Grid({
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
               active={day === activeDay}
-              onSelect={() => onSelectDay(day)}
+              onSelect={() => select(day)}
             />
           ))}
         </div>

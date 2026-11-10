@@ -45,6 +45,7 @@ export function Home({ db }: { db: Database }) {
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
   const selectDay = useCallback((day: LocalDate) => dispatch({ type: "select", day }), []);
+  const stepDay = useCallback((by: number) => dispatch({ type: "stepActive", by }), []);
 
   return (
     // Fill the whole area above the bottom bar.
@@ -57,6 +58,7 @@ export function Home({ db }: { db: Database }) {
             days={visibleDays}
             activeDay={days.activeDay}
             onSelectDay={selectDay}
+            onStepDay={stepDay}
           />
         </div>
       </Splitter.Pane>
