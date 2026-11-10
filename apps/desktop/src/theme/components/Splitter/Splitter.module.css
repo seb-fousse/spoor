@@ -1,14 +1,27 @@
 /* Class names match Splitter's Styles API selectors. */
+
+/* Every pane on the same surface, which the fluid splitter's drag space matches too. */
+.pane {
+  background-color: var(--app-surface);
+}
+
 .handle {
   background-color: var(--app-border);
   transition: background-color 100ms ease;
 
-  /* The line is 1px wide; widen the grab area without changing its look. */
+  /* The line is 1px thick; widen the grab area without changing its look.
+     `aria-orientation` is the Splitter's: side by side ("horizontal", an
+     upright line) or stacked ("vertical", a flat line). */
   &::before {
     content: "";
     position: absolute;
     inset-block: 0;
     inset-inline: -4px;
+  }
+
+  &:where([aria-orientation="vertical"])::before {
+    inset-block: -4px;
+    inset-inline: 0;
   }
 
   /* Same color as the selected tab's text. :active holds while dragging. */

@@ -1,0 +1,54 @@
+.root {
+  position: relative;
+  /* Its own stacking context, so the z-indexes below stay inside this splitter.
+     Otherwise a nested FluidSplitter's divider (z-index 2) would rise above
+     this one's drag space (z-index 1) and show through it. */
+  isolation: isolate;
+}
+
+/* The drag space and the bent line, drawn over the panes while dragging. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* The drag space is filled with this dot-grid paper (its fill is set on the
+   element). Opaque, so pane content underneath never shows through. */
+.paper {
+  fill: var(--app-surface);
+}
+
+.dot {
+  fill: var(--app-border);
+}
+
+.curve {
+  fill: none;
+  /* Same as the highlighted straight line. */
+  stroke: var(--app-text);
+  stroke-width: 1px;
+}
+
+/* The straight divider stays visible, drawn above the drag space. `> * >`
+   picks this splitter's own dividers (children of its Splitter), not those of
+   a FluidSplitter nested in one of its panes. */
+.root > * > [role="separator"] {
+  z-index: 2;
+}
+
+.root[data-bending] > .overlay {
+  visibility: visible;
+}
+
+/* Keep the divider highlighted while it is still moving, through the settle
+   after release, not just while the button is held. No delay: it is already
+   lit from the drag. */
+.root[data-bending] > * > [role="separator"] {
+  background-color: var(--app-text);
+  transition-delay: 0s;
+}
