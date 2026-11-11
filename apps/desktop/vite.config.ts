@@ -16,6 +16,7 @@ export default defineConfig(() => ({
     alias: {
       "@components": src("components"),
       "@hooks": src("hooks"),
+      "@keyboard": src("keyboard"),
       "@pages": src("pages"),
       "@platform": src("platform"),
       "@routes": src("routes.ts"),

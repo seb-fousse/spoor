@@ -1,4 +1,5 @@
 import { useNow } from "@hooks/useNow";
+import { shortcutHandler } from "@keyboard";
 import { Alert, Center, Loader, Text } from "@mantine/core";
 import {
   type Database,
@@ -11,13 +12,12 @@ import {
 import {
   type CSSProperties,
   type Dispatch,
-  type KeyboardEvent,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
-import { dayKeyAction, isMac } from "./dayKeys";
+import { dayShortcuts } from "./dayShortcuts";
 import {
   categoryColor,
   describeBlock,
@@ -128,7 +128,7 @@ function Grid({
   // tabbable, and focus moves with the active day. A day key can push the
   // window along, which replaces the focused button, so the new active day's
   // button takes focus once it has rendered. Elsewhere on Home the same keys
-  // go to `useDayKeys`, which leaves alone the ones handled here.
+  // go to Home's `useShortcuts`, which leaves alone the ones handled here.
   const headerRef = useRef<HTMLDivElement>(null);
   const focusDay = (day: LocalDate) =>
     headerRef.current
@@ -141,13 +141,12 @@ function Grid({
     focusDay(activeDay);
   });
 
-  const onHeaderKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const action = dayKeyAction(event, isMac());
-    if (!action) return;
-    event.preventDefault();
-    focusAfterStep.current = true;
-    dispatch(action);
-  };
+  const onHeaderKeyDown = shortcutHandler(
+    dayShortcuts((action) => {
+      focusAfterStep.current = true;
+      dispatch(action);
+    }),
+  );
 
   // Clicking focuses the day's button, so the header keeps focus for the keys.
   // WebKit (the macOS webview) doesn't focus a button on click by itself.

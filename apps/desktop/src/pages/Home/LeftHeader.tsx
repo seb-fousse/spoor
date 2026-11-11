@@ -2,7 +2,6 @@ import { ArrowButtons } from "@components/ArrowButtons";
 import { SegmentedControl, UnstyledButton } from "@mantine/core";
 import type { LocalDate } from "@spoor/core";
 import type { Dispatch } from "react";
-import { dayShortcut, isMac } from "./dayKeys";
 import classes from "./Home.module.css";
 import {
   type DayRange,
@@ -26,7 +25,6 @@ interface LeftHeaderProps {
  */
 export function LeftHeader({ days, today, dispatch }: LeftHeaderProps) {
   const atToday = isAtToday(days, today);
-  const mac = isMac();
 
   return (
     <div className={classes.leftHeader}>
@@ -71,8 +69,8 @@ export function LeftHeader({ days, today, dispatch }: LeftHeaderProps) {
             forwardLabel="Later days"
             onBack={() => dispatch({ type: "pageWindow", by: -1 })}
             onForward={() => dispatch({ type: "pageWindow", by: 1 })}
-            backShortcut={dayShortcut(-1, true, mac)}
-            forwardShortcut={dayShortcut(1, true, mac)}
+            backShortcut="earlierDays"
+            forwardShortcut="laterDays"
           />
         </div>
       </div>

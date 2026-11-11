@@ -1,14 +1,6 @@
-import { ActionIcon, Kbd, Tooltip } from "@mantine/core";
-import { Fragment, type ReactElement } from "react";
+import { type ShortcutId, ShortcutTooltip } from "@keyboard";
+import { ActionIcon } from "@mantine/core";
 import classes from "./ArrowButtons.module.css";
-
-/** A keyboard shortcut that does what a button does. */
-export interface Shortcut {
-  /** The keys as shown in the tooltip, one `Kbd` each, such as ["⌥", "←"]. */
-  keys: string[];
-  /** In `aria-keyshortcuts` form, such as "Alt+ArrowLeft". */
-  ariaKeys: string;
-}
 
 interface ArrowButtonsProps {
   backLabel: string;
@@ -17,10 +9,10 @@ interface ArrowButtonsProps {
   onForward: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
-  /** Keys that do the same as ‹, shown in a tooltip under it. */
-  backShortcut?: Shortcut;
-  /** Keys that do the same as ›, shown in a tooltip under it. */
-  forwardShortcut?: Shortcut;
+  /** The shortcut that does the same as ‹, shown in a tooltip under it. */
+  backShortcut?: ShortcutId;
+  /** The shortcut that does the same as ›, shown in a tooltip under it. */
+  forwardShortcut?: ShortcutId;
   /** Extra class on the pair, such as to move its divider to the other side. */
   className?: string;
 }
@@ -43,59 +35,26 @@ export function ArrowButtons({
 }: ArrowButtonsProps) {
   return (
     <div className={className ? `${classes.root} ${className}` : classes.root}>
-      <WithShortcut shortcut={backShortcut}>
+      <ShortcutTooltip shortcut={backShortcut}>
         <ActionIcon
           aria-label={backLabel}
-          aria-keyshortcuts={backShortcut?.ariaKeys}
           className={classes.button}
           disabled={!canGoBack}
           onClick={onBack}
         >
           ‹
         </ActionIcon>
-      </WithShortcut>
-      <WithShortcut shortcut={forwardShortcut}>
+      </ShortcutTooltip>
+      <ShortcutTooltip shortcut={forwardShortcut}>
         <ActionIcon
           aria-label={forwardLabel}
-          aria-keyshortcuts={forwardShortcut?.ariaKeys}
           className={classes.button}
           disabled={!canGoForward}
           onClick={onForward}
         >
           ›
         </ActionIcon>
-      </WithShortcut>
+      </ShortcutTooltip>
     </div>
-  );
-}
-
-/** `children` with a tooltip under it showing `shortcut`, or as it is without one. */
-function WithShortcut({
-  shortcut,
-  children,
-}: {
-  shortcut: Shortcut | undefined;
-  children: ReactElement;
-}) {
-  if (!shortcut) return children;
-  return (
-    <Tooltip
-      label={
-        // One key per Kbd, joined with "+"; kept left-to-right whatever the page's direction.
-        <span dir="ltr">
-          {shortcut.keys.map((key, i) => (
-            <Fragment key={key}>
-              {i > 0 && " + "}
-              <Kbd>{key}</Kbd>
-            </Fragment>
-          ))}
-        </span>
-      }
-      position="bottom"
-      withArrow={false}
-      openDelay={250}
-    >
-      {children}
-    </Tooltip>
   );
 }

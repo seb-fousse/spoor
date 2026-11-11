@@ -1,14 +1,15 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useToday } from "@hooks/useToday";
+import { useShortcuts } from "@keyboard";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
 import { type Database, getTimeZone } from "@spoor/core";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { dayShortcuts } from "./dayShortcuts";
 import classes from "./Home.module.css";
 import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
-import { useDayKeys } from "./useDayKeys";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
@@ -46,7 +47,7 @@ export function Home({ db }: { db: Database }) {
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
   // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
-  useDayKeys(dispatch);
+  useShortcuts(dayShortcuts(dispatch));
 
   return (
     // Fill the whole area above the bottom bar.

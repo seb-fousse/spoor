@@ -9,6 +9,7 @@
     "paths": {
       "@components/*": ["./src/components/*"],
       "@hooks/*": ["./src/hooks/*"],
+      "@keyboard": ["./src/keyboard/index.ts"],
       "@pages/*": ["./src/pages/*"],
       "@platform/*": ["./src/platform/*"],
       "@routes": ["./src/routes.ts"],
