@@ -2,7 +2,7 @@ import { FluidSplitter } from "@components/FluidSplitter";
 import { useShortcuts } from "@keyboard";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
 import type { Database } from "@spoor/core";
-import { useMemo } from "react";
+import { useMemo, useReducer } from "react";
 import { dayShortcuts } from "./dayShortcuts";
 import classes from "./Home.module.css";
 import { useHomeState } from "./HomeState";
@@ -26,6 +26,8 @@ export function Home({ db }: { db: Database }) {
   const visibleDays = useMemo(() => windowDays(days), [days]);
   // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
   useShortcuts(dayShortcuts(dispatch));
+  // Bumped after each value recorded in the rail, so the grid's day badges recount.
+  const [observationsVersion, bumpObservations] = useReducer((n: number) => n + 1, 0);
 
   return (
     // Fill the whole area above the bottom bar.
@@ -33,7 +35,13 @@ export function Home({ db }: { db: Database }) {
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
           <LeftHeader days={days} today={today} dispatch={dispatch} />
-          <TimelineGrid db={db} days={visibleDays} activeDay={days.activeDay} dispatch={dispatch} />
+          <TimelineGrid
+            db={db}
+            days={visibleDays}
+            activeDay={days.activeDay}
+            dispatch={dispatch}
+            observationsVersion={observationsVersion}
+          />
         </div>
       </Splitter.Pane>
 
@@ -45,7 +53,7 @@ export function Home({ db }: { db: Database }) {
           <div className={classes.fill}>
             <FluidSplitter orientation="vertical" h="100%">
               <Splitter.Pane defaultSize={50}>
-                <ObservationRail db={db} day={days.activeDay} />
+                <ObservationRail db={db} day={days.activeDay} onRecorded={bumpObservations} />
               </Splitter.Pane>
 
               <Splitter.Pane defaultSize={50}>

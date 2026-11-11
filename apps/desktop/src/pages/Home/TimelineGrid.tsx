@@ -1,8 +1,9 @@
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler } from "@keyboard";
-import { Alert, Center, Loader, Text } from "@mantine/core";
+import { Alert, Center, Loader, Text, VisuallyHidden } from "@mantine/core";
 import {
   type Database,
+  type DayObservationCount,
   dayOf,
   type LocalDate,
   type Timeline,
@@ -17,6 +18,7 @@ import {
   useMemo,
   useRef,
 } from "react";
+import { completeness, completenessLabel } from "./completeness";
 import { dayShortcuts } from "./dayShortcuts";
 import {
   categoryColor,
@@ -28,6 +30,7 @@ import {
 import { formatShortDay, type HomeDaysAction } from "./homeDays";
 import classes from "./TimelineGrid.module.css";
 import { useGridData } from "./useGridData";
+import { useObservationCounts } from "./useObservationCounts";
 
 /** Height of one hour, in pixels. */
 const HOUR_HEIGHT = 48;
@@ -43,16 +46,26 @@ interface TimelineGridProps {
   activeDay: LocalDate;
   /** Changes the active day: picked from a header or column, or moved with the day keys. */
   dispatch: Dispatch<HomeDaysAction>;
+  /** Changes whenever an observation is recorded, so the day badges recount. */
+  observationsVersion: number;
 }
 
 /**
  * Home's timeline grid. Each day is a column, each timeline a sub-column, and
  * there is one hour axis down the left. The two-tier header (days, then
  * timeline names) stays at the top while the hours scroll. The intervals are
- * read-only; clicking a day's header or column makes it the active day.
+ * read-only; clicking a day's header or column makes it the active day. Each
+ * day's header has a badge with how many of its observations are recorded.
  */
-export function TimelineGrid({ db, days, activeDay, dispatch }: TimelineGridProps) {
+export function TimelineGrid({
+  db,
+  days,
+  activeDay,
+  dispatch,
+  observationsVersion,
+}: TimelineGridProps) {
   const data = useGridData(db, days);
+  const counts = useObservationCounts(db, days, observationsVersion);
 
   if (data.status === "loading") {
     return (
@@ -80,6 +93,7 @@ export function TimelineGrid({ db, days, activeDay, dispatch }: TimelineGridProp
       days={days}
       activeDay={activeDay}
       dispatch={dispatch}
+      counts={counts}
       timeZone={data.timeZone}
       timelines={data.timelines}
       categories={data.categories}
@@ -92,6 +106,8 @@ interface GridProps {
   days: LocalDate[];
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
+  /** Each day's observation counts, for its badge. A day without one has no badge. */
+  counts: ReadonlyMap<LocalDate, DayObservationCount>;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
@@ -102,6 +118,7 @@ function Grid({
   days,
   activeDay,
   dispatch,
+  counts,
   timeZone,
   timelines,
   categories,
@@ -184,6 +201,7 @@ function Grid({
               onKeyDown={onHeaderKeyDown}
             >
               {formatShortDay(day)}
+              <DayBadge count={counts.get(day)} />
             </button>
             <div className={classes.timelineNames}>
               {timelines.map((t) => (
@@ -221,6 +239,24 @@ function Grid({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * How many of the day's observations are recorded, such as "3/7": filled when
+ * all are, outlined when some are, dashed when none are. It sits inside the
+ * day's button, so focusing the header reads the count out in words too.
+ */
+function DayBadge({ count }: { count: DayObservationCount | undefined }) {
+  const state = count && completeness(count);
+  if (!count || !state) return null;
+  return (
+    <>
+      <span className={classes.badge} data-state={state} aria-hidden="true">
+        {count.recorded}/{count.total}
+      </span>
+      <VisuallyHidden>, {completenessLabel(count)}</VisuallyHidden>
+    </>
   );
 }
 
