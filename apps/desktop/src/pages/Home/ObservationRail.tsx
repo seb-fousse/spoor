@@ -230,13 +230,9 @@ function NumberStepper({
 
   return (
     <NumberInput
+      // xs is 30px tall, the height of the segmented controls in the other cards.
       size="xs"
-      classNames={{
-        root: classes.number,
-        input: classes.numberInput,
-        controls: classes.numberControls,
-        control: classes.numberControl,
-      }}
+      className={classes.number}
       aria-label={name}
       value={draft}
       onChange={setDraft}

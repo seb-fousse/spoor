@@ -85,54 +85,8 @@
   border: 1px solid var(--app-border);
 }
 
-/*
- * The number field, boxed like the segmented controls beside it: one 30px
- * cell with a hairline border, the value in mono, and Mantine's chevrons
- * stacked in a hairline-split column at its right edge.
- */
+/* The number field (styled in the theme), sized to its value rather than the card. */
 .number {
   align-self: flex-start;
   width: 9rem;
-}
-
-.numberInput {
-  --input-bd: var(--app-border);
-  --input-bd-focus: var(--app-accent);
-
-  border-radius: 0;
-  background: transparent;
-  color: var(--app-text);
-  font-family: var(--app-font-mono);
-  font-size: var(--mantine-font-size-sm);
-  font-variant-numeric: tabular-nums;
-
-  &::placeholder {
-    color: var(--app-text-muted);
-  }
-}
-
-/* Wide enough to hit easily; Mantine sizes the column to the chevron. */
-.numberControls {
-  max-width: none;
-  width: 24px;
-}
-
-.numberControl {
-  --control-border: 1px solid var(--app-border);
-
-  border-radius: 0;
-  color: var(--app-text-muted);
-
-  & + & {
-    border-top: 1px solid var(--app-border);
-  }
-
-  &:hover:where(:not(:disabled)) {
-    color: var(--app-text);
-    background: var(--app-surface-hover);
-  }
-
-  &:where(:disabled) {
-    color: color-mix(in srgb, var(--app-text-muted) 50%, transparent);
-  }
 }
