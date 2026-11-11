@@ -8,7 +8,16 @@ import {
   type TimelineCategory,
   type TimelineInterval,
 } from "@spoor/core";
-import { type CSSProperties, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type CSSProperties,
+  type Dispatch,
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import { dayKeyAction, isMac } from "./dayKeys";
 import {
   categoryColor,
   describeBlock,
@@ -16,7 +25,7 @@ import {
   layoutGrid,
   nowFraction,
 } from "./gridLayout";
-import { formatShortDay } from "./homeDays";
+import { formatShortDay, type HomeDaysAction } from "./homeDays";
 import classes from "./TimelineGrid.module.css";
 import { useGridData } from "./useGridData";
 
@@ -30,14 +39,19 @@ interface TimelineGridProps {
   db: Database;
   /** The visible days, oldest first. */
   days: LocalDate[];
+  /** The day the rail shows, highlighted in the grid. Always one of `days`. */
+  activeDay: LocalDate;
+  /** Changes the active day: picked from a header or column, or moved with the day keys. */
+  dispatch: Dispatch<HomeDaysAction>;
 }
 
 /**
- * Home's timeline grid, read-only. Each day is a column, each timeline a
- * sub-column, and there is one hour axis down the left. The two-tier header
- * (days, then timeline names) stays at the top while the hours scroll.
+ * Home's timeline grid. Each day is a column, each timeline a sub-column, and
+ * there is one hour axis down the left. The two-tier header (days, then
+ * timeline names) stays at the top while the hours scroll. The intervals are
+ * read-only; clicking a day's header or column makes it the active day.
  */
-export function TimelineGrid({ db, days }: TimelineGridProps) {
+export function TimelineGrid({ db, days, activeDay, dispatch }: TimelineGridProps) {
   const data = useGridData(db, days);
 
   if (data.status === "loading") {
@@ -64,6 +78,8 @@ export function TimelineGrid({ db, days }: TimelineGridProps) {
   return (
     <Grid
       days={days}
+      activeDay={activeDay}
+      dispatch={dispatch}
       timeZone={data.timeZone}
       timelines={data.timelines}
       categories={data.categories}
@@ -74,13 +90,23 @@ export function TimelineGrid({ db, days }: TimelineGridProps) {
 
 interface GridProps {
   days: LocalDate[];
+  activeDay: LocalDate;
+  dispatch: Dispatch<HomeDaysAction>;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   intervals: TimelineInterval[];
 }
 
-function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
+function Grid({
+  days,
+  activeDay,
+  dispatch,
+  timeZone,
+  timelines,
+  categories,
+  intervals,
+}: GridProps) {
   const now = useNow();
   const today = dayOf(now, timeZone);
   const layout = useMemo(
@@ -98,6 +124,38 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
     scrollRef.current?.scrollTo({ top: initialTop.current });
   }, []);
 
+  // The day headers are one tab stop: only the active day's button is
+  // tabbable, and focus moves with the active day. A day key can push the
+  // window along, which replaces the focused button, so the new active day's
+  // button takes focus once it has rendered. Elsewhere on Home the same keys
+  // go to `useDayKeys`, which leaves alone the ones handled here.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const focusDay = (day: LocalDate) =>
+    headerRef.current
+      ?.querySelector<HTMLButtonElement>(`button[data-day="${day}"]`)
+      ?.focus({ preventScroll: true });
+  const focusAfterStep = useRef(false);
+  useEffect(() => {
+    if (!focusAfterStep.current) return;
+    focusAfterStep.current = false;
+    focusDay(activeDay);
+  });
+
+  const onHeaderKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const action = dayKeyAction(event, isMac());
+    if (!action) return;
+    event.preventDefault();
+    focusAfterStep.current = true;
+    dispatch(action);
+  };
+
+  // Clicking focuses the day's button, so the header keeps focus for the keys.
+  // WebKit (the macOS webview) doesn't focus a button on click by itself.
+  const select = (day: LocalDate) => {
+    dispatch({ type: "select", day });
+    focusDay(day);
+  };
+
   const style = {
     "--days": days.length,
     "--timelines": timelines.length,
@@ -107,11 +165,27 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
   return (
     <div className={classes.grid} style={style}>
       {/* Outside the scroller, so only the hours scroll. */}
-      <div className={classes.header}>
+      <div ref={headerRef} className={classes.header}>
         <div className={classes.corner} />
         {days.map((day) => (
-          <div key={day} className={classes.dayHead} data-today={day === today || undefined}>
-            <div className={classes.dayLabel}>{formatShortDay(day)}</div>
+          <div
+            key={day}
+            className={classes.dayHead}
+            data-today={day === today || undefined}
+            data-active={day === activeDay || undefined}
+          >
+            {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
+            <button
+              type="button"
+              className={classes.dayLabel}
+              data-day={day}
+              tabIndex={day === activeDay ? 0 : -1}
+              aria-current={day === activeDay ? "date" : undefined}
+              onClick={() => select(day)}
+              onKeyDown={onHeaderKeyDown}
+            >
+              {formatShortDay(day)}
+            </button>
             <div className={classes.timelineNames}>
               {timelines.map((t) => (
                 <div key={t.id} className={classes.timelineName} title={t.name}>
@@ -141,6 +215,8 @@ function Grid({ days, timeZone, timelines, categories, intervals }: GridProps) {
               categories={categories}
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
+              active={day === activeDay}
+              onSelect={() => select(day)}
             />
           ))}
         </div>
@@ -156,11 +232,31 @@ interface DayColumnProps {
   timeZone: string;
   /** Where the now line goes, as a fraction of the day, or `null` when it is not today. */
   nowAt: number | null;
+  /** Whether this is the active day, which gets the accent outline. */
+  active: boolean;
+  /** Makes this the active day. */
+  onSelect: () => void;
 }
 
-function DayColumn({ blocks, timelines, categories, timeZone, nowAt }: DayColumnProps) {
+function DayColumn({
+  blocks,
+  timelines,
+  categories,
+  timeZone,
+  nowAt,
+  active,
+  onSelect,
+}: DayColumnProps) {
   return (
-    <div className={classes.day} data-today={nowAt !== null || undefined}>
+    // A mouse shortcut only: the day's header button is the keyboard way to select it.
+    // biome-ignore lint/a11y/noStaticElementInteractions: see above.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: see above.
+    <div
+      className={classes.day}
+      data-today={nowAt !== null || undefined}
+      data-active={active || undefined}
+      onClick={onSelect}
+    >
       {timelines.map((t) => (
         <div key={t.id} className={classes.subColumn}>
           {blocks?.get(t.id)?.map((block) => (

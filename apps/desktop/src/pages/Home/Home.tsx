@@ -8,6 +8,7 @@ import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeD
 import { LeftHeader } from "./LeftHeader";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
+import { useDayKeys } from "./useDayKeys";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
@@ -44,6 +45,8 @@ export function Home({ db }: { db: Database }) {
   const activeLabel = formatDay(days.activeDay);
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
+  // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
+  useDayKeys(dispatch);
 
   return (
     // Fill the whole area above the bottom bar.
@@ -51,7 +54,7 @@ export function Home({ db }: { db: Database }) {
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
           <LeftHeader days={days} today={today} dispatch={dispatch} />
-          <TimelineGrid db={db} days={visibleDays} />
+          <TimelineGrid db={db} days={visibleDays} activeDay={days.activeDay} dispatch={dispatch} />
         </div>
       </Splitter.Pane>
 
