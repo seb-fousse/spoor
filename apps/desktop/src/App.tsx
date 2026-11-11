@@ -2,7 +2,7 @@ import { BottomBar } from "@components/BottomBar";
 import { useHistoryRoute } from "@hooks/useHistoryRoute";
 import { Alert, AppShell, Box, Center, Loader } from "@mantine/core";
 import { Analytics } from "@pages/Analytics";
-import { Home } from "@pages/Home";
+import { Home, HomeStateProvider } from "@pages/Home";
 import { Logs } from "@pages/Logs";
 import { Observations } from "@pages/Observations";
 import { Settings } from "@pages/Settings";
@@ -50,10 +50,13 @@ function App() {
     <AppShell footer={{ height: 44 }} padding={0}>
       <AppShell.Main>
         {status === "ready" ? (
-          // Home fills the whole area edge to edge; other pages get padding.
-          <Box p={route === "home" ? 0 : "md"}>
-            <Page route={route} db={db} />
-          </Box>
+          // Above the routes, so Home's active day and window survive navigation.
+          <HomeStateProvider db={db}>
+            {/* Home fills the whole area edge to edge; other pages get padding. */}
+            <Box p={route === "home" ? 0 : "md"}>
+              <Page route={route} db={db} />
+            </Box>
+          </HomeStateProvider>
         ) : status === "migrating" ? (
           <Center p="md">
             <Loader />
