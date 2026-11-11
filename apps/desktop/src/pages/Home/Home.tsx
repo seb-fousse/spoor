@@ -1,12 +1,12 @@
 import { FluidSplitter } from "@components/FluidSplitter";
-import { useToday } from "@hooks/useToday";
 import { useShortcuts } from "@keyboard";
 import { Splitter, Stack, Text, Title } from "@mantine/core";
-import { type Database, getTimeZone } from "@spoor/core";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { Database } from "@spoor/core";
+import { useMemo } from "react";
 import { dayShortcuts } from "./dayShortcuts";
 import classes from "./Home.module.css";
-import { formatDay, homeDaysReducer, initialHomeDays, windowDays } from "./homeDays";
+import { useHomeState } from "./HomeState";
+import { formatDay, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
@@ -18,31 +18,8 @@ import { TimelineGrid } from "./TimelineGrid";
  * for now.
  */
 export function Home({ db }: { db: Database }) {
-  // Today in the `time_zone` setting, the zone the grid counts its days in.
-  // Until the setting loads it is the device's today. If the setting's date
-  // differs, the rollover below moves the window to it.
-  const [timeZone, setTimeZone] = useState<string>();
-  useEffect(() => {
-    let cancelled = false;
-    // On failure, keep the device's zone; the grid reports its own load errors.
-    getTimeZone(db)
-      .then((zone) => !cancelled && setTimeZone(zone))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [db]);
-  const today = useToday(timeZone);
-  const [days, dispatch] = useReducer(homeDaysReducer, today, initialHomeDays);
-
-  // When the date changes (midnight, or the zone loading), move to the new today
-  // if the user was on the old one.
-  const previousToday = useRef(today);
-  useEffect(() => {
-    if (previousToday.current === today) return;
-    dispatch({ type: "rollover", from: previousToday.current, to: today });
-    previousToday.current = today;
-  }, [today]);
+  // Held above the routes, so the user's place survives leaving Home.
+  const { today, days, dispatch } = useHomeState();
   const activeLabel = formatDay(days.activeDay);
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
   const visibleDays = useMemo(() => windowDays(days), [days]);
