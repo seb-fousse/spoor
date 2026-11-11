@@ -63,6 +63,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   box-sizing: border-box;
   width: 100%;
   height: 28px;
@@ -100,6 +101,34 @@
 .dayHead[data-today] .dayLabel {
   color: var(--app-accent);
   font-weight: 700;
+}
+
+/*
+ * The day's observations recorded out of the total. Like the rail's cards, a
+ * dashed outline means nothing recorded; a complete day is filled with the
+ * accent. Its look doesn't change with the active day or today.
+ */
+.badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 60%, transparent);
+  border-radius: var(--mantine-radius-xs);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0;
+  color: var(--app-text);
+
+  &[data-state="complete"] {
+    border-color: var(--app-accent);
+    background: var(--app-accent);
+    color: var(--app-surface);
+  }
+
+  &[data-state="empty"] {
+    border: 1px dashed var(--app-border);
+    color: var(--app-text-muted);
+  }
 }
 
 .timelineNames {
