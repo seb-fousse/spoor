@@ -83,6 +83,8 @@ export {
   updateMetric,
 } from "./observations/metrics";
 export {
+  countDayObservations,
+  type DayObservationCount,
   deleteObservation,
   getObservation,
   listDayObservations,

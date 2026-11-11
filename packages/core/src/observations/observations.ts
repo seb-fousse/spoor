@@ -5,7 +5,14 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { isNonEmptyString } from "../lib/guards";
 import { newId } from "../lib/ids";
-import { type Instant, isLocalDate, type LocalDate, now } from "../lib/time";
+import {
+  addDays,
+  compareLocalDates,
+  type Instant,
+  isLocalDate,
+  type LocalDate,
+  now,
+} from "../lib/time";
 import {
   decodeValue,
   encodeValue,
@@ -220,6 +227,52 @@ export async function listDayObservations(db: Database, date: LocalDate): Promis
     .execute();
   const byMetric = new Map((await toObservations(db, rows)).map((o) => [o.metricId, o]));
   return metrics.map((metric) => ({ metric, observation: byMetric.get(metric.id) ?? null }));
+}
+
+/** How complete one day's observations are. */
+export interface DayObservationCount {
+  date: LocalDate;
+  /** Active metrics with an observation on `date`. */
+  recorded: number;
+  /** Active metrics: the same for every day, as `listDayObservations` lists them all. */
+  total: number;
+}
+
+/**
+ * For each day from `from` to `to` inclusive, oldest first, how many active
+ * metrics have an observation, out of all active metrics. It agrees with
+ * counting `listDayObservations` for each day, in two queries for the range.
+ */
+export async function countDayObservations(
+  db: Database,
+  from: LocalDate,
+  to: LocalDate,
+): Promise<DayObservationCount[]> {
+  for (const date of [from, to]) {
+    if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  }
+  if (compareLocalDates(from, to) > 0) throw new Error("Date range ends before it starts");
+  const q = queryBuilder(db);
+  const { total } = await q
+    .selectFrom("observation_metrics")
+    .select((eb) => eb.fn.countAll<number>().as("total"))
+    .where("archived_at", "is", null)
+    .executeTakeFirstOrThrow();
+  const rows = await q
+    .selectFrom("observations")
+    .innerJoin("observation_metrics", "observation_metrics.id", "observations.metric_id")
+    .select(["observations.date", (eb) => eb.fn.countAll<number>().as("recorded")])
+    .where("observation_metrics.archived_at", "is", null)
+    .where("observations.date", ">=", from)
+    .where("observations.date", "<=", to)
+    .groupBy("observations.date")
+    .execute();
+  const recorded = new Map(rows.map((row) => [row.date, row.recorded]));
+  const counts: DayObservationCount[] = [];
+  for (let date = from; compareLocalDates(date, to) <= 0; date = addDays(date, 1)) {
+    counts.push({ date, recorded: recorded.get(date) ?? 0, total });
+  }
+  return counts;
 }
 
 /** Deletes the observation. */

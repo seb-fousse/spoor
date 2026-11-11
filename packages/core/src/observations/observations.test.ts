@@ -13,6 +13,7 @@ import {
   updateMetric,
 } from "./metrics";
 import {
+  countDayObservations,
   deleteObservation,
   getObservation,
   listDayObservations,
@@ -515,6 +516,57 @@ describe("observations", () => {
         { metric: w, observation: null },
       ]);
       await expect(listDayObservations(db, "2026-13-01")).rejects.toThrow(/date/);
+    });
+  });
+
+  describe("day observation counts", () => {
+    it("counts each day's recorded active metrics, out of all active metrics", async () => {
+      const w = await water();
+      const s = await symptoms();
+      const archived = await createMetric(db, { name: "Old", valueType: "boolean" });
+      await record(archived, "2026-10-18", true);
+      await setMetricArchived(db, archived.id, true);
+      await record(w, "2026-10-18", 3);
+      await record(s, "2026-10-18", []);
+      await record(w, "2026-10-20", 1);
+      // Outside the range.
+      await record(w, "2026-10-17", 1);
+      await record(s, "2026-10-21", ["cough"]);
+      expect(await countDayObservations(db, "2026-10-18", "2026-10-20")).toEqual([
+        { date: "2026-10-18", recorded: 2, total: 2 },
+        { date: "2026-10-19", recorded: 0, total: 2 },
+        { date: "2026-10-20", recorded: 1, total: 2 },
+      ]);
+    });
+
+    it("agrees with listDayObservations for each day", async () => {
+      const w = await water();
+      const s = await symptoms();
+      await record(w, "2026-10-19", 3);
+      await record(s, "2026-10-20", ["fever"]);
+      for (const { date, recorded, total } of await countDayObservations(
+        db,
+        "2026-10-18",
+        "2026-10-21",
+      )) {
+        const day = await listDayObservations(db, date);
+        expect(recorded).toBe(day.filter((d) => d.observation !== null).length);
+        expect(total).toBe(day.length);
+      }
+    });
+
+    it("gives zero totals with no metrics, and one entry for a one-day range", async () => {
+      expect(await countDayObservations(db, "2026-10-19", "2026-10-19")).toEqual([
+        { date: "2026-10-19", recorded: 0, total: 0 },
+      ]);
+    });
+
+    it("rejects invalid dates and reversed ranges", async () => {
+      await expect(countDayObservations(db, "2026-13-01", "2026-10-19")).rejects.toThrow(/date/);
+      await expect(countDayObservations(db, "2026-10-19", "nope")).rejects.toThrow(/date/);
+      await expect(countDayObservations(db, "2026-10-20", "2026-10-19")).rejects.toThrow(
+        /before it starts/,
+      );
     });
   });
 });
