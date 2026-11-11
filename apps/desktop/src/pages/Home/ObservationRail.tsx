@@ -1,13 +1,4 @@
-import {
-  ActionIcon,
-  Alert,
-  Chip,
-  Group,
-  Loader,
-  NumberInput,
-  SegmentedControl,
-  Text,
-} from "@mantine/core";
+import { Alert, Chip, Group, Loader, NumberInput, SegmentedControl, Text } from "@mantine/core";
 import {
   type Database,
   type LocalDate,
@@ -203,7 +194,10 @@ function ObservationCard({
 
 type NumberConstraints = Extract<MetricDay["metric"], { valueType: "number" }>["constraints"];
 
-/** − and + record a step from the value; a typed value records on Enter or blur. */
+/**
+ * A number field with Mantine's chevrons. A chevron click (or ↑/↓ in the
+ * field) records a step at once; a typed value records on Enter or blur.
+ */
 function NumberStepper({
   day,
   name,
@@ -227,37 +221,41 @@ function NumberStepper({
     setDraft(next);
     if (next !== value) onRecord(next);
   };
+  // From what the field shows, so a typed but unsaved value is stepped from too.
   const step = (by: number) => {
-    const next = stepNumber(value, by, constraints);
+    const next = stepNumber(typeof draft === "number" ? draft : value, by, constraints);
+    setDraft(next);
     if (next !== value) onRecord(next);
   };
 
   return (
-    <Group gap={6} wrap="nowrap">
-      <ActionIcon variant="default" aria-label={`Decrease ${name}`} onClick={() => step(-1)}>
-        −
-      </ActionIcon>
-      <NumberInput
-        className={classes.number}
-        aria-label={name}
-        hideControls
-        value={draft}
-        onChange={setDraft}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === "Enter" && commit()}
-        min={constraints.min}
-        max={constraints.max}
-        decimalScale={constraints.precision}
-        placeholder="—"
-      />
-      <ActionIcon variant="default" aria-label={`Increase ${name}`} onClick={() => step(1)}>
-        +
-      </ActionIcon>
-      {constraints.unit && (
-        <Text size="sm" c="dimmed">
-          {constraints.unit}
-        </Text>
-      )}
-    </Group>
+    <NumberInput
+      size="xs"
+      classNames={{
+        root: classes.number,
+        input: classes.numberInput,
+        controls: classes.numberControls,
+        control: classes.numberControl,
+      }}
+      aria-label={name}
+      value={draft}
+      onChange={setDraft}
+      // Mantine reports its own steps with a source of "increment" or
+      // "decrement", which react-number-format's types don't list. Mantine has
+      // already applied its step to the field; `step` replaces it with ours,
+      // which starts an empty day from 0 and rounds to the metric's precision.
+      onValueChange={(_, info) => {
+        const source = String(info.source);
+        if (source === "increment") step(1);
+        else if (source === "decrement") step(-1);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && commit()}
+      min={constraints.min}
+      max={constraints.max}
+      decimalScale={constraints.precision}
+      suffix={constraints.unit ? ` ${constraints.unit}` : undefined}
+      placeholder={constraints.unit ? `— ${constraints.unit}` : "—"}
+    />
   );
 }
