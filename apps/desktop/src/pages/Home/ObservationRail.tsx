@@ -7,7 +7,6 @@ import {
   NumberInput,
   SegmentedControl,
   Text,
-  Title,
 } from "@mantine/core";
 import {
   type Database,
@@ -46,54 +45,69 @@ export function ObservationRail({ db, day, onRecorded }: ObservationRailProps) {
   const data = useDayObservations(db, day, onRecorded);
   const { recorded, total } = countRecorded(data.items);
   // The previous day's cards stay until the new ones load, shown but not usable.
+  // Most loads finish within a frame, so the stale styling only shows after a
+  // delay (see the CSS), and nothing else changes until the new day arrives.
   const stale = data.day !== day;
 
   return (
-    <div className={classes.rail}>
-      <Group justify="space-between" align="baseline">
-        <Title order={3}>Observations</Title>
-        {!stale && (
-          <Text size="sm" c="dimmed" ff="monospace">
+    <section className={classes.rail} aria-labelledby="observations-title">
+      <header className={classes.header}>
+        <h2 id="observations-title" className={classes.title}>
+          Observations
+        </h2>
+        {data.day !== null && data.items.length > 0 && (
+          <span className={classes.count} aria-live="polite">
             {recorded}/{total} recorded
+          </span>
+        )}
+      </header>
+
+      <div className={classes.body}>
+        {data.error !== null && (
+          <Alert color="red" title="Could not save or load observations">
+            {data.error}
+          </Alert>
+        )}
+        {data.day === null && data.error === null && <Loader size="sm" />}
+        {data.day !== null && data.items.length === 0 && (
+          <Text c="dimmed">
+            No metrics yet. Add one on the Observations page to record it here.
           </Text>
         )}
-      </Group>
-      {data.error !== null && (
-        <Alert color="red" title="Could not save or load observations">
-          {data.error}
-        </Alert>
-      )}
-      {data.day === null && data.error === null && <Loader size="sm" />}
-      {data.day !== null && data.items.length === 0 && (
-        <Text c="dimmed">No metrics yet. Add one on the Observations page to record it here.</Text>
-      )}
-      <div className={classes.cards} inert={stale} data-stale={stale || undefined}>
-        {data.items.map((item) => (
-          <ObservationCard
-            // Per day, so a card's unsaved input never carries over to another day.
-            key={`${data.day}:${item.metric.id}`}
-            item={item}
-            onRecord={(value) => data.record(item.metric.id, value)}
-          />
-        ))}
+        <div className={classes.cards} inert={stale} data-stale={stale || undefined}>
+          {data.items.map((item) => (
+            <ObservationCard
+              // Per metric, not per day: the cards stay mounted across days, so
+              // their controls update in place instead of being rebuilt.
+              key={item.metric.id}
+              day={data.day}
+              item={item}
+              onRecord={(value) => data.record(item.metric.id, value)}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
 function ObservationCard({
+  day,
   item: { metric, observation },
   onRecord,
 }: {
+  /** The day `item` belongs to. */
+  day: LocalDate | null;
   item: MetricDay;
   onRecord: (value: Value) => Promise<void>;
 }) {
   // What the card shows instead of the stored value: a click not yet saved, or
-  // a selection with fewer options than the metric needs. Dropped if saving fails.
-  const [local, setLocal] = useState<Value | null>(null);
-  const value = local ?? observation?.value ?? null;
+  // a selection with fewer options than the metric needs. Dropped if saving
+  // fails. Tagged with its day, so it never shows on another day's card.
+  const [local, setLocal] = useState<{ day: LocalDate | null; value: Value } | null>(null);
+  const value = (local?.day === day ? local.value : null) ?? observation?.value ?? null;
   const save = (next: Value) => {
-    setLocal(next);
+    setLocal({ day, value: next });
     onRecord(next).catch(() => setLocal(null));
   };
   const labelled = (key: string) => ({ value: key, label: optionLabel(metric.optionLabels, key) });
@@ -143,7 +157,7 @@ function ObservationCard({
                 onChange={() => {
                   const next = toggleOption(selected, o.key, c);
                   if (meetsMinimum(next, c)) save(next);
-                  else setLocal(next);
+                  else setLocal({ day, value: next });
                 }}
               >
                 {labelled(o.key).label}
@@ -157,6 +171,7 @@ function ObservationCard({
     case "number":
       control = (
         <NumberStepper
+          day={day}
           name={metric.name}
           value={value as number | null}
           constraints={metric.constraints}
@@ -190,18 +205,22 @@ type NumberConstraints = Extract<MetricDay["metric"], { valueType: "number" }>["
 
 /** − and + record a step from the value; a typed value records on Enter or blur. */
 function NumberStepper({
+  day,
   name,
   value,
   constraints,
   onRecord,
 }: {
+  day: LocalDate | null;
   name: string;
   value: number | null;
   constraints: NumberConstraints;
   onRecord: (value: number) => void;
 }) {
   const [draft, setDraft] = useState<number | string>(value ?? "");
-  useEffect(() => setDraft(value ?? ""), [value]);
+  // A new day resets the field even when its value is the same as the last day's.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `day` is the signal to reset.
+  useEffect(() => setDraft(value ?? ""), [value, day]);
   const commit = () => {
     if (typeof draft !== "number") return setDraft(value ?? "");
     const next = normalizeNumber(draft, constraints);
