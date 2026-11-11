@@ -8,13 +8,14 @@ import classes from "./Home.module.css";
 import { useHomeState } from "./HomeState";
 import { formatDay, windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
+import { ObservationRail } from "./ObservationRail";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
  * the right (at least 30%), split evenly between the day's observations above
- * and an entry point for adding logs below. The rail's content is placeholders
+ * and an entry point for adding logs below. The logs half is a placeholder
  * for now.
  */
 export function Home({ db }: { db: Database }) {
@@ -44,10 +45,7 @@ export function Home({ db }: { db: Database }) {
           <div className={classes.fill}>
             <FluidSplitter orientation="vertical" h="100%">
               <Splitter.Pane defaultSize={50}>
-                <Stack gap="xs" p="md">
-                  <Title order={3}>Observations</Title>
-                  <Text c="dimmed">Observations for {activeLabel} will live here.</Text>
-                </Stack>
+                <ObservationRail db={db} day={days.activeDay} />
               </Splitter.Pane>
 
               <Splitter.Pane defaultSize={50}>
