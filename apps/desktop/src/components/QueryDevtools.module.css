@@ -1,0 +1,7 @@
+/* Bottom-right, just above the bottom bar, over the empty end of the logs rail. */
+.button {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--app-shell-footer-height, 0px) + 12px);
+  z-index: var(--mantine-z-index-max);
+}

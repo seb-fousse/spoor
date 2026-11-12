@@ -28,6 +28,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@tanstack/react-query-devtools": "^5.107.1",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.5",
     "@types/react": "^19.1.8",
