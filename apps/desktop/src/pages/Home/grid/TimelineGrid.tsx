@@ -1,6 +1,6 @@
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler } from "@keyboard";
-import { formatShortDay } from "@lib/format";
+import { formatClockTime, formatShortDay } from "@lib/format";
 import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
 import {
   type Database,
@@ -14,6 +14,7 @@ import {
 import {
   type CSSProperties,
   type Dispatch,
+  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -21,7 +22,9 @@ import {
 } from "react";
 import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
+import { CategoryPicker } from "./CategoryPicker";
 import { completeness, completenessLabel } from "./completeness";
+import { rangePieces } from "./dragRange";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
   categoryColor,
@@ -31,6 +34,8 @@ import {
   nowFraction,
 } from "./gridLayout";
 import classes from "./TimelineGrid.module.css";
+import { useCreateInterval } from "./useCreateInterval";
+import { DAY_COLUMN, DRAG_ROOT, type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
 import type { GridData } from "./useGridData";
 import { useObservationCounts } from "./useObservationCounts";
 
@@ -50,7 +55,7 @@ interface TimelineGridProps {
   onShowAllTimelines: () => void;
   /** The visible days, oldest first. */
   days: LocalDate[];
-  /** The day the rail shows, highlighted in the grid. Always one of `days`. */
+  /** The day the rail shows, highlighted in its header. Always one of `days`. */
   activeDay: LocalDate;
   /** Changes the active day: picked from a header or column, or moved with the day keys. */
   dispatch: Dispatch<HomeDaysAction>;
@@ -59,9 +64,11 @@ interface TimelineGridProps {
 /**
  * Home's timeline grid. Each day is a column, each timeline a sub-column, and
  * there is one hour axis down the left. The two-tier header (days, then
- * timeline names) stays at the top while the hours scroll. The intervals are
- * read-only; clicking a day's header or column makes it the active day. Each
- * day's header has a badge with how many of its observations are recorded.
+ * timeline names) stays at the top while the hours scroll. Dragging in an
+ * empty stretch of a sub-column draws a new block, possibly across days, which
+ * asks for its category on release; existing blocks are read-only. Clicking a
+ * day's header or column makes it the active day. Each day's header has a
+ * badge with how many of its observations are recorded.
  */
 export function TimelineGrid({
   db,
@@ -110,6 +117,7 @@ export function TimelineGrid({
   }
   return (
     <Grid
+      db={db}
       days={days}
       activeDay={activeDay}
       dispatch={dispatch}
@@ -123,6 +131,7 @@ export function TimelineGrid({
 }
 
 interface GridProps {
+  db: Database;
   days: LocalDate[];
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
@@ -135,6 +144,7 @@ interface GridProps {
 }
 
 function Grid({
+  db,
   days,
   activeDay,
   dispatch,
@@ -192,6 +202,69 @@ function Grid({
     focusDay(day);
   };
 
+  const drag = useDragToCreate(timeZone, days, timelines, intervals);
+  const create = useCreateInterval(db);
+  const cancel = () => {
+    drag.cancel();
+    create.reset();
+  };
+
+  // The drawn block, one piece per day it covers. The piece under the pointer
+  // carries the category popover once released.
+  const ghosts = new Map<LocalDate, ReactNode>();
+  const draft = drag.draft;
+  const timeline = draft && timelines.find((t) => t.id === draft.timelineId);
+  if (draft && timeline) {
+    const { startAt, endAt } = draft.range;
+    const pieces = rangePieces(draft.range, days, timeZone);
+    const popoverDay = pieces.some((p) => p.day === draft.pointerDay)
+      ? draft.pointerDay
+      : pieces.at(-1)?.day;
+    const time = (at: number) => formatClockTime(at, timeZone);
+    const label =
+      pieces.length > 1
+        ? `${formatShortDay(dayOf(startAt, timeZone))} ${time(startAt)} – ${formatShortDay(dayOf(endAt, timeZone))} ${time(endAt)}`
+        : `${time(startAt)}–${time(endAt)}`;
+    const choices = [...categories.values()]
+      .filter((c) => c.timelineId === timeline.id && c.archivedAt === null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const [i, { day, top, height }] of pieces.entries()) {
+      const piece = (
+        <div
+          className={classes.ghost}
+          style={{ "--top": top, "--height": height } as CSSProperties}
+          data-continues-before={i > 0 || undefined}
+          data-continues-after={i < pieces.length - 1 || undefined}
+        >
+          {i === 0 && label}
+        </div>
+      );
+      ghosts.set(
+        day,
+        day !== popoverDay ? (
+          piece
+        ) : (
+          <CategoryPicker
+            opened={draft.phase === "choosing"}
+            categories={choices}
+            error={create.error?.message ?? null}
+            saving={create.isPending}
+            onCancel={cancel}
+            onPick={(choice) =>
+              create.mutate(
+                { ...draft.range, ...choice, timelineId: timeline.id },
+                { onSuccess: cancel },
+              )
+            }
+          >
+            {piece}
+          </CategoryPicker>
+        ),
+      );
+    }
+  }
+
   const style = {
     "--days": days.length,
     "--timelines": timelines.length,
@@ -235,7 +308,7 @@ function Grid({
       </div>
 
       <div ref={scrollRef} className={classes.scroller}>
-        <div className={classes.body}>
+        <div className={classes.body} {...{ [DRAG_ROOT]: "" }}>
           <div className={classes.gutter} aria-hidden="true">
             {HOURS.map((h) => (
               <div key={h} className={classes.hour}>
@@ -248,11 +321,16 @@ function Grid({
             <DayColumn
               key={day}
               blocks={layout.get(day)}
+              ghost={
+                draft && ghosts.has(day)
+                  ? { timelineId: draft.timelineId, node: ghosts.get(day) }
+                  : null
+              }
+              handlers={(timelineId) => drag.handlers(day, timelineId)}
               timelines={timelines}
               categories={categories}
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
-              active={day === activeDay}
               onSelect={() => select(day)}
             />
           ))}
@@ -282,38 +360,36 @@ function DayBadge({ count }: { count: DayObservationCount | undefined }) {
 
 interface DayColumnProps {
   blocks: Map<string, GridBlock[]> | undefined;
+  /** The day's piece of the block being drawn, if any, and its timeline. */
+  ghost: { timelineId: string; node: ReactNode } | null;
+  /** The drawing handlers for one of the day's sub-columns. */
+  handlers: (timelineId: string) => SubColumnHandlers;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   timeZone: string;
   /** Where the now line goes, as a fraction of the day, or `null` when it is not today. */
   nowAt: number | null;
-  /** Whether this is the active day, which gets the accent outline. */
-  active: boolean;
   /** Makes this the active day. */
   onSelect: () => void;
 }
 
 function DayColumn({
   blocks,
+  ghost,
+  handlers,
   timelines,
   categories,
   timeZone,
   nowAt,
-  active,
   onSelect,
 }: DayColumnProps) {
   return (
     // A mouse shortcut only: the day's header button is the keyboard way to select it.
     // biome-ignore lint/a11y/noStaticElementInteractions: see above.
     // biome-ignore lint/a11y/useKeyWithClickEvents: see above.
-    <div
-      className={classes.day}
-      data-today={nowAt !== null || undefined}
-      data-active={active || undefined}
-      onClick={onSelect}
-    >
+    <div className={classes.day} {...{ [DAY_COLUMN]: "" }} onClick={onSelect}>
       {timelines.map((t) => (
-        <div key={t.id} className={classes.subColumn}>
+        <div key={t.id} className={classes.subColumn} {...handlers(t.id)}>
           {blocks?.get(t.id)?.map((block) => (
             <Block
               key={block.interval.id}
@@ -322,6 +398,7 @@ function DayColumn({
               timeZone={timeZone}
             />
           ))}
+          {ghost?.timelineId === t.id && ghost.node}
         </div>
       ))}
       {nowAt !== null && <div className={classes.nowLine} style={{ top: `${nowAt * 100}%` }} />}
@@ -369,6 +446,7 @@ function Block({ block, category, timeZone }: BlockProps) {
         } as CSSProperties
       }
       title={title}
+      data-block
       data-round-top={(i === 0 && !block.startsBefore) || undefined}
       data-round-bottom={(i === last && !block.endsAfter && !block.ongoing) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}
