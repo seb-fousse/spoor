@@ -1,16 +1,16 @@
 import { queryKeys } from "@lib/queryKeys";
 import {
   type Database,
+  type FieldDefinition,
   getLogTypeFields,
   getThingTitle,
-  type LogEntry,
   type LogField,
   listThings,
   listThingTypes,
   type ThingType,
+  type Value,
 } from "@spoor/core";
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 // One empty list for every caller: a new [] each render would re-run effects that depend on it.
 const NO_FIELDS: LogField[] = [];
@@ -28,43 +28,65 @@ export function useFields(db: Database, typeId: string): LogField[] {
 }
 
 /** Thing types a `ref` field can target: live and unarchived. */
-export function useThingTypes(db: Database) {
-  const [types, setTypes] = useState<ThingType[]>([]);
-  useEffect(() => {
-    listThingTypes(db).then((all) => setTypes(all.filter((t) => t.archivedAt === null)));
-  }, [db]);
-  return types;
+export function useThingTypes(db: Database): ThingType[] {
+  const { data } = useQuery({
+    queryKey: queryKeys.things.types,
+    queryFn: () => listThingTypes(db),
+    select: unarchived,
+  });
+  return data ?? NO_TYPES;
 }
+
+const NO_TYPES: ThingType[] = [];
+// Module-level, so the selection is only redone when the types change.
+const unarchived = (types: ThingType[]) => types.filter((t) => t.archivedAt === null);
 
 /** The live things of a type, by title, to pick from. */
 export function useThings(db: Database, thingTypeId: string | null) {
-  const [things, setThings] = useState<{ id: string; title: string }[]>([]);
-  useEffect(() => {
-    if (thingTypeId === null) return;
-    listThings(db, thingTypeId)
-      .then((list) =>
-        Promise.all(
-          list.map(async (t) => ({ id: t.id, title: (await getThingTitle(db, t.id)) ?? t.id })),
-        ),
-      )
-      .then(setThings);
-  }, [db, thingTypeId]);
-  return things;
+  const { data } = useQuery({
+    queryKey: queryKeys.things.options(thingTypeId ?? ""),
+    queryFn: async () => {
+      const things = await listThings(db, thingTypeId as string);
+      return Promise.all(
+        things.map(async (t) => ({ id: t.id, title: (await getThingTitle(db, t.id)) ?? t.id })),
+      );
+    },
+    enabled: thingTypeId !== null,
+  });
+  return data ?? NO_THINGS;
 }
 
-/** The titles of the things an entry refers to. */
-export function useRefTitles(db: Database, fields: LogField[], entry: LogEntry) {
-  const [titles, setTitles] = useState(new Map<string, string>());
-  useEffect(() => {
-    const ids = fields.flatMap((f) => {
-      const value = entry.values[f.id];
+const NO_THINGS: { id: string; title: string }[] = [];
+
+/**
+ * The titles of the things a log entry or thing refers to, by id. A thing
+ * without a title is left out, so callers show its id instead.
+ */
+export function useRefTitles(
+  db: Database,
+  fields: FieldDefinition[],
+  record: { values: Record<string, Value> },
+): Map<string, string> {
+  const ids = fields
+    .flatMap((f) => {
+      const value = record.values[f.id];
       if (f.shape.valueType === "ref") return [value as string];
       if (f.shape.valueType === "multi_ref") return value as string[];
       return [];
-    });
-    Promise.all(
-      ids.filter(Boolean).map(async (id) => [id, (await getThingTitle(db, id)) ?? id] as const),
-    ).then((pairs) => setTitles(new Map(pairs)));
-  }, [db, fields, entry]);
-  return titles;
+    })
+    .filter(Boolean);
+  const { data } = useQuery({
+    queryKey: queryKeys.things.titles(ids),
+    queryFn: async () => {
+      const pairs = await Promise.all(
+        ids.map(async (id) => [id, await getThingTitle(db, id)] as const),
+      );
+      return new Map(pairs.filter((p): p is [string, string] => p[1] !== undefined));
+    },
+    // Keeps the old titles while edited values' titles load, rather than flashing ids.
+    placeholderData: keepPreviousData,
+  });
+  return data ?? NO_TITLES;
 }
+
+const NO_TITLES = new Map<string, string>();
