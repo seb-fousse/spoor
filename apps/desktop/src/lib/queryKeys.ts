@@ -12,6 +12,8 @@ export const queryKeys = {
   timeZone: ["db", "settings", "timeZone"] as const,
 
   timelines: {
+    /** Everything below: what creating a category or an interval invalidates. */
+    all: ["db", "timelines"] as const,
     /** The unarchived timelines and their categories, for the grid. */
     grid: ["db", "timelines", "grid"] as const,
     intervals: (

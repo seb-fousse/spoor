@@ -1,0 +1,39 @@
+/* One choice in the category popover. */
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--mantine-radius-xs);
+  font-size: var(--mantine-font-size-xs);
+  color: var(--app-text);
+
+  &:hover,
+  &:focus-visible {
+    background: var(--app-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.key {
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  color: var(--app-text-muted);
+}
