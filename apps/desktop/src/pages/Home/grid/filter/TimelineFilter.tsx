@@ -2,13 +2,7 @@ import { Checkbox, Popover, UnstyledButton } from "@mantine/core";
 import type { Timeline } from "@spoor/core";
 import { useId } from "react";
 import classes from "./TimelineFilter.module.css";
-import {
-  allShown,
-  type HiddenTimelines,
-  setAll,
-  toggleTimeline,
-  visibleTimelines,
-} from "./timelineVisibility";
+import { type HiddenTimelines, toggleTimeline, visibleTimelines } from "./timelineVisibility";
 
 interface TimelineFilterProps {
   /** Every timeline the grid could show, one checkbox each. */
@@ -25,7 +19,7 @@ interface TimelineFilterProps {
  */
 export function TimelineFilter({ timelines, hidden, onChange }: TimelineFilterProps) {
   const shown = visibleTimelines(timelines, hidden).length;
-  const everyShown = allShown(timelines, hidden);
+  const everyShown = shown === timelines.length;
   const id = useId();
 
   return (
@@ -87,7 +81,8 @@ export function TimelineFilter({ timelines, hidden, onChange }: TimelineFilterPr
             radius={0}
             checked={everyShown}
             indeterminate={!everyShown && shown > 0}
-            onChange={() => onChange(setAll(timelines, !everyShown))}
+            // Show all, or hide all when every one is already shown.
+            onChange={() => onChange(new Set(everyShown ? timelines.map((t) => t.id) : []))}
           />
           <span className={classes.optionName}>Select all</span>
         </label>

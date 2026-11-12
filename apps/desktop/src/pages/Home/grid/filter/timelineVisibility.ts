@@ -18,13 +18,3 @@ export function toggleTimeline(hidden: HiddenTimelines, id: string): HiddenTimel
   if (!next.delete(id)) next.add(id);
   return next;
 }
-
-/** Nothing hidden: every one of `timelines` is shown. */
-export function allShown(timelines: Timeline[], hidden: HiddenTimelines): boolean {
-  return timelines.every((t) => !hidden.has(t.id));
-}
-
-/** Hides every one of `timelines`, or shows them all. */
-export function setAll(timelines: Timeline[], shown: boolean): HiddenTimelines {
-  return shown ? new Set() : new Set(timelines.map((t) => t.id));
-}

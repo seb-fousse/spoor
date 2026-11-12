@@ -3,7 +3,6 @@ import {
   type Database,
   type LocalDate,
   type MetricDay,
-  type Observation,
   optionLabel,
   type Value,
 } from "@spoor/core";
@@ -23,8 +22,6 @@ interface ObservationRailProps {
   db: Database;
   /** The day the cards show and record on. */
   day: LocalDate;
-  /** Called after each recorded value, so other views of the day can refresh. */
-  onRecorded?: (observation: Observation) => void;
 }
 
 /**
@@ -32,13 +29,13 @@ interface ObservationRailProps {
  * that fits the metric's type. One click (or, for a typed number, Enter or
  * leaving the field) records the value; recording again revises it.
  */
-export function ObservationRail({ db, day, onRecorded }: ObservationRailProps) {
-  const data = useDayObservations(db, day, onRecorded);
+export function ObservationRail({ db, day }: ObservationRailProps) {
+  const data = useDayObservations(db, day);
   const { recorded, total } = countRecorded(data.items);
   // The previous day's cards stay until the new ones load, shown but not usable.
   // Most loads finish within a frame, so the stale styling only shows after a
   // delay (see the CSS), and nothing else changes until the new day arrives.
-  const stale = data.day !== day;
+  const { stale } = data;
 
   return (
     <section className={classes.rail} aria-labelledby="observations-title">
@@ -59,7 +56,7 @@ export function ObservationRail({ db, day, onRecorded }: ObservationRailProps) {
             {data.error}
           </Alert>
         )}
-        {data.day === null && data.error === null && <Loader size="sm" />}
+        {data.loading && <Loader size="sm" />}
         {data.day !== null && data.items.length === 0 && (
           <Text c="dimmed">
             No metrics yet. Add one on the Observations page to record it here.

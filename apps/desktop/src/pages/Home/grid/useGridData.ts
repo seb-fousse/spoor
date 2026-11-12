@@ -1,0 +1,79 @@
+import { useTimeZone } from "@hooks/useTimeZone";
+import { queryKeys } from "@lib/queryKeys";
+import {
+  addDays,
+  type Database,
+  type LocalDate,
+  listCategories,
+  listIntervalsInRange,
+  listTimelines,
+  startOfDay,
+  type Timeline,
+  type TimelineCategory,
+  type TimelineInterval,
+} from "@spoor/core";
+import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
+
+interface GridMeta {
+  /** The timelines shown, one sub-column each: the unarchived ones, by name. */
+  timelines: Timeline[];
+  /** The shown timelines' categories by id, archived included (old intervals use them). */
+  categories: Map<string, TimelineCategory>;
+}
+
+export type GridData =
+  | { status: "loading" }
+  | { status: "error"; error: string }
+  | ({
+      status: "ready";
+      /** The zone the grid's days are counted in (the `time_zone` setting). */
+      timeZone: string;
+      intervals: TimelineInterval[];
+    } & GridMeta);
+
+async function loadGridMeta(db: Database): Promise<GridMeta> {
+  const timelines = (await listTimelines(db)).filter((t) => t.archivedAt === null);
+  const categories = new Map<string, TimelineCategory>();
+  // One at a time: every query shares one connection.
+  for (const timeline of timelines) {
+    for (const category of await listCategories(db, timeline.id)) {
+      categories.set(category.id, category);
+    }
+  }
+  return { timelines, categories };
+}
+
+/**
+ * What the timeline grid draws for `days`, a run of consecutive dates.
+ *
+ * The zone, timelines and categories refetch each time Home mounts, so edits
+ * made on other pages show up; the cached ones show meanwhile. The intervals
+ * reload whenever the window moves. Until the new ones arrive, the previous
+ * ones stay on screen, so paging doesn't flash empty.
+ */
+export function useGridData(db: Database, days: readonly LocalDate[]): GridData {
+  const timeZone = useTimeZone(db);
+  const meta = useQuery({ queryKey: queryKeys.timelines.grid, queryFn: () => loadGridMeta(db) });
+
+  const zone = timeZone.data;
+  const timelineIds = meta.data?.timelines.map((t) => t.id);
+  const first = days[0];
+  const last = days.at(-1);
+  const intervals = useQuery({
+    queryKey: queryKeys.timelines.intervals(timelineIds ?? [], first, last, zone),
+    queryFn:
+      zone !== undefined && timelineIds && first !== undefined && last !== undefined
+        ? () =>
+            listIntervalsInRange(db, timelineIds, {
+              from: startOfDay(first, zone),
+              to: startOfDay(addDays(last, 1), zone),
+            })
+        : skipToken,
+    placeholderData: keepPreviousData,
+  });
+
+  const error = timeZone.error ?? meta.error ?? intervals.error;
+  if (error) return { status: "error", error: error.message };
+  if (zone === undefined || !meta.data || !intervals.data) return { status: "loading" };
+  return { status: "ready", timeZone: zone, intervals: intervals.data, ...meta.data };
+}

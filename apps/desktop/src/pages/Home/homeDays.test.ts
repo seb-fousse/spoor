@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatDay,
   formatWindow,
   type HomeDays,
   type HomeDaysAction,
@@ -136,11 +135,7 @@ describe("setRange", () => {
   });
 });
 
-describe("formatting", () => {
-  it("labels the active day with a short weekday", () => {
-    expect(formatDay(TODAY, "en-GB")).toBe("Mon, 9 Nov 2026");
-  });
-
+describe("formatWindow", () => {
   it("labels a multi-day window as a range", () => {
     expect(formatWindow(initialHomeDays(TODAY), "en-GB")).toMatch(/^5\s*–\s*9 Nov 2026$/);
   });

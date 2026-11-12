@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import { createQueryClient } from "@lib/queryClient";
 import type { Database } from "@spoor/core";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,10 +27,16 @@ function Page() {
 
 /** The app: the provider always mounted, the page only while the user is on Home. */
 function App({ onHome }: { onHome: boolean }) {
-  return <HomeStateProvider db={db}>{onHome ? <Page /> : null}</HomeStateProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <HomeStateProvider db={db}>{onHome ? <Page /> : null}</HomeStateProvider>
+    </QueryClientProvider>
+  );
 }
 
 let root: Root;
+// A fresh cache per test, so no test sees another's loaded setting.
+let queryClient: QueryClient;
 
 /** Renders the app, then lets the time zone load. */
 async function show(onHome: boolean) {
@@ -64,11 +72,13 @@ beforeEach(() => {
   // Fake the clock and the minute check, but keep setTimeout real for `show`.
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   vi.setSystemTime(Date.UTC(2026, 10, 9, 12));
+  queryClient = createQueryClient();
   root = createRoot(document.createElement("div"));
 });
 
 afterEach(() => {
   act(() => root.unmount());
+  queryClient.clear();
   vi.useRealTimers();
 });
 

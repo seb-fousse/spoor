@@ -17,6 +17,7 @@ export default defineConfig(() => ({
       "@components": src("components"),
       "@hooks": src("hooks"),
       "@keyboard": src("keyboard"),
+      "@lib": src("lib"),
       "@pages": src("pages"),
       "@platform": src("platform"),
       "@routes": src("routes.ts"),

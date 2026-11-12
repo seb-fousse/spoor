@@ -1,5 +1,6 @@
+import { useTimeZone } from "@hooks/useTimeZone";
 import { useToday } from "@hooks/useToday";
-import { type Database, getTimeZone, type LocalDate } from "@spoor/core";
+import type { Database, LocalDate } from "@spoor/core";
 import {
   createContext,
   type Dispatch,
@@ -9,7 +10,6 @@ import {
   useMemo,
   useReducer,
   useRef,
-  useState,
 } from "react";
 import { type HomeDays, type HomeDaysAction, homeDaysReducer, initialHomeDays } from "./homeDays";
 
@@ -34,17 +34,9 @@ const HomeStateContext = createContext<HomeState | null>(null);
 export function HomeStateProvider({ db, children }: { db: Database; children: ReactNode }) {
   // Until the setting loads, today is the device's today. If the setting's
   // date differs, the rollover below moves the window to it.
-  const [timeZone, setTimeZone] = useState<string>();
-  useEffect(() => {
-    let cancelled = false;
-    // On failure, keep the device's zone; the grid reports its own load errors.
-    getTimeZone(db)
-      .then((zone) => !cancelled && setTimeZone(zone))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [db]);
+  // On failure, keep the device's zone; the grid reports its own load errors.
+  // The grid reads the same query, so both always count days in the same zone.
+  const { data: timeZone } = useTimeZone(db);
   const today = useToday(timeZone);
   const [days, dispatch] = useReducer(homeDaysReducer, today, initialHomeDays);
 

@@ -19,9 +19,10 @@ import {
   type NewLogEntry,
   type Value,
 } from "@spoor/core";
-import { useEffect, useState } from "react";
-import { formatDay } from "./homeDays";
-import { childTypes, topLevelTypes } from "./logForm";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { formatDay } from "@lib/format";
+import { queryKeys } from "@lib/queryKeys";
 import classes from "./NewLogModal.module.css";
 
 interface NewLogModalProps {
@@ -30,8 +31,6 @@ interface NewLogModalProps {
   /** The active day, which the new entry is on. */
   day: LocalDate;
   onClose: () => void;
-  /** Called after each entry is stored, so the list can reload. */
-  onCreated: () => void;
 }
 
 /**
@@ -39,36 +38,37 @@ interface NewLogModalProps {
  * per log type; choosing one shows that type's form, with a back button in the
  * header to choose again. A type with child types then stays open to add them.
  */
-export function NewLogModal({ db, opened, day, onClose, onCreated }: NewLogModalProps) {
-  const [types, setTypes] = useState<LogType[] | null>(null);
+export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
+  const queryClient = useQueryClient();
   const [typeId, setTypeId] = useState<string | null>(null);
   const [created, setCreated] = useState<LogEntry | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!opened) return;
-    listLogTypes(db)
-      .then(setTypes)
-      .catch((e: Error) => setError(e.message));
-  }, [db, opened]);
+  // Loaded the first time the modal opens, then refreshed on each open.
+  const typesQuery = useQuery({
+    queryKey: queryKeys.logTypes.list,
+    queryFn: () => listLogTypes(db),
+    enabled: opened,
+  });
+  const types = typesQuery.data ?? null;
 
-  const choices = topLevelTypes(types ?? []);
+  // Each stored entry invalidates the day lists, so the rail shows it.
+  const createEntry = useMutation({
+    mutationFn: (input: NewLogEntry) => createLogEntry(db, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.logs.all }),
+  });
+  // The last save's error, cleared by the next save or by going back.
+  const error = createEntry.error?.message ?? typesQuery.error?.message ?? null;
+
+  // Live types only. Top-level ones get a card; a chosen type's children are added inside its entry.
+  const live = (types ?? []).filter((t) => t.archivedAt === null);
+  const choices = live.filter((t) => t.parentTypeId === null);
   const type = types?.find((t) => t.id === typeId) ?? null;
-  const children = type ? childTypes(types ?? [], type.id) : [];
+  const children = type ? live.filter((t) => t.parentTypeId === type.id) : [];
   // Going back would orphan the entry just created, so only the form step has it.
   const canGoBack = type !== null && created === null;
 
-  const create = async (input: NewLogEntry) => {
-    try {
-      const entry = await createLogEntry(db, input);
-      setError(null);
-      onCreated();
-      return entry;
-    } catch (e) {
-      setError((e as Error).message);
-      return null;
-    }
-  };
+  // The entry, or null if saving failed (the mutation's error shows it).
+  const create = (input: NewLogEntry) => createEntry.mutateAsync(input).catch(() => null);
 
   const createTopLevel = async (time: EntryTimeInput, values: Record<string, Value>) => {
     if (!type) return;
@@ -87,7 +87,7 @@ export function NewLogModal({ db, opened, day, onClose, onCreated }: NewLogModal
           aria-label="Back to log types"
           onClick={() => {
             setTypeId(null);
-            setError(null);
+            createEntry.reset();
           }}
         >
           ‹
@@ -108,7 +108,7 @@ export function NewLogModal({ db, opened, day, onClose, onCreated }: NewLogModal
       onExitTransitionEnd={() => {
         setTypeId(null);
         setCreated(null);
-        setError(null);
+        createEntry.reset();
       }}
     >
       <Stack gap="md">
@@ -176,7 +176,7 @@ function TypeForm({
   day: LocalDate;
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }) {
-  const fields = useFields(db, type.id, 0);
+  const fields = useFields(db, type.id);
   return (
     <EntryForm
       db={db}
@@ -198,7 +198,7 @@ function ChildForm({
   type: LogType;
   onCreate: (values: Record<string, Value>) => Promise<unknown>;
 }) {
-  const fields = useFields(db, type.id, 0);
+  const fields = useFields(db, type.id);
   const [added, setAdded] = useState(0);
   return (
     <Stack gap="xs">

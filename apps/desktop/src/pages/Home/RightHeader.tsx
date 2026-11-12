@@ -1,8 +1,9 @@
 import { ArrowButtons } from "@components/ArrowButtons";
+import { formatDay } from "@lib/format";
 import type { LocalDate } from "@spoor/core";
 import type { Dispatch } from "react";
 import classes from "./Home.module.css";
-import { formatDay, type HomeDaysAction } from "./homeDays";
+import type { HomeDaysAction } from "./homeDays";
 
 interface RightHeaderProps {
   activeDay: LocalDate;

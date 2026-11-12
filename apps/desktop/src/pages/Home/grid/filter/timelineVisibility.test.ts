@@ -1,6 +1,6 @@
 import type { Timeline } from "@spoor/core";
 import { describe, expect, it } from "vitest";
-import { allShown, setAll, toggleTimeline, visibleTimelines } from "./timelineVisibility";
+import { toggleTimeline, visibleTimelines } from "./timelineVisibility";
 
 const timeline = (id: string) => ({ id, name: id }) as Timeline;
 const TIMELINES = [timeline("a"), timeline("b"), timeline("c")];
@@ -36,29 +36,5 @@ describe("toggleTimeline", () => {
     const hidden = new Set(["a"]);
     toggleTimeline(hidden, "b");
     expect(hidden).toEqual(new Set(["a"]));
-  });
-});
-
-describe("allShown", () => {
-  it("is true when nothing is hidden", () => {
-    expect(allShown(TIMELINES, new Set())).toBe(true);
-  });
-
-  it("is false when any timeline is hidden", () => {
-    expect(allShown(TIMELINES, new Set(["c"]))).toBe(false);
-  });
-
-  it("ignores ids of timelines that no longer exist", () => {
-    expect(allShown(TIMELINES, new Set(["gone"]))).toBe(true);
-  });
-});
-
-describe("setAll", () => {
-  it("shows everything with an empty set", () => {
-    expect(setAll(TIMELINES, true)).toEqual(new Set());
-  });
-
-  it("hides everything by listing every id", () => {
-    expect(setAll(TIMELINES, false)).toEqual(new Set(["a", "b", "c"]));
   });
 });
