@@ -2,18 +2,18 @@ import { FluidSplitter } from "@components/FluidSplitter";
 import { useShortcuts } from "@keyboard";
 import { Splitter } from "@mantine/core";
 import type { Database } from "@spoor/core";
-import { useMemo, useReducer } from "react";
+import { useMemo, useState } from "react";
 import { dayShortcuts } from "./dayShortcuts";
+import type { HiddenTimelines } from "./grid/filter/timelineVisibility";
+import { TimelineGrid } from "./grid/TimelineGrid";
+import { useGridData } from "./grid/useGridData";
 import classes from "./Home.module.css";
 import { useHomeState } from "./HomeState";
 import { windowDays } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
-import { LogRail } from "./LogRail";
-import { ObservationRail } from "./ObservationRail";
+import { LogRail } from "./logs/LogRail";
+import { ObservationRail } from "./observations/ObservationRail";
 import { RightHeader } from "./RightHeader";
-import { TimelineGrid } from "./TimelineGrid";
-import { useGridData } from "./useGridData";
-import { useTimelineFilter } from "./useTimelineFilter";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
@@ -27,14 +27,12 @@ export function Home({ db }: { db: Database }) {
   const visibleDays = useMemo(() => windowDays(days), [days]);
   // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
   useShortcuts(dayShortcuts(dispatch));
-  // Bumped after each value recorded in the rail, so the grid's day badges recount.
-  const [observationsVersion, bumpObservations] = useReducer((n: number) => n + 1, 0);
   // Loaded here, not in the grid, because the header's filter lists the same timelines.
   const gridData = useGridData(db, visibleDays);
-  const [hiddenTimelines, setHiddenTimelines] = useTimelineFilter();
+  // Kept in Home, so the filter resets when the user leaves the page.
+  const [hiddenTimelines, setHiddenTimelines] = useState<HiddenTimelines>(() => new Set());
 
   return (
-    // Fill the whole area above the bottom bar.
     <FluidSplitter h="calc(100dvh - var(--app-shell-footer-height))">
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
@@ -54,7 +52,6 @@ export function Home({ db }: { db: Database }) {
             days={visibleDays}
             activeDay={days.activeDay}
             dispatch={dispatch}
-            observationsVersion={observationsVersion}
           />
         </div>
       </Splitter.Pane>
@@ -63,11 +60,10 @@ export function Home({ db }: { db: Database }) {
         <div className={classes.column}>
           <RightHeader activeDay={days.activeDay} dispatch={dispatch} />
 
-          {/* Observations above, logs below, split evenly. */}
           <div className={classes.fill}>
             <FluidSplitter orientation="vertical" h="100%">
               <Splitter.Pane defaultSize={50}>
-                <ObservationRail db={db} day={days.activeDay} onRecorded={bumpObservations} />
+                <ObservationRail db={db} day={days.activeDay} />
               </Splitter.Pane>
 
               <Splitter.Pane defaultSize={50}>

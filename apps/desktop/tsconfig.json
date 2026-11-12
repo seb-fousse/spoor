@@ -10,6 +10,7 @@
       "@components/*": ["./src/components/*"],
       "@hooks/*": ["./src/hooks/*"],
       "@keyboard": ["./src/keyboard/index.ts"],
+      "@lib/*": ["./src/lib/*"],
       "@pages/*": ["./src/pages/*"],
       "@platform/*": ["./src/platform/*"],
       "@routes": ["./src/routes.ts"],

@@ -1,16 +1,18 @@
+import { dateFormat } from "@lib/format";
 import { type LogEntry, type LogField, optionLabel, type Precision, type Value } from "@spoor/core";
+
+const PRECISION_FORMATS: Record<Precision, Intl.DateTimeFormatOptions> = {
+  instant: { dateStyle: "medium", timeStyle: "short" },
+  day: { dateStyle: "medium" },
+  month: { year: "numeric", month: "short" },
+  year: { year: "numeric" },
+};
 
 /** The entry's time, showing only the part its precision knows. */
 export function formatTime(entry: LogEntry): string {
   const { occurredAt, precision, timeZone } = entry.resolved;
-  const options: Record<Precision, Intl.DateTimeFormatOptions> = {
-    instant: { dateStyle: "medium", timeStyle: "short" },
-    day: { dateStyle: "medium" },
-    month: { year: "numeric", month: "short" },
-    year: { year: "numeric" },
-  };
-  const format = (instant: number) =>
-    new Date(instant).toLocaleString(undefined, { ...options[precision], timeZone });
+  const formatter = dateFormat({ ...PRECISION_FORMATS[precision], timeZone });
+  const format = (instant: number) => formatter.format(instant);
   return entry.endedAt === null
     ? format(occurredAt)
     : `${format(occurredAt)} → ${format(entry.endedAt)}`;

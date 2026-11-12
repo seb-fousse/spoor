@@ -1,3 +1,4 @@
+import { queryKeys } from "@lib/queryKeys";
 import {
   type Database,
   getLogTypeFields,
@@ -8,16 +9,22 @@ import {
   listThingTypes,
   type ThingType,
 } from "@spoor/core";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-/** The fields of a log type, reloaded when `reload` changes. */
-export function useFields(db: Database, typeId: string, reload: number) {
-  const [fields, setFields] = useState<LogField[]>([]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `reload` triggers the reload.
-  useEffect(() => {
-    getLogTypeFields(db, typeId).then(setFields);
-  }, [db, typeId, reload]);
-  return fields;
+// One empty list for every caller: a new [] each render would re-run effects that depend on it.
+const NO_FIELDS: LogField[] = [];
+
+/**
+ * The fields of a log type, empty until they load. Cached per type, so every
+ * row of one type shares one query; writes to log types invalidate them.
+ */
+export function useFields(db: Database, typeId: string): LogField[] {
+  const { data } = useQuery({
+    queryKey: queryKeys.logTypes.fields(typeId),
+    queryFn: () => getLogTypeFields(db, typeId),
+  });
+  return data ?? NO_FIELDS;
 }
 
 /** Thing types a `ref` field can target: live and unarchived. */

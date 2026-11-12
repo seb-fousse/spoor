@@ -2,6 +2,8 @@ import { ArrowButtons } from "@components/ArrowButtons";
 import { SegmentedControl, UnstyledButton } from "@mantine/core";
 import type { LocalDate, Timeline } from "@spoor/core";
 import type { Dispatch } from "react";
+import { TimelineFilter } from "./grid/filter/TimelineFilter";
+import type { HiddenTimelines } from "./grid/filter/timelineVisibility";
 import classes from "./Home.module.css";
 import {
   type DayRange,
@@ -11,8 +13,6 @@ import {
   isAtToday,
   RANGES,
 } from "./homeDays";
-import { TimelineFilter } from "./TimelineFilter";
-import type { HiddenTimelines } from "./timelineVisibility";
 
 interface LeftHeaderProps {
   days: HomeDays;
@@ -62,7 +62,6 @@ export function LeftHeader({
           />
         )}
 
-        {/* Pushed to the right edge: Today, then the arrows that page the days. */}
         <div className={classes.end}>
           <UnstyledButton
             className={classes.today}

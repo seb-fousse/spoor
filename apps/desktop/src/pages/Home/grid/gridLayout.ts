@@ -1,3 +1,4 @@
+import { formatClockTime } from "@lib/format";
 import type { MantineColor } from "@mantine/core";
 import {
   addDays,
@@ -120,13 +121,6 @@ export function splitByDay(
   return blocks;
 }
 
-/**
- * Fits overlapping blocks together like tetris pieces, so the column is always
- * full. Time is cut at every start and end. In each stretch, the blocks active
- * then split the width equally, in start order. If A overlaps the start of B,
- * A is full width, then A and B are half each, then B is full width. Returns
- * new blocks ordered by start.
- */
 /** A segment while it is being built, in instants rather than fractions. */
 interface Stretch {
   from: Instant;
@@ -135,6 +129,13 @@ interface Stretch {
   lanes: number;
 }
 
+/**
+ * Fits overlapping blocks together like tetris pieces, so the column is always
+ * full. Time is cut at every start and end. In each stretch, the blocks active
+ * then split the width equally, in start order. If A overlaps the start of B,
+ * A is full width, then A and B are half each, then B is full width. Returns
+ * new blocks ordered by start.
+ */
 export function fitSegments(blocks: readonly GridBlock[]): GridBlock[] {
   const sorted = [...blocks].sort(
     (a, b) => a.start - b.start || a.end - b.end || (a.interval.id < b.interval.id ? -1 : 1),
@@ -243,25 +244,6 @@ export function categoryColor(categoryId: string): MantineColor {
   return CATEGORY_COLORS[(hash >>> 0) % CATEGORY_COLORS.length] as MantineColor;
 }
 
-// Building a formatter is far slower than using one, and the grid formats every block.
-const timeFormatters = new Map<string, Intl.DateTimeFormat>();
-
-/** `instant` as a 24-hour wall-clock time in `timeZone`, such as "09:30". */
-export function formatTime(instant: Instant, timeZone: string, locale?: string): string {
-  const key = `${timeZone}|${locale ?? ""}`;
-  let found = timeFormatters.get(key);
-  if (!found) {
-    found = new Intl.DateTimeFormat(locale, {
-      timeZone,
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    });
-    timeFormatters.set(key, found);
-  }
-  return found.format(instant);
-}
-
 /** A block's tooltip, such as "Work · 09:00–10:30" or "Work · since 09:00". */
 export function describeBlock(
   block: GridBlock,
@@ -270,7 +252,7 @@ export function describeBlock(
   locale?: string,
 ): string {
   const { startAt, endAt } = block.interval;
-  const start = formatTime(startAt, timeZone, locale);
+  const start = formatClockTime(startAt, timeZone, locale);
   if (endAt === null) return `${categoryName} · since ${start}`;
-  return `${categoryName} · ${start}–${formatTime(endAt, timeZone, locale)}`;
+  return `${categoryName} · ${start}–${formatClockTime(endAt, timeZone, locale)}`;
 }

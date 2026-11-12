@@ -14,6 +14,7 @@ import {
   useRefTitles,
   useThingTypes,
 } from "@components/LogEntryForm";
+import { queryKeys } from "@lib/queryKeys";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import {
   addLogField,
@@ -37,6 +38,7 @@ import {
   setLogTypeArchived,
   updateLogField,
 } from "@spoor/core";
+import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 
 /**
@@ -54,12 +56,19 @@ export function Logs({ db }: { db: Database }) {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
-  // Runs a write, shows any error, and reloads everything.
+  const queryClient = useQueryClient();
+
+  // Runs a write, shows any error, and reloads everything: this page's own
+  // loads through `version`, cached queries (fields, entries) by invalidating them.
   const run: Run = (action) => {
     setError(null);
     action()
       .catch((e: Error) => setError(e.message))
-      .finally(() => setVersion((v) => v + 1));
+      .finally(() => {
+        setVersion((v) => v + 1);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.logTypes.all });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.logs.all });
+      });
   };
 
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
@@ -247,7 +256,7 @@ function LogTypeDetail({
   version: number;
   run: Run;
 }) {
-  const fields = useFields(db, type.id, version);
+  const fields = useFields(db, type.id);
   const thingTypes = useThingTypes(db);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
@@ -339,7 +348,7 @@ function EntryItem({
   version: number;
   run: Run;
 }) {
-  const fields = useFields(db, entry.logTypeId, version);
+  const fields = useFields(db, entry.logTypeId);
   const titles = useRefTitles(db, fields, entry);
   const [children, setChildren] = useState<LogEntry[]>([]);
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
@@ -420,14 +429,7 @@ function EntryItem({
           {childTypes
             .filter((t) => t.archivedAt === null)
             .map((t) => (
-              <ChildEntryForm
-                key={t.id}
-                db={db}
-                type={t}
-                parentEntryId={entry.id}
-                run={run}
-                version={version}
-              />
+              <ChildEntryForm key={t.id} db={db} type={t} parentEntryId={entry.id} run={run} />
             ))}
         </Stack>
       )}
@@ -439,16 +441,14 @@ function ChildEntryForm({
   db,
   type,
   parentEntryId,
-  version,
   run,
 }: {
   db: Database;
   type: LogType;
   parentEntryId: string;
-  version: number;
   run: Run;
 }) {
-  const fields = useFields(db, type.id, version);
+  const fields = useFields(db, type.id);
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>

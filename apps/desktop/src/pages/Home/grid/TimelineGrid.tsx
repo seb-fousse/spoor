@@ -1,5 +1,6 @@
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler } from "@keyboard";
+import { formatShortDay } from "@lib/format";
 import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
 import {
   type Database,
@@ -18,8 +19,10 @@ import {
   useMemo,
   useRef,
 } from "react";
+import { dayShortcuts } from "../dayShortcuts";
+import type { HomeDaysAction } from "../homeDays";
 import { completeness, completenessLabel } from "./completeness";
-import { dayShortcuts } from "./dayShortcuts";
+import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
   categoryColor,
   describeBlock,
@@ -27,9 +30,7 @@ import {
   layoutGrid,
   nowFraction,
 } from "./gridLayout";
-import { formatShortDay, type HomeDaysAction } from "./homeDays";
 import classes from "./TimelineGrid.module.css";
-import { type HiddenTimelines, visibleTimelines } from "./timelineVisibility";
 import type { GridData } from "./useGridData";
 import { useObservationCounts } from "./useObservationCounts";
 
@@ -53,8 +54,6 @@ interface TimelineGridProps {
   activeDay: LocalDate;
   /** Changes the active day: picked from a header or column, or moved with the day keys. */
   dispatch: Dispatch<HomeDaysAction>;
-  /** Changes whenever an observation is recorded, so the day badges recount. */
-  observationsVersion: number;
 }
 
 /**
@@ -72,9 +71,8 @@ export function TimelineGrid({
   days,
   activeDay,
   dispatch,
-  observationsVersion,
 }: TimelineGridProps) {
-  const counts = useObservationCounts(db, days, observationsVersion);
+  const counts = useObservationCounts(db, days);
 
   if (data.status === "loading") {
     return (
