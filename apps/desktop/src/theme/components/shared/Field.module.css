@@ -1,0 +1,88 @@
+/*
+ * The look of every text-like field (TextInput, Select, MultiSelect, the date
+ * pickers; NumberInput has its own), shared so they can't drift apart. Class
+ * names match their common Styles API selectors, so the module is passed as
+ * `classNames`. Boxed like the segmented controls: a square cell with a
+ * hairline border on the bare surface, the value in mono, an accent border on
+ * focus. Labels read like the panel headers: small, mono, uppercase.
+ */
+.input {
+  --input-bd: var(--app-border);
+  --input-bd-focus: var(--app-accent);
+  --input-bg: transparent;
+
+  background: transparent;
+  color: var(--app-text);
+  font-family: var(--app-font-mono);
+
+  &::placeholder {
+    color: var(--app-text-muted);
+  }
+
+  &:where(:disabled, [data-disabled]) {
+    background: transparent;
+    color: color-mix(in srgb, var(--app-text-muted) 50%, transparent);
+  }
+}
+
+.label {
+  margin-bottom: 4px;
+  color: var(--app-text-muted);
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The required asterisk keeps Mantine's error red. */
+.required {
+  color: var(--mantine-color-error);
+}
+
+.error {
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.section {
+  color: var(--app-text-muted);
+}
+
+/* The popup list (and the date pickers' calendar): a raised, hairline-bordered panel. */
+.dropdown {
+  border: 1px solid var(--app-border);
+  border-radius: 0;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: none;
+}
+
+.option {
+  border-radius: 0;
+  color: var(--app-text);
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+
+  /* The highlighted option (hover or arrow keys). */
+  &:where([data-combobox-selected]),
+  &:hover:where(:not([data-combobox-disabled])) {
+    background: var(--app-surface-hover);
+    color: var(--app-text);
+  }
+
+  /* The chosen value: marked with the accent, as the active day is. */
+  &:where([data-combobox-active], [data-checked]) {
+    box-shadow: inset 2px 0 0 var(--app-accent);
+    font-weight: 700;
+  }
+}
+
+/* A chosen value in a multi-select. */
+.pill {
+  border: 1px solid var(--app-border);
+  border-radius: 0;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  font-family: var(--app-font-mono);
+}

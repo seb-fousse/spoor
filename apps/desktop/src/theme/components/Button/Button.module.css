@@ -1,4 +1,28 @@
 /*
- * Button placeholder. Add classes named after its Styles API selectors:
- * root, loader, inner, section, label
+ * Class names match Button's Styles API selectors. Labelled like the bar
+ * buttons ("Today"): small mono capitals. The default variant is a hairline
+ * cell on the bare surface that fills on hover; the filled and light variants
+ * keep Mantine's accent colors.
  */
+.root {
+  font-family: var(--app-font-mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  &:where([data-variant="default"]) {
+    border-color: var(--app-border);
+    background: transparent;
+    color: var(--app-text);
+
+    &:hover:where(:not(:disabled, [data-disabled])) {
+      background: var(--app-surface-hover);
+    }
+  }
+
+  &:where(:disabled, [data-disabled]) {
+    border-color: var(--app-border);
+    background: transparent;
+    color: color-mix(in srgb, var(--app-text-muted) 50%, transparent);
+  }
+}

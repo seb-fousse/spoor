@@ -1,4 +1,50 @@
 /*
- * Modal placeholder. Add classes named after its Styles API selectors:
- * root, overlay, content, inner, header, title, close, body
+ * Class names match Modal's Styles API selectors. A card in the panel style:
+ * a hairline border on the app surface, and a header bar like the rails'
+ * (raised, a hairline under it, the title in small mono capitals).
  */
+.content {
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 12px 32px color-mix(in srgb, black 25%, transparent);
+}
+
+.header {
+  height: 44px;
+  min-height: 44px;
+  /* No padding on the right: the close button is a cell flush with the corner. */
+  padding: 0 0 0 var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+}
+
+.title {
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.close {
+  --cb-size: 44px;
+  /* Sized and colored like the back arrow's glyph in the log modal. */
+  --cb-icon-size: 16px;
+
+  align-self: stretch;
+  height: 44px;
+  width: 44px;
+  border-left: 1px solid var(--app-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--app-text);
+
+  &:hover {
+    background: var(--app-surface-hover);
+  }
+}
+
+.body {
+  padding: var(--mantine-spacing-md);
+}
