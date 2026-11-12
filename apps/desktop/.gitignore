@@ -1,6 +1,4 @@
 # Logs
-# Only the log folder at the app root: an unanchored `logs` also hid src/pages/Home/logs
-# from git and Biome.
 /logs
 *.log
 npm-debug.log*
