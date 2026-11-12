@@ -1,0 +1,108 @@
+/*
+ * The timeline filter in the left header bar: a cell that opens a checklist.
+ * Like Today beside it, it is a full-height hairline cell with a mono label,
+ * not a row of options like the day range, so the two read as different
+ * controls. The cell takes its own right-hand divider; the range toggle
+ * already draws the one on its left.
+ */
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-shrink: 0;
+  padding: 0 var(--mantine-spacing-md);
+  border-right: 1px solid var(--app-border);
+  background: transparent;
+  color: var(--app-text);
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+
+  &:hover,
+  &[data-expanded] {
+    background: var(--app-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: -2px;
+  }
+}
+
+.icon {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+/* "3/4", boxed like the day badges in the grid. Accent while some are hidden. */
+.count {
+  padding: 0 4px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-xs);
+  color: var(--app-text-muted);
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 14px;
+
+  &[data-filtered] {
+    border-color: var(--app-accent);
+    background: var(--app-accent);
+    color: var(--app-surface);
+  }
+}
+
+/* Class names below are Popover's and Checkbox's own Styles API selectors, or ours. */
+.dropdown {
+  /* As wide as its longest name, within reason. The cell's width is its minimum, set in the component. */
+  width: max-content;
+  max-width: 15rem;
+  padding: 0;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: 0 12px 32px color-mix(in srgb, black 25%, transparent);
+}
+
+/* Scrolls past ten or so timelines. */
+.list {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+/*
+ * Each row is a <label> wrapping the box and the name, so it is one click
+ * target from edge to edge: the square box at the left, the name after it.
+ */
+.option {
+  display: flex;
+  align-items: center;
+  /* One spacing throughout: around the row, and between the box and the name. */
+  --option-space: 6px;
+
+  gap: var(--option-space);
+  padding: var(--option-space);
+  cursor: pointer;
+
+  /* Never squeezed by a long name, so the box stays square. */
+  & > :first-child {
+    flex-shrink: 0;
+  }
+}
+
+.optionName {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The select-all row heads the list, set apart only by its bold name. */
+.selectAll {
+  font-weight: 600;
+}
