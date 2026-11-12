@@ -39,4 +39,19 @@ export const queryKeys = {
     list: ["db", "logTypes", "list"] as const,
     fields: (typeId: string) => ["db", "logTypes", "fields", typeId] as const,
   },
+
+  things: {
+    /** Every thing read: thing types, their fields, things and their titles. */
+    all: ["db", "things"] as const,
+    /** Every thing type, archived ones too. */
+    types: ["db", "things", "types"] as const,
+    /** A thing type's fields, by position. */
+    fields: (typeId: string) => ["db", "things", "fields", typeId] as const,
+    /** A thing type's live things, with their values. */
+    ofType: (typeId: string) => ["db", "things", "ofType", typeId] as const,
+    /** A thing type's live things by title, to pick from. */
+    options: (typeId: string) => ["db", "things", "options", typeId] as const,
+    /** The titles of a set of things, which follow their values. */
+    titles: (ids: readonly string[]) => ["db", "things", "titles", ids] as const,
+  },
 };
