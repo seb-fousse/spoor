@@ -1,4 +1,12 @@
 /*
- * Alert placeholder. Add classes named after its Styles API selectors:
- * root, wrapper, body, title, label, message, icon, closeButton
+ * Class names match Alert's Styles API selectors. A notice in the panel
+ * style: square, with its title in small mono capitals like the rail headers.
+ * The color comes from the `color` prop, as in Mantine.
  */
+.title {
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
