@@ -43,7 +43,7 @@ export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
   const [typeId, setTypeId] = useState<string | null>(null);
   const [created, setCreated] = useState<LogEntry | null>(null);
 
-  // Loaded the first time the modal opens, then refreshed on each open.
+  // Loaded the first time the modal opens, then cached; the Logs page's type writes invalidate it.
   const typesQuery = useQuery({
     queryKey: queryKeys.logTypes.list,
     queryFn: () => listLogTypes(db),

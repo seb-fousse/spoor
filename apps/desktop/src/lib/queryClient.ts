@@ -8,16 +8,17 @@ import { QueryClient } from "@tanstack/react-query";
  *   pause waiting for a network.
  * - No retries: a failed SQLite query fails the same way the second time.
  * - No refetch on focus or reconnect: neither changes local data.
+ * - `["db"]` queries never go stale on their own: only the app writes to the
+ *   database, and every write invalidates (or sets) the queries whose data it
+ *   changes, so a cached result stays right until then. Refetching on each
+ *   mount would only redo reads, such as Home's grid on every return to it.
  *
- * `staleTime` stays at 0, so a query refetches whenever a component using it
- * mounts, showing the cached data meanwhile. Pages that don't use queries yet
- * write without invalidating, so this is how their edits reach Home. Once
- * every write invalidates what it changes, `["db"]` queries can use
- * `staleTime: Infinity`. Remote API queries, when they come, should get their
- * own defaults with `setQueryDefaults` on their key prefix.
+ * A write that skips invalidation now shows stale data until the app
+ * restarts, so each write lists what it invalidates beside it. Remote API
+ * queries, when they come, should get their own defaults on their own prefix.
  */
 export function createQueryClient(): QueryClient {
-  return new QueryClient({
+  const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
         networkMode: "always",
@@ -31,4 +32,6 @@ export function createQueryClient(): QueryClient {
       },
     },
   });
+  queryClient.setQueryDefaults(["db"], { staleTime: Infinity });
+  return queryClient;
 }

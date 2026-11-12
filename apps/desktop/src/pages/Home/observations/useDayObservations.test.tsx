@@ -162,20 +162,26 @@ describe("useDayObservations", () => {
     expect(current().items).toEqual([{ metric: sleep, observation: null }]);
   });
 
-  it("marks the grid's day counts out of date when a save succeeds", async () => {
+  it("marks the grid's day counts and the metric's list out of date when a save succeeds", async () => {
     vi.mocked(recordObservation).mockResolvedValue({
       observation: observation(MONDAY, 7),
       skipped: false,
     });
-    // The grid's counts for some window, loaded earlier.
+    // Loaded earlier: the grid's counts for some window, and the Observations
+    // page's lists for sleep and for another metric.
     const counts = queryKeys.observations.counts(MONDAY, TUESDAY);
-    queryClient.setQueryData(counts, new Map());
+    const sleepList = queryKeys.observations.metric(sleep.id);
+    const otherList = queryKeys.observations.metric("mood");
+    for (const key of [counts, sleepList, otherList]) queryClient.setQueryData(key, []);
     await showDay(MONDAY);
 
     await recordSleep(7);
     await settle();
 
     expect(queryClient.getQueryState(counts)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(sleepList)?.isInvalidated).toBe(true);
+    // Another metric's observations didn't change.
+    expect(queryClient.getQueryState(otherList)?.isInvalidated).toBe(false);
   });
 
   it("shows a failed save on its day, and not on other days", async () => {
@@ -193,15 +199,18 @@ describe("useDayObservations", () => {
     expect(current().error).toBe("disk full");
   });
 
-  it("leaves the grid's day counts alone when a save fails", async () => {
+  it("leaves the grid's day counts and the metric's list alone when a save fails", async () => {
     vi.mocked(recordObservation).mockRejectedValue(new Error("disk full"));
     const counts = queryKeys.observations.counts(MONDAY, TUESDAY);
+    const sleepList = queryKeys.observations.metric(sleep.id);
     queryClient.setQueryData(counts, new Map());
+    queryClient.setQueryData(sleepList, []);
     await showDay(MONDAY);
 
     await expect(recordSleep(7)).rejects.toThrow("disk full");
     await settle();
 
     expect(queryClient.getQueryState(counts)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(sleepList)?.isInvalidated).toBe(false);
   });
 });
