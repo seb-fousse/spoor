@@ -1,4 +1,6 @@
 import { EntryForm, type EntryTimeInput, useFields } from "@components/LogEntryForm";
+import { formatDay } from "@lib/format";
+import { queryKeys } from "@lib/queryKeys";
 import {
   ActionIcon,
   Alert,
@@ -21,8 +23,6 @@ import {
 } from "@spoor/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatDay } from "@lib/format";
-import { queryKeys } from "@lib/queryKeys";
 import classes from "./NewLogModal.module.css";
 
 interface NewLogModalProps {
@@ -43,7 +43,7 @@ export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
   const [typeId, setTypeId] = useState<string | null>(null);
   const [created, setCreated] = useState<LogEntry | null>(null);
 
-  // Loaded the first time the modal opens, then refreshed on each open.
+  // Loaded the first time the modal opens, then cached; the Logs page's type writes invalidate it.
   const typesQuery = useQuery({
     queryKey: queryKeys.logTypes.list,
     queryFn: () => listLogTypes(db),

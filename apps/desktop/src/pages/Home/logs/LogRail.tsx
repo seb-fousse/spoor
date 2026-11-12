@@ -68,12 +68,7 @@ export function LogRail({ db, day }: LogRailProps) {
         )}
       </div>
 
-      <NewLogModal
-        db={db}
-        opened={modalOpen}
-        day={day}
-        onClose={() => setModalOpen(false)}
-      />
+      <NewLogModal db={db} opened={modalOpen} day={day} onClose={() => setModalOpen(false)} />
     </section>
   );
 }

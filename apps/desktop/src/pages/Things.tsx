@@ -1,5 +1,8 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
 import { FieldList } from "@components/FieldList";
+import { useRefTitles, useThings } from "@components/LogEntryForm";
+import { type ThingWriteReach, useThingWrite } from "@hooks/useThingWrite";
+import { queryKeys } from "@lib/queryKeys";
 import {
   Alert,
   Button,
@@ -22,7 +25,6 @@ import {
   deleteThingField,
   deleteThingType,
   type FieldDefinition,
-  getThingTitle,
   getThingTypeFields,
   listThings,
   listThingTypes,
@@ -41,10 +43,19 @@ import {
   type Value,
   type ValuePatch,
 } from "@spoor/core";
+import { useQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 
-type Run = (action: () => Promise<unknown>) => void;
+type Run = (action: () => Promise<unknown>, reach?: ThingWriteReach) => void;
+
+/** A thing type's fields, shared by everything on the page showing its things. */
+function useThingFields(db: Database, typeId: string) {
+  return useQuery({
+    queryKey: queryKeys.things.fields(typeId),
+    queryFn: () => getThingTypeFields(db, typeId),
+  });
+}
 
 /**
  * Proof-of-concept Things screen: thing types and their fields, things and
@@ -52,28 +63,24 @@ type Run = (action: () => Promise<unknown>) => void;
  * job is to show the slice works end to end over IPC; the real UI replaces it.
  */
 export function Things({ db }: { db: Database }) {
-  const [types, setTypes] = useState<ThingType[]>([]);
+  const typesQuery = useQuery({
+    queryKey: queryKeys.things.types,
+    queryFn: () => listThingTypes(db),
+  });
+  const types = typesQuery.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [version, setVersion] = useState(0);
+  const write = useThingWrite();
 
-  // Runs a write, shows any error, and reloads everything.
-  const run: Run = (action) => {
+  // Runs a write, shows any error, and refreshes what it changed.
+  const run: Run = (action, reach) => {
     setError(null);
-    action()
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setVersion((v) => v + 1));
+    write(action, reach).catch((e: Error) => setError(e.message));
   };
 
-  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listThingTypes(db)
-      .then(setTypes)
-      .catch((e: Error) => setError(e.message));
-  }, [db, version]);
+  // Deleting a type deletes its things, so references to them go too.
+  const [confirmDelete, deleteDialog] = useConfirmDelete((action) => run(action, "references"));
 
   const addType = (e: FormEvent) => {
     e.preventDefault();
@@ -102,7 +109,9 @@ export function Things({ db }: { db: Database }) {
   return (
     <Stack component="section" gap="sm">
       <Title order={2}>Things</Title>
-      {error && <Alert color="red">{error}</Alert>}
+      {(error ?? typesQuery.error) && (
+        <Alert color="red">{error ?? typesQuery.error?.message}</Alert>
+      )}
       {deleteDialog}
 
       <form onSubmit={addType}>
@@ -146,9 +155,7 @@ export function Things({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && (
-        <ThingTypeDetail db={db} type={selected} types={types} version={version} run={run} />
-      )}
+      {selected && <ThingTypeDetail db={db} type={selected} types={types} run={run} />}
     </Stack>
   );
 }
@@ -157,27 +164,24 @@ function ThingTypeDetail({
   db,
   type,
   types,
-  version,
   run,
 }: {
   db: Database;
   type: ThingType;
   types: ThingType[];
-  version: number;
   run: Run;
 }) {
-  const [fields, setFields] = useState<FieldDefinition[]>([]);
-  const [things, setThings] = useState<Thing[]>([]);
+  const { data: fields = [] } = useThingFields(db, type.id);
+  const { data: things = [] } = useQuery({
+    queryKey: queryKeys.things.ofType(type.id),
+    queryFn: () => listThings(db, type.id),
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    Promise.all([getThingTypeFields(db, type.id), listThings(db, type.id)]).then(([f, live]) => {
-      setFields(f);
-      setThings(live);
-    });
-  }, [db, type.id, version]);
+  // Bumped by each thing created, to empty the form for the next.
+  const [created, setCreated] = useState(0);
+  // Deleting a thing removes references to it. Deleting a field only changes things, but
+  // shares the dialog, and refreshing more than a write changed is harmless.
+  const [confirmDelete, deleteDialog] = useConfirmDelete((action) => run(action, "references"));
 
   const title = (thing: Thing) => String(thing.values[type.titleFieldId] ?? "?");
   const editing = things.find((t) => t.id === editingId);
@@ -225,11 +229,16 @@ function ThingTypeDetail({
       <Title order={4}>Things</Title>
       {type.archivedAt === null && (
         <ValuesForm
-          key={`new:${version}`}
+          key={created}
           db={db}
           fields={fields}
           submitLabel="Add"
-          onSubmit={(values) => run(() => createThing(db, { thingTypeId: type.id, values }))}
+          onSubmit={(values) =>
+            run(async () => {
+              await createThing(db, { thingTypeId: type.id, values });
+              setCreated((n) => n + 1);
+            })
+          }
         />
       )}
       <Stack gap={4}>
@@ -246,7 +255,7 @@ function ThingTypeDetail({
               <Select
                 size="xs"
                 value={null}
-                onChange={(v) => v && run(() => mergeThings(db, v, thing.id))}
+                onChange={(v) => v && run(() => mergeThings(db, v, thing.id), "references")}
                 placeholder="Merge into…"
                 aria-label="Merge into"
                 title="Merge this thing into another, which keeps its references"
@@ -275,7 +284,8 @@ function ThingTypeDetail({
       </Stack>
       {editing && (
         <EditThing
-          key={`${editing.id}:${version}`}
+          // A changed thing bumps `updatedAt`, which resets the form to its stored values.
+          key={`${editing.id}:${editing.updatedAt}`}
           db={db}
           thing={editing}
           title={title(editing)}
@@ -283,7 +293,7 @@ function ThingTypeDetail({
             run(async () => {
               await updateThingValues(db, editing.id, values);
               setEditingId(null);
-            })
+            }, "titles")
           }
         />
       )}
@@ -311,11 +321,8 @@ function EditThing({
   title: string;
   onSave: (values: ValuePatch) => void;
 }) {
-  const [fields, setFields] = useState<FieldDefinition[] | null>(null);
-  useEffect(() => {
-    getThingTypeFields(db, thing.thingTypeId).then(setFields);
-  }, [db, thing.thingTypeId]);
-  if (fields === null) return null;
+  const { data: fields } = useThingFields(db, thing.thingTypeId);
+  if (fields === undefined) return null;
   return (
     <>
       <Title order={4}>Edit {title}</Title>
@@ -478,17 +485,7 @@ function ThingSelect({
   value: string | string[];
   onChange: (value: string | string[]) => void;
 }) {
-  const [options, setOptions] = useState<{ id: string; title: string }[]>([]);
-  useEffect(() => {
-    listThings(db, thingTypeId)
-      .then((things) =>
-        Promise.all(
-          things.map(async (t) => ({ id: t.id, title: (await getThingTitle(db, t.id)) ?? "?" })),
-        ),
-      )
-      .then(setOptions);
-  }, [db, thingTypeId]);
-  const data = options.map((o) => ({ value: o.id, label: o.title }));
+  const data = useThings(db, thingTypeId).map((o) => ({ value: o.id, label: o.title }));
   return multiple ? (
     <MultiSelect
       {...label}
@@ -510,23 +507,12 @@ function ThingSelect({
 
 /** A thing's values, with references shown by title. */
 function ValuesList({ db, thing }: { db: Database; thing: Thing }) {
-  const [fields, setFields] = useState<FieldDefinition[]>([]);
-  const [titles, setTitles] = useState<Record<string, string>>({});
-  useEffect(() => {
-    getThingTypeFields(db, thing.thingTypeId).then(setFields);
-    const ids = Object.values(thing.values).flatMap((v) =>
-      Array.isArray(v) ? v : typeof v === "string" ? [v] : [],
-    );
-    Promise.all(ids.map(async (id) => [id, await getThingTitle(db, id)] as const)).then((pairs) =>
-      setTitles(
-        Object.fromEntries(pairs.filter(([, t]) => t !== undefined)) as Record<string, string>,
-      ),
-    );
-  }, [db, thing]);
+  const { data: fields = [] } = useThingFields(db, thing.thingTypeId);
+  const titles = useRefTitles(db, fields, thing);
   const show = (f: FieldDefinition, v: Value) => {
-    if (f.shape.valueType === "ref") return titles[v as string] ?? String(v);
+    if (f.shape.valueType === "ref") return titles.get(v as string) ?? String(v);
     if (f.shape.valueType === "multi_ref")
-      return (v as string[]).map((id) => titles[id] ?? id).join(", ");
+      return (v as string[]).map((id) => titles.get(id) ?? id).join(", ");
     if (f.shape.valueType === "datetime") return new Date(v as number).toLocaleString();
     if (f.shape.valueType === "enum") return f.optionLabels[v as string] ?? String(v);
     return String(v);
