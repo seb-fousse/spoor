@@ -1,4 +1,6 @@
 import { EntryForm, type EntryTimeInput, useFields } from "@components/LogEntryForm";
+import { formatDay } from "@lib/format";
+import { queryKeys } from "@lib/queryKeys";
 import {
   ActionIcon,
   Alert,
@@ -21,8 +23,6 @@ import {
 } from "@spoor/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatDay } from "@lib/format";
-import { queryKeys } from "@lib/queryKeys";
 import classes from "./NewLogModal.module.css";
 
 interface NewLogModalProps {

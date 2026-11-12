@@ -45,6 +45,10 @@ export const queryKeys = {
   },
 
   logs: {
+    /** A log type's entries, latest first, for the Logs page. */
+    type: (logTypeId: string) => ["db", "logs", "type", logTypeId] as const,
+    /** An entry's child entries, by position. */
+    children: (parentEntryId: string) => ["db", "logs", "children", parentEntryId] as const,
     all: ["db", "logs"] as const,
     day: (day: LocalDate) => ["db", "logs", "day", day] as const,
   },

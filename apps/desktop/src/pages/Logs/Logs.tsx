@@ -14,32 +14,25 @@ import {
   useRefTitles,
   useThingTypes,
 } from "@components/LogEntryForm";
-import { queryKeys } from "@lib/queryKeys";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import {
-  addLogField,
-  createLogEntry,
-  createLogType,
   type Database,
-  deleteLogEntry,
-  deleteLogField,
-  deleteLogType,
   type LogEntry,
   type LogType,
-  listChildEntries,
-  listLogEntries,
-  listLogTypes,
-  moveChildEntry,
   type NewLogField,
   previewLogEntryDeletion,
   previewLogFieldDeletion,
   previewLogTypeDeletion,
-  reorderLogFields,
-  setLogTypeArchived,
-  updateLogField,
 } from "@spoor/core";
-import { useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
+import {
+  useChildEntries,
+  useLogEntries,
+  useLogEntryWrites,
+  useLogFieldWrites,
+  useLogTypes,
+  useLogTypeWrites,
+} from "./useLogsData";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a
@@ -51,34 +44,21 @@ import { type FormEvent, useEffect, useState } from "react";
 type Run = (action: () => Promise<unknown>) => void;
 
 export function Logs({ db }: { db: Database }) {
-  const [types, setTypes] = useState<LogType[]>([]);
+  const typesQuery = useLogTypes(db);
+  const types = typesQuery.data ?? [];
+  const typeWrites = useLogTypeWrites(db);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [version, setVersion] = useState(0);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const error = writeError ?? typesQuery.error?.message ?? null;
 
-  const queryClient = useQueryClient();
-
-  // Runs a write, shows any error, and reloads everything: this page's own
-  // loads through `version`, cached queries (fields, entries) by invalidating them.
+  // Runs a write and shows any error. The write's mutation invalidates the
+  // queries it changes, which reloads them here and on Home.
   const run: Run = (action) => {
-    setError(null);
-    action()
-      .catch((e: Error) => setError(e.message))
-      .finally(() => {
-        setVersion((v) => v + 1);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.logTypes.all });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.logs.all });
-      });
+    setWriteError(null);
+    action().catch((e: Error) => setWriteError(e.message));
   };
 
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listLogTypes(db)
-      .then(setTypes)
-      .catch((e: Error) => setError(e.message));
-  }, [db, version]);
 
   const selected = types.find((t) => t.id === selectedId);
   const nameOf = (id: string | null) => types.find((t) => t.id === id)?.name ?? "?";
@@ -86,7 +66,7 @@ export function Logs({ db }: { db: Database }) {
   const askDelete = (type: LogType) =>
     confirmDelete(
       `the ${type.name} log type`,
-      () => deleteLogType(db, type.id),
+      () => typeWrites.remove(type.id),
       async () => {
         const n = await previewLogTypeDeletion(db, type.id);
         return [
@@ -106,7 +86,7 @@ export function Logs({ db }: { db: Database }) {
         db={db}
         types={types}
         onCreate={(name, parentTypeId, fields) =>
-          run(() => createLogType(db, { name, parentTypeId, fields }))
+          run(() => typeWrites.create({ name, parentTypeId, fields }))
         }
       />
       <Stack gap={4}>
@@ -130,7 +110,9 @@ export function Logs({ db }: { db: Database }) {
             <Button
               size="xs"
               variant="default"
-              onClick={() => run(() => setLogTypeArchived(db, t.id, t.archivedAt === null))}
+              onClick={() =>
+                run(() => typeWrites.setArchived({ id: t.id, archived: t.archivedAt === null }))
+              }
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
             </Button>
@@ -141,9 +123,7 @@ export function Logs({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && (
-        <LogTypeDetail db={db} type={selected} types={types} version={version} run={run} />
-      )}
+      {selected && <LogTypeDetail db={db} type={selected} types={types} run={run} />}
     </Stack>
   );
 }
@@ -247,24 +227,19 @@ function LogTypeDetail({
   db,
   type,
   types,
-  version,
   run,
 }: {
   db: Database;
   type: LogType;
   types: LogType[];
-  version: number;
   run: Run;
 }) {
   const fields = useFields(db, type.id);
   const thingTypes = useThingTypes(db);
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const entries = useLogEntries(db, type.id).data ?? [];
+  const fieldWrites = useLogFieldWrites(db, type.id);
+  const entryWrites = useLogEntryWrites(db);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listLogEntries(db, type.id).then(setEntries);
-  }, [db, type.id, version]);
 
   const parent = types.find((t) => t.id === type.parentTypeId);
 
@@ -277,13 +252,13 @@ function LogTypeDetail({
       <FieldList
         fields={fields}
         thingTypes={thingTypes}
-        onAdd={(field) => run(() => addLogField(db, type.id, field))}
-        onUpdate={(fieldId, patch) => run(() => updateLogField(db, fieldId, patch))}
-        onReorder={(ids) => run(() => reorderLogFields(db, type.id, ids))}
+        onAdd={(field) => run(() => fieldWrites.add(field))}
+        onUpdate={(fieldId, patch) => run(() => fieldWrites.update({ fieldId, patch }))}
+        onReorder={(ids) => run(() => fieldWrites.reorder(ids))}
         onDelete={(field) =>
           confirmDelete(
             `the ${field.name} field`,
-            () => deleteLogField(db, field.id),
+            () => fieldWrites.remove(field.id),
             async () => [
               effect(
                 "removes its value from",
@@ -308,21 +283,14 @@ function LogTypeDetail({
             fields={fields}
             child={false}
             onCreate={(time, values) =>
-              run(() => createLogEntry(db, { logTypeId: type.id, ...time, values }))
+              run(() => entryWrites.create({ logTypeId: type.id, ...time, values }))
             }
           />
         )
       )}
       <Stack gap={4}>
         {entries.map((entry) => (
-          <EntryItem
-            key={entry.id}
-            db={db}
-            entry={entry}
-            types={types}
-            version={version}
-            run={run}
-          />
+          <EntryItem key={entry.id} db={db} entry={entry} types={types} run={run} />
         ))}
       </Stack>
     </Stack>
@@ -337,7 +305,6 @@ function EntryItem({
   entry,
   types,
   place,
-  version,
   run,
 }: {
   db: Database;
@@ -345,19 +312,14 @@ function EntryItem({
   types: LogType[];
   /** A child entry's place among its siblings, 1 first. */
   place?: { index: number; count: number };
-  version: number;
   run: Run;
 }) {
   const fields = useFields(db, entry.logTypeId);
   const titles = useRefTitles(db, fields, entry);
-  const [children, setChildren] = useState<LogEntry[]>([]);
+  const children = useChildEntries(db, entry.id).data ?? [];
+  const entryWrites = useLogEntryWrites(db);
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listChildEntries(db, entry.id).then(setChildren);
-  }, [db, entry.id, version]);
 
   return (
     <Stack gap={4}>
@@ -376,7 +338,9 @@ function EntryItem({
               size="xs"
               variant="default"
               disabled={place.index === 1}
-              onClick={() => run(() => moveChildEntry(db, entry.id, place.index - 1))}
+              onClick={() =>
+                run(() => entryWrites.move({ id: entry.id, position: place.index - 1 }))
+              }
             >
               ↑
             </Button>
@@ -384,7 +348,9 @@ function EntryItem({
               size="xs"
               variant="default"
               disabled={place.index === place.count}
-              onClick={() => run(() => moveChildEntry(db, entry.id, place.index + 1))}
+              onClick={() =>
+                run(() => entryWrites.move({ id: entry.id, position: place.index + 1 }))
+              }
             >
               ↓
             </Button>
@@ -397,7 +363,7 @@ function EntryItem({
           onClick={() =>
             confirmDelete(
               `the entry of ${formatTime(entry)}`,
-              () => deleteLogEntry(db, entry.id),
+              () => entryWrites.remove(entry.id),
               async () => [
                 effect(
                   "deletes",
@@ -422,7 +388,6 @@ function EntryItem({
               entry={child}
               types={types}
               place={{ index: i + 1, count: children.length }}
-              version={version}
               run={run}
             />
           ))}
@@ -449,6 +414,7 @@ function ChildEntryForm({
   run: Run;
 }) {
   const fields = useFields(db, type.id);
+  const entryWrites = useLogEntryWrites(db);
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>
@@ -457,7 +423,7 @@ function ChildEntryForm({
         fields={fields}
         child
         onCreate={(_, values) =>
-          run(() => createLogEntry(db, { logTypeId: type.id, parentEntryId, values }))
+          run(() => entryWrites.create({ logTypeId: type.id, parentEntryId, values }))
         }
       />
     </Group>
