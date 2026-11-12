@@ -14,13 +14,10 @@ import { type QueryKey, useMutation, useQueryClient } from "@tanstack/react-quer
  */
 export type ThingWriteReach = "things" | "titles" | "references";
 
-// The timelines keys have no prefix of their own yet; every timeline read starts with this.
-const TIMELINES: QueryKey = ["db", "timelines"];
-
 const INVALIDATES: Record<ThingWriteReach, QueryKey[]> = {
   things: [queryKeys.things.all],
-  titles: [queryKeys.things.all, TIMELINES],
-  references: [queryKeys.things.all, queryKeys.logs.all, TIMELINES],
+  titles: [queryKeys.things.all, queryKeys.timelines.all],
+  references: [queryKeys.things.all, queryKeys.logs.all, queryKeys.timelines.all],
 };
 
 /**

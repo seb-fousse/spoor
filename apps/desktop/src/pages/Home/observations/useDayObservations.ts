@@ -34,7 +34,8 @@ export interface DayObservations {
  * The rail's observations for `day`, reloaded whenever the day changes.
  *
  * Recording writes the stored observation into that day's cached metrics,
- * rather than reloading the day, and invalidates the grid's day counts.
+ * rather than reloading the day, and invalidates the grid's day counts and the
+ * metric's observation list.
  */
 export function useDayObservations(db: Database, day: LocalDate): DayObservations {
   const queryClient = useQueryClient();
@@ -60,7 +61,11 @@ export function useDayObservations(db: Database, day: LocalDate): DayObservation
             ),
           },
       );
+      // The other reads holding this observation: the grid's day counts and the
+      // Observations page's list for the metric. Not all of `observations.all`,
+      // which would reload the day just written and every other cached day.
       void queryClient.invalidateQueries({ queryKey: queryKeys.observations.countsAll });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.observations.metric(metricId) });
     },
   });
 

@@ -46,10 +46,11 @@ async function loadGridMeta(db: Database): Promise<GridMeta> {
 /**
  * What the timeline grid draws for `days`, a run of consecutive dates.
  *
- * The zone, timelines and categories refetch each time Home mounts, so edits
- * made on other pages show up; the cached ones show meanwhile. The intervals
- * reload whenever the window moves. Until the new ones arrive, the previous
- * ones stay on screen, so paging doesn't flash empty.
+ * The zone, timelines and categories stay cached across visits to Home:
+ * nothing sets the zone yet, and the Timelines and Things pages' writes that
+ * change timelines or categories invalidate `timelines.all`, which reloads
+ * them. The intervals reload whenever the window moves. Until the new ones
+ * arrive, the previous ones stay on screen, so paging doesn't flash empty.
  */
 export function useGridData(db: Database, days: readonly LocalDate[]): GridData {
   const timeZone = useTimeZone(db);
