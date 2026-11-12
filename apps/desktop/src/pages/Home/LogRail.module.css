@@ -1,0 +1,116 @@
+/* The logs half of the rail, in the same style as the observations half above it. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  font-family: var(--app-font-mono);
+  white-space: nowrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Pushes the New button to the right edge. */
+.count {
+  flex: 1;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--app-text-muted);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  flex: 1;
+  min-height: 0;
+  padding: var(--mantine-spacing-md);
+  overflow-y: auto;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+
+  /* The previous day's logs, faded only if the load is slow (see ObservationRail). */
+  &:where([data-stale]) {
+    opacity: 0.5;
+    transition: opacity 150ms ease 250ms;
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+  font-family: var(--app-font-mono);
+}
+
+.entries,
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-raised);
+}
+
+.time {
+  font-family: var(--app-font-mono);
+  font-size: var(--mantine-font-size-xs);
+  color: var(--app-text-muted);
+}
+
+.values {
+  font-size: var(--mantine-font-size-sm);
+}
+
+.children {
+  gap: 2px;
+  margin-top: var(--mantine-spacing-xs);
+  padding-left: var(--mantine-spacing-sm);
+  border-left: 1px solid var(--app-border);
+}
