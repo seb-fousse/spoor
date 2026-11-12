@@ -80,17 +80,12 @@
 .option {
   display: flex;
   align-items: center;
-  gap: var(--mantine-spacing-sm);
-  padding: var(--mantine-spacing-xs);
+  /* One spacing throughout: around the row, and between the box and the name. */
+  --option-space: 6px;
+
+  gap: var(--option-space);
+  padding: var(--option-space);
   cursor: pointer;
-
-  & + & {
-    border-top: 1px solid var(--app-border);
-  }
-
-  &:hover {
-    background: var(--app-surface-hover);
-  }
 
   /* Never squeezed by a long name, so the box stays square. */
   & > :first-child {
@@ -107,8 +102,7 @@
   white-space: nowrap;
 }
 
-/* The select-all row heads the list, split from it by a hairline, with its name in bold. */
+/* The select-all row heads the list, set apart only by its bold name. */
 .selectAll {
-  border-bottom: 1px solid var(--app-border);
   font-weight: 600;
 }
