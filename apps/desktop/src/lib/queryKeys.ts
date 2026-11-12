@@ -32,6 +32,12 @@ export const queryKeys = {
   },
 
   observations: {
+    /** Every metric and observation read: each metric or observation write invalidates it. */
+    all: ["db", "observations"] as const,
+    /** Every metric, archived included, for the Observations page. */
+    metrics: ["db", "observations", "metrics"] as const,
+    /** One metric's observations, latest day first. */
+    metric: (metricId: string) => ["db", "observations", "metric", metricId] as const,
     day: (day: LocalDate) => ["db", "observations", "day", day] as const,
     countsAll: ["db", "observations", "counts"] as const,
     counts: (first: LocalDate | undefined, last: LocalDate | undefined) =>
