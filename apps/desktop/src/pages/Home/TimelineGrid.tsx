@@ -1,6 +1,6 @@
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler } from "@keyboard";
-import { Alert, Center, Loader, Text, VisuallyHidden } from "@mantine/core";
+import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
 import {
   type Database,
   type DayObservationCount,
@@ -29,7 +29,8 @@ import {
 } from "./gridLayout";
 import { formatShortDay, type HomeDaysAction } from "./homeDays";
 import classes from "./TimelineGrid.module.css";
-import { useGridData } from "./useGridData";
+import { type HiddenTimelines, visibleTimelines } from "./timelineVisibility";
+import type { GridData } from "./useGridData";
 import { useObservationCounts } from "./useObservationCounts";
 
 /** Height of one hour, in pixels. */
@@ -40,6 +41,12 @@ const MORNING = 7;
 
 interface TimelineGridProps {
   db: Database;
+  /** What to draw for `days`. Loaded by Home, which also feeds the header's timeline filter. */
+  data: GridData;
+  /** The timelines the header's filter has switched off. */
+  hiddenTimelines: HiddenTimelines;
+  /** Switches every timeline back on, from the empty state shown when all are off. */
+  onShowAllTimelines: () => void;
   /** The visible days, oldest first. */
   days: LocalDate[];
   /** The day the rail shows, highlighted in the grid. Always one of `days`. */
@@ -59,12 +66,14 @@ interface TimelineGridProps {
  */
 export function TimelineGrid({
   db,
+  data,
+  hiddenTimelines,
+  onShowAllTimelines,
   days,
   activeDay,
   dispatch,
   observationsVersion,
 }: TimelineGridProps) {
-  const data = useGridData(db, days);
   const counts = useObservationCounts(db, days, observationsVersion);
 
   if (data.status === "loading") {
@@ -88,6 +97,19 @@ export function TimelineGrid({
       </Center>
     );
   }
+  const shown = visibleTimelines(data.timelines, hiddenTimelines);
+  if (shown.length === 0) {
+    return (
+      <Center className={classes.state}>
+        <Stack align="center" gap="xs">
+          <Text c="dimmed">No timelines selected.</Text>
+          <Button size="xs" variant="light" onClick={onShowAllTimelines}>
+            Show all
+          </Button>
+        </Stack>
+      </Center>
+    );
+  }
   return (
     <Grid
       days={days}
@@ -95,7 +117,7 @@ export function TimelineGrid({
       dispatch={dispatch}
       counts={counts}
       timeZone={data.timeZone}
-      timelines={data.timelines}
+      timelines={shown}
       categories={data.categories}
       intervals={data.intervals}
     />

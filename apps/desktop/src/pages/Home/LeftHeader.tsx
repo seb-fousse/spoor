@@ -1,6 +1,6 @@
 import { ArrowButtons } from "@components/ArrowButtons";
 import { SegmentedControl, UnstyledButton } from "@mantine/core";
-import type { LocalDate } from "@spoor/core";
+import type { LocalDate, Timeline } from "@spoor/core";
 import type { Dispatch } from "react";
 import classes from "./Home.module.css";
 import {
@@ -11,19 +11,32 @@ import {
   isAtToday,
   RANGES,
 } from "./homeDays";
+import { TimelineFilter } from "./TimelineFilter";
+import type { HiddenTimelines } from "./timelineVisibility";
 
 interface LeftHeaderProps {
   days: HomeDays;
   today: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
+  /** The timelines the grid could show, for the filter. Empty until they load. */
+  timelines: Timeline[];
+  hiddenTimelines: HiddenTimelines;
+  onHiddenTimelinesChange: (hidden: HiddenTimelines) => void;
 }
 
 /**
- * Above the timeline: the visible days and how many to show on the left; on
- * the right, back to today (resetting the right header's day too) and the arrows that
- * page the days.
+ * Above the timeline: the visible days and how many to show on the left, then
+ * the toggles that choose which timelines to show; on the right, back to today
+ * (resetting the right header's day too) and the arrows that page the days.
  */
-export function LeftHeader({ days, today, dispatch }: LeftHeaderProps) {
+export function LeftHeader({
+  days,
+  today,
+  dispatch,
+  timelines,
+  hiddenTimelines,
+  onHiddenTimelinesChange,
+}: LeftHeaderProps) {
   const atToday = isAtToday(days, today);
 
   return (
@@ -40,6 +53,14 @@ export function LeftHeader({ days, today, dispatch }: LeftHeaderProps) {
           value={days.range}
           onChange={(range) => dispatch({ type: "setRange", range: range as DayRange })}
         />
+
+        {timelines.length > 0 && (
+          <TimelineFilter
+            timelines={timelines}
+            hidden={hiddenTimelines}
+            onChange={onHiddenTimelinesChange}
+          />
+        )}
 
         {/* Pushed to the right edge: Today, then the arrows that page the days. */}
         <div className={classes.end}>

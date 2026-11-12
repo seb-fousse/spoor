@@ -12,6 +12,8 @@ import { LogRail } from "./LogRail";
 import { ObservationRail } from "./ObservationRail";
 import { RightHeader } from "./RightHeader";
 import { TimelineGrid } from "./TimelineGrid";
+import { useGridData } from "./useGridData";
+import { useTimelineFilter } from "./useTimelineFilter";
 
 /**
  * Home: the timeline grid on the left (70%) and a rail for the active day on
@@ -27,15 +29,28 @@ export function Home({ db }: { db: Database }) {
   useShortcuts(dayShortcuts(dispatch));
   // Bumped after each value recorded in the rail, so the grid's day badges recount.
   const [observationsVersion, bumpObservations] = useReducer((n: number) => n + 1, 0);
+  // Loaded here, not in the grid, because the header's filter lists the same timelines.
+  const gridData = useGridData(db, visibleDays);
+  const [hiddenTimelines, setHiddenTimelines] = useTimelineFilter();
 
   return (
     // Fill the whole area above the bottom bar.
     <FluidSplitter h="calc(100dvh - var(--app-shell-footer-height))">
       <Splitter.Pane defaultSize={70} max={70}>
         <div className={classes.column}>
-          <LeftHeader days={days} today={today} dispatch={dispatch} />
+          <LeftHeader
+            days={days}
+            today={today}
+            dispatch={dispatch}
+            timelines={gridData.status === "ready" ? gridData.timelines : []}
+            hiddenTimelines={hiddenTimelines}
+            onHiddenTimelinesChange={setHiddenTimelines}
+          />
           <TimelineGrid
             db={db}
+            data={gridData}
+            hiddenTimelines={hiddenTimelines}
+            onShowAllTimelines={() => setHiddenTimelines(new Set())}
             days={visibleDays}
             activeDay={days.activeDay}
             dispatch={dispatch}
