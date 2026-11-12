@@ -1,4 +1,5 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
+import { useTimeZone } from "@hooks/useTimeZone";
 import {
   Alert,
   Button,
@@ -14,14 +15,8 @@ import {
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
-  createMetric,
   type Database,
   dayOf,
-  deleteMetric,
-  deleteObservation,
-  getTimeZone,
-  listMetrics,
-  listObservations,
   METRIC_VALUE_TYPES,
   type MetricValueType,
   now,
@@ -29,12 +24,10 @@ import {
   type ObservationMetric,
   optionLabel,
   previewMetricDeletion,
-  recordObservation,
-  setMetricArchived,
-  updateMetric,
   type Value,
 } from "@spoor/core";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
+import { useMetricObservations, useMetrics, useObservationWrites } from "./useObservationsData";
 
 type Run = (action: () => Promise<unknown>) => void;
 
@@ -45,40 +38,36 @@ type Run = (action: () => Promise<unknown>) => void;
  * replaces it.
  */
 export function Observations({ db }: { db: Database }) {
-  const [metrics, setMetrics] = useState<ObservationMetric[]>([]);
+  const metricsQuery = useMetrics(db);
+  const metrics = metricsQuery.data ?? [];
+  const writes = useObservationWrites(db);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [version, setVersion] = useState(0);
 
-  // Runs a write, shows any error, and reloads everything.
+  // Runs a write and shows any error. Each write's mutation invalidates what
+  // it changed, so this page's lists and Home's reload.
   const run: Run = (action) => {
     setError(null);
-    action()
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setVersion((v) => v + 1));
+    action().catch((e: Error) => setError(e.message));
   };
 
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listMetrics(db)
-      .then(setMetrics)
-      .catch((e: Error) => setError(e.message));
-  }, [db, version]);
-
   const selected = metrics.find((m) => m.id === selectedId);
+  const shownError = error ?? metricsQuery.error?.message ?? null;
 
   return (
     <Stack component="section" gap="sm">
       <Title order={2}>Observations</Title>
-      {error && <Alert color="red">{error}</Alert>}
+      {shownError && <Alert color="red">{shownError}</Alert>}
       {deleteDialog}
 
       <ShapeForm
         submitLabel="Add"
         onSubmit={(shape, { name, labels }) =>
-          run(() => createMetric(db, { ...shape, name, optionLabels: parseJson(labels) as never }))
+          run(() =>
+            writes.createMetric({ ...shape, name, optionLabels: parseJson(labels) as never }),
+          )
         }
       />
       <Stack gap={4}>
@@ -98,7 +87,9 @@ export function Observations({ db }: { db: Database }) {
             <Button
               size="xs"
               variant="default"
-              onClick={() => run(() => setMetricArchived(db, m.id, m.archivedAt === null))}
+              onClick={() =>
+                run(() => writes.setMetricArchived({ id: m.id, archived: m.archivedAt === null }))
+              }
             >
               {m.archivedAt === null ? "Archive" : "Unarchive"}
             </Button>
@@ -109,7 +100,7 @@ export function Observations({ db }: { db: Database }) {
               onClick={() =>
                 confirmDelete(
                   `the ${m.name} metric`,
-                  () => deleteMetric(db, m.id),
+                  () => writes.deleteMetric(m.id),
                   async () => [
                     effect(
                       "deletes",
@@ -126,9 +117,7 @@ export function Observations({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && (
-        <MetricDetail key={selected.id} db={db} metric={selected} version={version} run={run} />
-      )}
+      {selected && <MetricDetail key={selected.id} db={db} metric={selected} run={run} />}
     </Stack>
   );
 }
@@ -193,34 +182,20 @@ function ShapeForm({
   );
 }
 
-function MetricDetail({
-  db,
-  metric,
-  version,
-  run,
-}: {
-  db: Database;
-  metric: ObservationMetric;
-  version: number;
-  run: Run;
-}) {
-  const [observations, setObservations] = useState<Observation[]>([]);
+function MetricDetail({ db, metric, run }: { db: Database; metric: ObservationMetric; run: Run }) {
+  const observations = useMetricObservations(db, metric.id).data ?? [];
+  const writes = useObservationWrites(db);
+  const timeZone = useTimeZone(db).data;
+  // Set from the metric once, when it is selected (the parent keys this by id),
+  // so the refetch after a save leaves what the user typed alone.
   const [name, setName] = useState(metric.name);
   const [constraints, setConstraints] = useState(JSON.stringify(metric.constraints));
   const [labels, setLabels] = useState(JSON.stringify(metric.optionLabels));
-  const [date, setDate] = useState("");
+  // The day the user picked; until they pick one, today in the user's time zone.
+  const [pickedDate, setDate] = useState<string | null>(null);
+  const date = pickedDate ?? (timeZone ? dayOf(now(), timeZone) : "");
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listObservations(db, metric.id).then(setObservations);
-  }, [db, metric.id, version]);
-
-  // Today in the user's time zone, the day new values default to.
-  useEffect(() => {
-    getTimeZone(db).then((zone) => setDate(dayOf(now(), zone)));
-  }, [db]);
 
   const show = (o: Observation) => {
     const text = Array.isArray(o.value)
@@ -234,10 +209,13 @@ function MetricDetail({
   const rename = (e: FormEvent) => {
     e.preventDefault();
     run(() =>
-      updateMetric(db, metric.id, {
-        name,
-        constraints: parseJson(constraints),
-        optionLabels: parseJson(labels) as never,
+      writes.updateMetric({
+        id: metric.id,
+        patch: {
+          name,
+          constraints: parseJson(constraints),
+          optionLabels: parseJson(labels) as never,
+        },
       }),
     );
   };
@@ -283,7 +261,11 @@ function MetricDetail({
         onDate={setDate}
         onRecord={(value) =>
           run(async () => {
-            const { skipped } = await recordObservation(db, metric.id, date, value);
+            const { skipped } = await writes.recordObservation({
+              metricId: metric.id,
+              date,
+              value,
+            });
             setNotice(skipped ? `Skipped ${date}: written by another writer` : null);
           })
         }
@@ -301,7 +283,7 @@ function MetricDetail({
               variant="light"
               color="red"
               onClick={() =>
-                confirmDelete(`the observation for ${o.date}`, () => deleteObservation(db, o.id))
+                confirmDelete(`the observation for ${o.date}`, () => writes.deleteObservation(o.id))
               }
             >
               Delete
