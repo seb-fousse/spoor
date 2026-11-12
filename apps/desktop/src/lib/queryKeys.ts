@@ -12,6 +12,15 @@ export const queryKeys = {
   timeZone: ["db", "settings", "timeZone"] as const,
 
   timelines: {
+    /** Everything below: a write to timelines, categories or intervals invalidates it. */
+    all: ["db", "timelines"] as const,
+    /** Every timeline, archived included, for the Timelines page. */
+    list: ["db", "timelines", "list"] as const,
+    /** A timeline's categories, archived included. */
+    categories: (timelineId: string) => ["db", "timelines", "categories", timelineId] as const,
+    /** All of a timeline's intervals, for the Timelines page. */
+    timelineIntervals: (timelineId: string) =>
+      ["db", "timelines", "timelineIntervals", timelineId] as const,
     /** The unarchived timelines and their categories, for the grid. */
     grid: ["db", "timelines", "grid"] as const,
     intervals: (

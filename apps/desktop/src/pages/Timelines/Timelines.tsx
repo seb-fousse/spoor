@@ -19,9 +19,6 @@ import {
   deleteCategory,
   deleteInterval,
   deleteTimeline,
-  listCategories,
-  listIntervals,
-  listTimelines,
   previewCategoryDeletion,
   previewTimelineDeletion,
   setCategoryArchived,
@@ -33,7 +30,8 @@ import {
   type TimelineInterval,
 } from "@spoor/core";
 import dayjs from "dayjs";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
+import { useTimelineDetail, useTimelineList, useTimelinesWrite } from "./useTimelinesData";
 
 /**
  * Proof-of-concept Timelines screen: every core read and write, built from
@@ -41,27 +39,17 @@ import { type FormEvent, useEffect, useState } from "react";
  * over IPC; the real UI replaces it.
  */
 export function Timelines({ db }: { db: Database }) {
-  const [timelines, setTimelines] = useState<Timeline[]>([]);
+  const list = useTimelineList(db);
+  const timelines = list.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [version, setVersion] = useState(0);
+  const write = useTimelinesWrite();
 
-  // Runs a write, shows any error, and reloads everything.
-  const run = (action: () => Promise<unknown>) => {
-    setError(null);
-    action()
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setVersion((v) => v + 1));
-  };
+  // Runs a write; the mutation shows any error and reloads what it changed.
+  const run = (action: () => Promise<unknown>) => write.mutate(action);
+  // The last write's error (cleared by the next write), else the list's.
+  const error = write.error?.message ?? list.error?.message ?? null;
 
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    listTimelines(db)
-      .then(setTimelines)
-      .catch((e: Error) => setError(e.message));
-  }, [db, version]);
 
   const selected = timelines.find((t) => t.id === selectedId);
   const askDelete = (t: Timeline) =>
@@ -114,7 +102,7 @@ export function Timelines({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && <TimelineDetail db={db} timeline={selected} version={version} run={run} />}
+      {selected && <TimelineDetail db={db} timeline={selected} run={run} />}
     </Stack>
   );
 }
@@ -154,28 +142,19 @@ function TimelineForm({ onCreate }: { onCreate: (name: string, exclusive: boolea
 function TimelineDetail({
   db,
   timeline,
-  version,
   run,
 }: {
   db: Database;
   timeline: Timeline;
-  version: number;
   run: (action: () => Promise<unknown>) => void;
 }) {
-  const [categories, setCategories] = useState<TimelineCategory[]>([]);
-  const [intervals, setIntervals] = useState<TimelineInterval[]>([]);
+  const detail = useTimelineDetail(db, timeline.id);
+  const categories = detail.categories.data ?? [];
+  const intervals = detail.intervals.data ?? [];
+  // The page's error shows write failures; these reads report their own.
+  const readError = detail.categories.error ?? detail.intervals.error;
   const [categoryName, setCategoryName] = useState("");
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `version` triggers the reload.
-  useEffect(() => {
-    Promise.all([listCategories(db, timeline.id), listIntervals(db, timeline.id)]).then(
-      ([c, i]) => {
-        setCategories(c);
-        setIntervals(i);
-      },
-    );
-  }, [db, timeline.id, version]);
 
   const names = new Map(categories.map((c) => [c.id, c.name]));
   const describe = (i: TimelineInterval) =>
@@ -190,6 +169,7 @@ function TimelineDetail({
   return (
     <Stack gap="sm">
       <Title order={3}>{timeline.name}</Title>
+      {readError && <Alert color="red">{readError.message}</Alert>}
       {deleteDialog}
 
       <Title order={4}>Categories</Title>
