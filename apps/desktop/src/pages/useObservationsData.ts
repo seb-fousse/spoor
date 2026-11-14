@@ -1,7 +1,7 @@
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   createMetric,
-  type Database,
   deleteMetric,
   deleteObservation,
   type LocalDate,
@@ -15,12 +15,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 /** Every metric, archived included, by name. */
-export function useMetrics(db: Database) {
+export function useMetrics() {
+  const db = useDatabase();
   return useQuery({ queryKey: queryKeys.observations.metrics, queryFn: () => listMetrics(db) });
 }
 
 /** The metric's observations, latest day first. */
-export function useMetricObservations(db: Database, metricId: string) {
+export function useMetricObservations(metricId: string) {
+  const db = useDatabase();
   return useQuery({
     queryKey: queryKeys.observations.metric(metricId),
     queryFn: () => listObservations(db, metricId),
@@ -37,7 +39,8 @@ export function useMetricObservations(db: Database, metricId: string) {
  * rail entry and part of its count. Inactive queries (Home's, while this page
  * is open) only refetch when next shown, so the broad prefix costs little.
  */
-export function useObservationWrites(db: Database) {
+export function useObservationWrites() {
+  const db = useDatabase();
   const queryClient = useQueryClient();
   const onSuccess = () => queryClient.invalidateQueries({ queryKey: queryKeys.observations.all });
 

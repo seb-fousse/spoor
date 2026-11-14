@@ -1,5 +1,5 @@
 import type { Instant, TimelineInterval } from "@spoor/core";
-import { type DrawnRange, freeSpan, SNAP_MS } from "./dragRange";
+import { type DrawnRange, freeSpan, SNAP_MS } from "../layout/dragRange";
 
 /**
  * The maths behind moving and resizing a block on Home's grid. Like drawing

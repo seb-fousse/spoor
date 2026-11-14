@@ -1,9 +1,9 @@
 import { ArrowButtons } from "@components/ArrowButtons";
+import { Icon } from "@components/Icon";
 import { SegmentedControl, UnstyledButton } from "@mantine/core";
 import type { LocalDate, Timeline } from "@spoor/core";
 import type { Dispatch } from "react";
-import { TimelineFilter } from "./grid/filter/TimelineFilter";
-import type { HiddenTimelines } from "./grid/filter/timelineVisibility";
+import { type HiddenTimelines, TimelineFilter } from "./grid";
 import classes from "./Home.module.css";
 import {
   type DayRange,
@@ -69,18 +69,9 @@ export function LeftHeader({
             onClick={() => dispatch({ type: "goToday", today })}
           >
             {/* Counter-clockwise arrow: going back. 1em, so it matches the text. */}
-            <svg
-              aria-hidden="true"
-              className={classes.todayIcon}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+            <Icon className={classes.todayIcon}>
               <path d="M7.07 5.7A8 8 0 1 1 4.55 15M4.05 20v-5h5" />
-            </svg>
+            </Icon>
             Today
           </UnstyledButton>
           <ArrowButtons

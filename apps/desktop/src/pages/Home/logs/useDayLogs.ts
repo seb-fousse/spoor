@@ -1,5 +1,6 @@
 import { queryKeys } from "@lib/queryKeys";
-import { type Database, type LocalDate, listDayLogEntries } from "@spoor/core";
+import { useDatabase } from "@platform/DatabaseProvider";
+import { type LocalDate, listDayLogEntries } from "@spoor/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 /**
@@ -7,7 +8,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
  * entries nested. While another day loads, the previous day's stay
  * (`isPlaceholderData` is then true). Creating an entry invalidates them.
  */
-export function useDayLogs(db: Database, day: LocalDate) {
+export function useDayLogs(day: LocalDate) {
+  const db = useDatabase();
   return useQuery({
     queryKey: queryKeys.logs.day(day),
     queryFn: () => listDayLogEntries(db, day),

@@ -3,14 +3,11 @@ import { useRefTitles } from "@components/LogEntryForm";
 import { createQueryClient } from "@lib/queryClient";
 import { queryKeys } from "@lib/queryKeys";
 import type { Database, FieldDefinition } from "@spoor/core";
-import { type QueryClient, QueryClientProvider, type QueryKey } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ThingWriteReach, useThingWrite } from "./useThingWrite";
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The stored title of thing "t1", which a write below changes.
 let storedTitle = "Alex";
@@ -31,15 +28,15 @@ let titles: Map<string, string> | undefined;
 /** A log rail row showing a thing's title, beside the Things page writing. */
 function Screen() {
   write = useThingWrite();
-  titles = useRefTitles(db, [refField], entry);
+  titles = useRefTitles([refField], entry);
   return null;
 }
 
-let root: Root;
+let root: TestRoot;
 let queryClient: QueryClient;
 
 /** Lets queries and their follow-up renders finish. */
-const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+const settle = tick;
 
 /** Runs a write through the hook, then lets what it invalidated refetch. */
 async function run(action: () => Promise<unknown>, reach: ThingWriteReach) {
@@ -59,19 +56,13 @@ beforeEach(async () => {
   queryClient = createQueryClient();
   queryClient.setQueryData(logDay, []);
   queryClient.setQueryData(grid, []);
-  root = createRoot(document.createElement("div"));
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <Screen />
-      </QueryClientProvider>,
-    );
-  });
+  root = createTestRoot({ queryClient, db });
+  await root.renderAsync(<Screen />);
   await settle();
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  root.unmount();
   queryClient.clear();
 });
 

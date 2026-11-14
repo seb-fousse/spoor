@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeHotkey, describeShortcut } from "./format";
+import { describeHotkey, describeShortcut, shortcutLabel } from "./format";
 
 describe("describeHotkey", () => {
   it("writes a single key as one key", () => {
@@ -49,5 +49,13 @@ describe("describeShortcut", () => {
     expect(describeShortcut("laterDays", true).keys).toEqual(["⌥", "→"]);
     expect(describeShortcut("laterDays", false).keys).toEqual(["Ctrl", "→"]);
     expect(describeShortcut("nextDay", true).keys).toEqual(["→"]);
+  });
+});
+
+describe("shortcutLabel", () => {
+  it("joins the keys with +, the platform's way", () => {
+    expect(shortcutLabel("copyBlock", true)).toBe("⌘+C");
+    expect(shortcutLabel("copyBlock", false)).toBe("Ctrl+C");
+    expect(shortcutLabel("splitBlock", true)).toBe("C");
   });
 });

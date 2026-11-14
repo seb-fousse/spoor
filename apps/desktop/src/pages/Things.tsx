@@ -16,11 +16,11 @@ import {
   Title,
 } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   addThingField,
   createThing,
   createThingType,
-  type Database,
   deleteThing,
   deleteThingField,
   deleteThingType,
@@ -50,7 +50,8 @@ import { type FormEvent, useState } from "react";
 type Run = (action: () => Promise<unknown>, reach?: ThingWriteReach) => void;
 
 /** A thing type's fields, shared by everything on the page showing its things. */
-function useThingFields(db: Database, typeId: string) {
+function useThingFields(typeId: string) {
+  const db = useDatabase();
   return useQuery({
     queryKey: queryKeys.things.fields(typeId),
     queryFn: () => getThingTypeFields(db, typeId),
@@ -62,7 +63,8 @@ function useThingFields(db: Database, typeId: string) {
  * their values and merging, wired to stock Mantine controls. Its only
  * job is to show the slice works end to end over IPC; the real UI replaces it.
  */
-export function Things({ db }: { db: Database }) {
+export function Things() {
+  const db = useDatabase();
   const typesQuery = useQuery({
     queryKey: queryKeys.things.types,
     queryFn: () => listThingTypes(db),
@@ -155,23 +157,14 @@ export function Things({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && <ThingTypeDetail db={db} type={selected} types={types} run={run} />}
+      {selected && <ThingTypeDetail type={selected} types={types} run={run} />}
     </Stack>
   );
 }
 
-function ThingTypeDetail({
-  db,
-  type,
-  types,
-  run,
-}: {
-  db: Database;
-  type: ThingType;
-  types: ThingType[];
-  run: Run;
-}) {
-  const { data: fields = [] } = useThingFields(db, type.id);
+function ThingTypeDetail({ type, types, run }: { type: ThingType; types: ThingType[]; run: Run }) {
+  const db = useDatabase();
+  const { data: fields = [] } = useThingFields(type.id);
   const { data: things = [] } = useQuery({
     queryKey: queryKeys.things.ofType(type.id),
     queryFn: () => listThings(db, type.id),
@@ -230,7 +223,6 @@ function ThingTypeDetail({
       {type.archivedAt === null && (
         <ValuesForm
           key={created}
-          db={db}
           fields={fields}
           submitLabel="Add"
           onSubmit={(values) =>
@@ -278,7 +270,7 @@ function ThingTypeDetail({
                 Delete
               </Button>
             </Group>
-            <ValuesList db={db} thing={thing} />
+            <ValuesList thing={thing} />
           </div>
         ))}
       </Stack>
@@ -286,7 +278,6 @@ function ThingTypeDetail({
         <EditThing
           // A changed thing bumps `updatedAt`, which resets the form to its stored values.
           key={`${editing.id}:${editing.updatedAt}`}
-          db={db}
           thing={editing}
           title={title(editing)}
           onSave={(values) =>
@@ -311,23 +302,20 @@ function referenceEffects(n: ThingDeletion) {
 
 /** Edits a thing against its type's fields. */
 function EditThing({
-  db,
   thing,
   title,
   onSave,
 }: {
-  db: Database;
   thing: Thing;
   title: string;
   onSave: (values: ValuePatch) => void;
 }) {
-  const { data: fields } = useThingFields(db, thing.thingTypeId);
+  const { data: fields } = useThingFields(thing.thingTypeId);
   if (fields === undefined) return null;
   return (
     <>
       <Title order={4}>Edit {title}</Title>
       <ValuesForm
-        db={db}
         fields={fields}
         initial={thing.values}
         clearsMissing
@@ -345,14 +333,12 @@ function EditThing({
 type Draft = Record<string, string | string[]>;
 
 function ValuesForm({
-  db,
   fields,
   initial = {},
   clearsMissing = false,
   submitLabel,
   onSubmit,
 }: {
-  db: Database;
   fields: FieldDefinition[];
   initial?: Record<string, Value>;
   /** Send an emptied field as `null`, clearing it, instead of leaving it out. */
@@ -381,7 +367,6 @@ function ValuesForm({
         {fields.map((f) => (
           <ValueInput
             key={f.id}
-            db={db}
             field={f}
             value={draft[f.id] ?? ""}
             onChange={(v) => set(f.id, v)}
@@ -396,12 +381,10 @@ function ValuesForm({
 }
 
 function ValueInput({
-  db,
   field,
   value,
   onChange,
 }: {
-  db: Database;
   field: FieldDefinition;
   value: string | string[];
   onChange: (value: string | string[]) => void;
@@ -444,7 +427,6 @@ function ValueInput({
       return (
         <ThingSelect
           {...label}
-          db={db}
           thingTypeId={shape.constraints.thingTypeId}
           multiple={shape.valueType === "multi_ref"}
           value={value}
@@ -472,20 +454,18 @@ interface InputLabel {
 
 /** Live things of one type to refer to, by title. */
 function ThingSelect({
-  db,
   thingTypeId,
   multiple,
   value,
   onChange,
   ...label
 }: InputLabel & {
-  db: Database;
   thingTypeId: string;
   multiple: boolean;
   value: string | string[];
   onChange: (value: string | string[]) => void;
 }) {
-  const data = useThings(db, thingTypeId).map((o) => ({ value: o.id, label: o.title }));
+  const data = useThings(thingTypeId).map((o) => ({ value: o.id, label: o.title }));
   return multiple ? (
     <MultiSelect
       {...label}
@@ -506,9 +486,9 @@ function ThingSelect({
 }
 
 /** A thing's values, with references shown by title. */
-function ValuesList({ db, thing }: { db: Database; thing: Thing }) {
-  const { data: fields = [] } = useThingFields(db, thing.thingTypeId);
-  const titles = useRefTitles(db, fields, thing);
+function ValuesList({ thing }: { thing: Thing }) {
+  const { data: fields = [] } = useThingFields(thing.thingTypeId);
+  const titles = useRefTitles(fields, thing);
   const show = (f: FieldDefinition, v: Value) => {
     if (f.shape.valueType === "ref") return titles.get(v as string) ?? String(v);
     if (f.shape.valueType === "multi_ref")

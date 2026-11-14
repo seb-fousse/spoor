@@ -2,14 +2,11 @@
 import { createQueryClient } from "@lib/queryClient";
 import { queryKeys } from "@lib/queryKeys";
 import type { Database } from "@spoor/core";
-import { type QueryClient, QueryClientProvider, type QueryKey } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLogEntryWrites, useLogFieldWrites, useLogTypeWrites } from "./useLogsData";
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The writes succeed without a database; only what they invalidate is under test.
 vi.mock("@spoor/core", () => {
@@ -40,14 +37,14 @@ let writes: Writes | undefined;
 
 function Page() {
   writes = {
-    types: useLogTypeWrites(db),
-    fields: useLogFieldWrites(db, "type-1"),
-    entries: useLogEntryWrites(db),
+    types: useLogTypeWrites(),
+    fields: useLogFieldWrites("type-1"),
+    entries: useLogEntryWrites(),
   };
   return null;
 }
 
-let root: Root;
+let root: TestRoot;
 let queryClient: QueryClient;
 
 // What Home reads: a day's logs, the log types, and a type's fields.
@@ -58,18 +55,12 @@ const fields = queryKeys.logTypes.fields("type-1");
 beforeEach(async () => {
   queryClient = createQueryClient();
   for (const key of [day, types, fields]) queryClient.setQueryData(key, []);
-  root = createRoot(document.createElement("div"));
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <Page />
-      </QueryClientProvider>,
-    );
-  });
+  root = createTestRoot({ queryClient, db });
+  await root.renderAsync(<Page />);
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  root.unmount();
   queryClient.clear();
 });
 

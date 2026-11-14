@@ -14,8 +14,8 @@ import {
   Title,
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
-  type Database,
   dayOf,
   METRIC_VALUE_TYPES,
   type MetricValueType,
@@ -37,10 +37,11 @@ type Run = (action: () => Promise<unknown>) => void;
  * only job is to show the slice works end to end over IPC; the real UI
  * replaces it.
  */
-export function Observations({ db }: { db: Database }) {
-  const metricsQuery = useMetrics(db);
+export function Observations() {
+  const db = useDatabase();
+  const metricsQuery = useMetrics();
   const metrics = metricsQuery.data ?? [];
-  const writes = useObservationWrites(db);
+  const writes = useObservationWrites();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,7 +118,7 @@ export function Observations({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && <MetricDetail key={selected.id} db={db} metric={selected} run={run} />}
+      {selected && <MetricDetail key={selected.id} metric={selected} run={run} />}
     </Stack>
   );
 }
@@ -182,10 +183,10 @@ function ShapeForm({
   );
 }
 
-function MetricDetail({ db, metric, run }: { db: Database; metric: ObservationMetric; run: Run }) {
-  const observations = useMetricObservations(db, metric.id).data ?? [];
-  const writes = useObservationWrites(db);
-  const timeZone = useTimeZone(db).data;
+function MetricDetail({ metric, run }: { metric: ObservationMetric; run: Run }) {
+  const observations = useMetricObservations(metric.id).data ?? [];
+  const writes = useObservationWrites();
+  const timeZone = useTimeZone().data;
   // Set from the metric once, when it is selected (the parent keys this by id),
   // so the refetch after a save leaves what the user typed alone.
   const [name, setName] = useState(metric.name);

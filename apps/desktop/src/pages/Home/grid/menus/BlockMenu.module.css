@@ -1,0 +1,22 @@
+/* The grid's right-click menus: their anchor at the pointer, and their keys. */
+
+/*
+ * A key in the block menu, such as ⌫. Key symbols draw small at a monospace
+ * label's size, so it is larger, in the system font, which draws them best.
+ */
+.menuKey {
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+}
+
+/* Where a menu opens from: the pointer, unseen. */
+.menuAnchor {
+  position: absolute;
+  top: calc(var(--top) * 100%);
+  left: var(--left);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}

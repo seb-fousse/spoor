@@ -19,7 +19,7 @@ export function formatTime(entry: LogEntry): string {
 }
 
 /** An entry's value for `field` as text; `titles` names the things a ref points to. */
-export function formatValue(field: LogField, value: Value, titles: Map<string, string>): string {
+function formatValue(field: LogField, value: Value, titles: Map<string, string>): string {
   switch (field.shape.valueType) {
     case "boolean":
       return value ? "yes" : "no";

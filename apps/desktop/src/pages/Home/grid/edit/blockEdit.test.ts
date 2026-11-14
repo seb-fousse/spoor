@@ -1,5 +1,6 @@
 import type { TimelineInterval } from "@spoor/core";
 import { describe, expect, it } from "vitest";
+import { daysWindow } from "../layout/dragRange";
 import {
   canMove,
   conflictingCategories,
@@ -10,7 +11,6 @@ import {
   sameRange,
   splitPoint,
 } from "./blockEdit";
-import { daysWindow } from "./dragRange";
 
 const ZONE = "Europe/Paris";
 /** Paris is UTC+1 in November. */

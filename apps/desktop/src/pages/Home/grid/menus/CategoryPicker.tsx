@@ -1,8 +1,8 @@
 import { Popover, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
 import type { TimelineCategory } from "@spoor/core";
 import { type KeyboardEvent, type ReactNode, useState } from "react";
+import { categoryColor } from "../layout/gridLayout";
 import classes from "./CategoryPicker.module.css";
-import { categoryColor } from "./gridLayout";
 
 interface CategoryPickerProps {
   /** The block the popover hangs off. */

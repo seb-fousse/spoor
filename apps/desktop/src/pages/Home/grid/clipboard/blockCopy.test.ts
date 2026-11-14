@@ -1,7 +1,7 @@
 import type { TimelineCategory, TimelineInterval } from "@spoor/core";
 import { describe, expect, it } from "vitest";
-import { type BlockCopy, copyOf, pasteTarget } from "./blockCopy";
-import { daysWindow } from "./dragRange";
+import { daysWindow } from "../layout/dragRange";
+import { type BlockCopy, copyOf, landingLabel, pasteTarget } from "./blockCopy";
 
 const ZONE = "Europe/Paris";
 /** Paris is UTC+1 in November. */
@@ -138,5 +138,16 @@ describe("pasteTarget", () => {
     expect(paste(t("14:00"), [ongoing])).toEqual({
       reason: "No room for it on the visible days",
     });
+  });
+});
+
+describe("landingLabel", () => {
+  it("is the time alone when the paste lands on the day asked for", () => {
+    expect(landingLabel(t("14:00"), "2026-11-09", ZONE, "en-GB")).toBe("14:00");
+  });
+
+  it("adds the day when a block in the way pushed the paste onto another", () => {
+    const nextMorning = at("2026-11-10T08:30:00");
+    expect(landingLabel(nextMorning, "2026-11-09", ZONE, "en-GB")).toBe("Tue 10 08:30");
   });
 });

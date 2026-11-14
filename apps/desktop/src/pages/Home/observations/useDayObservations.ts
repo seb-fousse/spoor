@@ -1,6 +1,6 @@
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
-  type Database,
   type LocalDate,
   listDayObservations,
   type MetricDay,
@@ -37,7 +37,8 @@ export interface DayObservations {
  * rather than reloading the day, and invalidates the grid's day counts and the
  * metric's observation list.
  */
-export function useDayObservations(db: Database, day: LocalDate): DayObservations {
+export function useDayObservations(day: LocalDate): DayObservations {
+  const db = useDatabase();
   const queryClient = useQueryClient();
 
   const query = useQuery({

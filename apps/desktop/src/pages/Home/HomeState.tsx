@@ -1,6 +1,6 @@
 import { useTimeZone } from "@hooks/useTimeZone";
 import { useToday } from "@hooks/useToday";
-import type { Database, LocalDate } from "@spoor/core";
+import type { LocalDate } from "@spoor/core";
 import {
   createContext,
   type Dispatch,
@@ -31,12 +31,12 @@ const HomeStateContext = createContext<HomeState | null>(null);
  * Midnight rollover runs here too, so it keeps applying while Home is not on
  * screen: a user who left on today comes back to the new today.
  */
-export function HomeStateProvider({ db, children }: { db: Database; children: ReactNode }) {
+export function HomeStateProvider({ children }: { children: ReactNode }) {
   // Until the setting loads, today is the device's today. If the setting's
   // date differs, the rollover below moves the window to it.
   // On failure, keep the device's zone; the grid reports its own load errors.
   // The grid reads the same query, so both always count days in the same zone.
-  const { data: timeZone } = useTimeZone(db);
+  const { data: timeZone } = useTimeZone();
   const today = useToday(timeZone);
   const [days, dispatch] = useReducer(homeDaysReducer, today, initialHomeDays);
 

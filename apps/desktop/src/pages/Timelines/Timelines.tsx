@@ -11,11 +11,11 @@ import {
   Title,
 } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   createCategory,
   createInterval,
   createTimeline,
-  type Database,
   deleteCategory,
   deleteInterval,
   deleteTimeline,
@@ -38,8 +38,9 @@ import { useTimelineDetail, useTimelineList, useTimelinesWrite } from "./useTime
  * plain Mantine components. Its only job is to show the slice works end to end
  * over IPC; the real UI replaces it.
  */
-export function Timelines({ db }: { db: Database }) {
-  const list = useTimelineList(db);
+export function Timelines() {
+  const db = useDatabase();
+  const list = useTimelineList();
   const timelines = list.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const write = useTimelinesWrite();
@@ -102,7 +103,7 @@ export function Timelines({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && <TimelineDetail db={db} timeline={selected} run={run} />}
+      {selected && <TimelineDetail timeline={selected} run={run} />}
     </Stack>
   );
 }
@@ -140,15 +141,14 @@ function TimelineForm({ onCreate }: { onCreate: (name: string, exclusive: boolea
 }
 
 function TimelineDetail({
-  db,
   timeline,
   run,
 }: {
-  db: Database;
   timeline: Timeline;
   run: (action: () => Promise<unknown>) => void;
 }) {
-  const detail = useTimelineDetail(db, timeline.id);
+  const db = useDatabase();
+  const detail = useTimelineDetail(timeline.id);
   const categories = detail.categories.data ?? [];
   const intervals = detail.intervals.data ?? [];
   // The page's error shows write failures; these reads report their own.

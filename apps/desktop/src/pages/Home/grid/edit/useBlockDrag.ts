@@ -1,5 +1,8 @@
 import type { Instant, LocalDate, Timeline, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useRef, useState } from "react";
+import { type DrawnRange, daysWindow } from "../layout/dragRange";
+import type { BlockSegment, GridBlock } from "../layout/gridLayout";
+import { pointerAt } from "../layout/gridPointer";
 import {
   type BlockMode,
   canMove,
@@ -10,9 +13,6 @@ import {
   resizedRange,
   sameRange,
 } from "./blockEdit";
-import { type DrawnRange, daysWindow } from "./dragRange";
-import type { BlockSegment, GridBlock } from "./gridLayout";
-import { pointerAt } from "./gridPointer";
 
 /** A block being dragged, saved, selected, or edited in its popover. */
 export interface BlockEdit {
