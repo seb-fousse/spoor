@@ -1,14 +1,10 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
 import { queryKeys } from "@lib/queryKeys";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTimelinesWrite } from "./useTimelinesData";
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /** The hook's result, captured on each render. */
 let write: ReturnType<typeof useTimelinesWrite> | undefined;
@@ -24,7 +20,7 @@ const grid = queryKeys.timelines.grid;
 const intervals = queryKeys.timelines.intervals(["t1"], "2026-11-05", "2026-11-09", "UTC");
 const logs = queryKeys.logs.day("2026-11-09");
 
-let root: Root;
+let root: TestRoot;
 let queryClient: ReturnType<typeof createQueryClient>;
 
 /** Runs `action` through the hook, then lets the hook re-render with the outcome. */
@@ -41,18 +37,12 @@ const invalidated = (key: readonly unknown[]) => queryClient.getQueryState(key)?
 beforeEach(async () => {
   queryClient = createQueryClient();
   for (const key of [list, grid, intervals, logs]) queryClient.setQueryData(key, []);
-  root = createRoot(document.createElement("div"));
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <Page />
-      </QueryClientProvider>,
-    );
-  });
+  root = createTestRoot({ queryClient });
+  await root.renderAsync(<Page />);
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  root.unmount();
   queryClient.clear();
   write = undefined;
 });

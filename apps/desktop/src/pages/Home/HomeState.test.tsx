@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
 import type { Database } from "@spoor/core";
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type HomeState, HomeStateProvider, useHomeState } from "./HomeState";
 import { windowDays } from "./homeDays";
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // A database whose only setting is `time_zone`, so "today" doesn't depend on the machine.
 const db: Database = {
@@ -27,25 +24,19 @@ function Page() {
 
 /** The app: the provider always mounted, the page only while the user is on Home. */
 function App({ onHome }: { onHome: boolean }) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <HomeStateProvider db={db}>{onHome ? <Page /> : null}</HomeStateProvider>
-    </QueryClientProvider>
-  );
+  return <HomeStateProvider db={db}>{onHome ? <Page /> : null}</HomeStateProvider>;
 }
 
-let root: Root;
+let root: TestRoot;
 // A fresh cache per test, so no test sees another's loaded setting.
 let queryClient: QueryClient;
 
 /** Renders the app, then lets the time zone load. */
 async function show(onHome: boolean) {
   seen = undefined;
-  await act(async () => {
-    root.render(<App onHome={onHome} />);
-    // A real macrotask: lets the setting's query and its follow-up renders finish.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  root.render(<App onHome={onHome} />);
+  // Lets the setting's query and its follow-up renders finish.
+  await tick();
 }
 
 /** What the page shows after the user comes back to it. */
@@ -73,11 +64,11 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   vi.setSystemTime(Date.UTC(2026, 10, 9, 12));
   queryClient = createQueryClient();
-  root = createRoot(document.createElement("div"));
+  root = createTestRoot({ queryClient });
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  root.unmount();
   queryClient.clear();
   vi.useRealTimers();
 });

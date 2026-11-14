@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
-import { MantineProvider } from "@mantine/core";
 import type { TimelineCategory } from "@spoor/core";
-import { theme } from "@theme";
+import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CategoryPicker } from "./CategoryPicker";
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const category = (id: string, name: string) =>
   ({ id, timelineId: "t1", name, archivedAt: null }) as TimelineCategory;
@@ -17,61 +12,37 @@ const meetings = category("meetings", "Meetings");
 const sport = category("sport", "Sport");
 const categories = [deep, meetings, sport];
 
-beforeAll(() => {
-  // jsdom has no media queries. Mantine asks for one to respect reduced motion;
-  // saying yes opens the popover at once, without waiting out its transition.
-  window.matchMedia = (query: string) =>
-    ({
-      matches: query === "(prefers-reduced-motion: reduce)",
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-});
-
-let root: Root;
-let container: HTMLElement;
+let root: TestRoot;
 let onPick: ReturnType<
   typeof vi.fn<(choice: { categoryId: string } | { newCategory: string }) => void>
 >;
 let onCancel: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  root = createTestRoot({ mantine: true });
   onPick = vi.fn<(choice: { categoryId: string } | { newCategory: string }) => void>();
   onCancel = vi.fn<() => void>();
 });
 
 afterEach(() => {
-  act(() => root.unmount());
-  container.remove();
+  root.unmount();
 });
 
 /** Opens the picker for an existing Deep work block that can't become a Meetings one. */
 function showForBlock() {
-  act(() =>
-    root.render(
-      <MantineProvider theme={{ ...theme, respectReducedMotion: true }}>
-        <CategoryPicker
-          opened
-          categories={categories}
-          currentId={deep.id}
-          disabledIds={new Set([meetings.id])}
-          error={null}
-          saving={false}
-          onPick={onPick}
-          onCancel={onCancel}
-        >
-          <div />
-        </CategoryPicker>
-      </MantineProvider>,
-    ),
+  root.render(
+    <CategoryPicker
+      opened
+      categories={categories}
+      currentId={deep.id}
+      disabledIds={new Set([meetings.id])}
+      error={null}
+      saving={false}
+      onPick={onPick}
+      onCancel={onCancel}
+    >
+      <div />
+    </CategoryPicker>,
   );
 }
 

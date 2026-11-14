@@ -11,9 +11,9 @@ import {
   type RecordObservationResult,
   recordObservation,
 } from "@spoor/core";
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DayObservations, useDayObservations } from "./useDayObservations";
 
@@ -25,9 +25,6 @@ vi.mock("@spoor/core", async (importOriginal) => ({
   listDayObservations: vi.fn(),
   recordObservation: vi.fn(),
 }));
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Never touched: every core call that would use it is stubbed.
 const db = {} as Database;
@@ -61,16 +58,9 @@ function Rail({ day }: { day: LocalDate }) {
   return null;
 }
 
-let root: Root;
+let root: TestRoot;
 // A fresh cache per test, so no test sees another's loaded days or saves.
 let queryClient: QueryClient;
-
-/** One real macrotask, inside `act` so the renders it causes are flushed. */
-async function tick() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
 
 /**
  * Lets every query in flight finish, and its result render. TanStack Query tells
@@ -86,13 +76,7 @@ async function settle() {
 
 /** Shows the rail for `day`, then lets that day load. */
 async function showDay(day: LocalDate) {
-  act(() =>
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <Rail day={day} />
-      </QueryClientProvider>,
-    ),
-  );
+  root.render(<Rail day={day} />);
   await settle();
 }
 
@@ -120,12 +104,12 @@ beforeEach(() => {
   // Every day starts with sleep not yet observed.
   vi.mocked(listDayObservations).mockResolvedValue([{ metric: sleep, observation: null }]);
   queryClient = createQueryClient();
-  root = createRoot(document.createElement("div"));
+  root = createTestRoot({ queryClient });
   seen = undefined;
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  root.unmount();
   queryClient.clear();
   vi.resetAllMocks();
 });

@@ -1,41 +1,17 @@
 // @vitest-environment jsdom
-import { MantineProvider } from "@mantine/core";
-import { theme } from "@theme";
+import { createTestRoot, type TestRoot } from "@test/render";
 import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BlockMenu, PasteMenu } from "./BlockMenu";
 
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-beforeAll(() => {
-  // jsdom has no media queries. Mantine asks for one to respect reduced motion;
-  // saying yes opens the menu at once, without waiting out its transition.
-  window.matchMedia = (query: string) =>
-    ({
-      matches: query === "(prefers-reduced-motion: reduce)",
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-});
-
-let root: Root;
-let container: HTMLElement;
+let root: TestRoot;
 let onSplit: ReturnType<typeof vi.fn<() => void>>;
 let onDelete: ReturnType<typeof vi.fn<() => void>>;
 let onCopy: ReturnType<typeof vi.fn<() => void>>;
 let onPaste: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  root = createTestRoot({ mantine: true });
   onSplit = vi.fn<() => void>();
   onDelete = vi.fn<() => void>();
   onCopy = vi.fn<() => void>();
@@ -43,16 +19,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  act(() => root.unmount());
-  container.remove();
+  root.unmount();
 });
 
 function render(menu: ReactNode) {
-  act(() =>
-    root.render(
-      <MantineProvider theme={{ ...theme, respectReducedMotion: true }}>{menu}</MantineProvider>,
-    ),
-  );
+  root.render(menu);
 }
 
 function show(splitLabel: string | null = "Split at 10:30", { ongoing = false } = {}) {

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
 import { queryKeys } from "@lib/queryKeys";
-import { MantineProvider } from "@mantine/core";
 import {
   createLogEntry,
   type Database,
@@ -13,11 +12,10 @@ import {
   listDayLogEntries,
   listLogTypes,
 } from "@spoor/core";
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { theme } from "@theme";
+import type { QueryClient } from "@tanstack/react-query";
+import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NewLogModal } from "./NewLogModal";
 import { useDayLogs } from "./useDayLogs";
 
@@ -31,9 +29,6 @@ vi.mock("@spoor/core", async (importOriginal) => ({
   listDayLogEntries: vi.fn(),
   listLogTypes: vi.fn(),
 }));
-
-// Tell React this is a test environment, so `act` flushes renders and effects.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Never touched: every core call that would use it is stubbed.
 const db = {} as Database;
@@ -50,23 +45,6 @@ const walk = {
 } as LogType;
 const entry = { id: "entry-1", logTypeId: walk.id, day: MONDAY, values: {} } as LogEntry;
 
-beforeAll(() => {
-  // jsdom has no media queries. Mantine asks for one to respect reduced motion;
-  // saying yes makes the modal open and close at once, so the reset that runs
-  // when its closing transition ends happens without waiting out the animation.
-  window.matchMedia = (query: string) =>
-    ({
-      matches: query === "(prefers-reduced-motion: reduce)",
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-});
-
 /** The day's log groups the rail last showed. */
 let railGroups: DayLogGroup[] | undefined;
 
@@ -76,18 +54,10 @@ function RailList() {
   return null;
 }
 
-let root: Root;
-let container: HTMLElement;
+let root: TestRoot;
 // A fresh cache per test, so no test sees another's log types, lists or saves.
 let queryClient: QueryClient;
 let onClose: ReturnType<typeof vi.fn<() => void>>;
-
-/** One real macrotask, inside `act` so the renders it causes are flushed. */
-async function tick() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
 
 /**
  * Lets every query and save in flight finish, and their results render. TanStack
@@ -102,15 +72,11 @@ async function settle() {
 
 /** Renders the rail and the modal, open or closed, then lets them load. */
 async function showModal(opened: boolean) {
-  act(() =>
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <MantineProvider theme={{ ...theme, respectReducedMotion: true }}>
-          <RailList />
-          <NewLogModal db={db} opened={opened} day={MONDAY} onClose={onClose} />
-        </MantineProvider>
-      </QueryClientProvider>,
-    ),
+  root.render(
+    <>
+      <RailList />
+      <NewLogModal db={db} opened={opened} day={MONDAY} onClose={onClose} />
+    </>,
   );
   await settle();
 }
@@ -156,14 +122,12 @@ beforeEach(() => {
   vi.mocked(listDayLogEntries).mockResolvedValue([]);
   queryClient = createQueryClient();
   onClose = vi.fn<() => void>();
-  container = document.body.appendChild(document.createElement("div"));
-  root = createRoot(container);
+  root = createTestRoot({ queryClient, mantine: true });
   railGroups = undefined;
 });
 
 afterEach(() => {
-  act(() => root.unmount());
-  container.remove();
+  root.unmount();
   queryClient.clear();
   vi.resetAllMocks();
 });

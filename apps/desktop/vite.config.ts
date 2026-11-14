@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
@@ -21,8 +22,14 @@ export default defineConfig(() => ({
       "@pages": src("pages"),
       "@platform": src("platform"),
       "@routes": src("routes.ts"),
+      "@test": src("test"),
       "@theme": src("theme"),
     },
+  },
+
+  test: {
+    // Tells React it runs under `act`, and gives jsdom a media query for Mantine.
+    setupFiles: ["./src/test/setup.ts"],
   },
 
   // Vite options tailored for Tauri development, applied in `tauri dev`/`tauri build`.
