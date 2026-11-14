@@ -1,0 +1,68 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    // The lint fixtures break the rules on purpose. `pnpm lint:selftest` lints them.
+    "includes": ["**", "!**/*.svg", "!tools/biome/fixtures"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    // The desktop app's conventions (#146), everywhere in the app but the POC
+    // pages. Those are slated for replacement (#149) and still format dates
+    // themselves, so they are listed here once, as exclusions, and nowhere else.
+    //
+    // A later override can't turn a plugin off (`plugins` only adds), so the POC
+    // pages are left out of this block instead of turned off in their own.
+    {
+      "includes": [
+        "apps/desktop/src/**",
+        "!apps/desktop/src/pages/Things.tsx",
+        "!apps/desktop/src/pages/Observations.tsx",
+        "!apps/desktop/src/pages/useObservationsData.ts",
+        "!apps/desktop/src/pages/Logs/**",
+        "!apps/desktop/src/pages/Timelines/**"
+      ],
+      "plugins": [
+        // Rule 4: dates and times are formatted only in lib/format.
+        {
+          "path": "./tools/biome/plugins/format-dates-in-lib-format.grit",
+          "includes": [
+            "**",
+            "!apps/desktop/src/lib/format.ts",
+            "!**/*.test.{ts,tsx}",
+            "!apps/desktop/src/test/**"
+          ]
+        }
+      ]
+    }
+  ]
+}
