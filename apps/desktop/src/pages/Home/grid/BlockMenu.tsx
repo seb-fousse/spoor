@@ -14,6 +14,7 @@ function keysOf(...ids: ShortcutId[]) {
 
 const DELETE_KEYS = keysOf("deleteBlock", "deleteBlockForward");
 const COPY_KEYS = keysOf("copyBlock");
+const SPLIT_KEYS = keysOf("splitBlock");
 const PASTE_KEYS = keysOf("pasteBlock");
 
 /** An item's keys, on its right. */
@@ -71,14 +72,15 @@ interface BlockMenuProps extends GridMenuProps {
  * `useSplitAim`). "Split" cuts the block in two at the 15-minute mark nearest
  * the pointer; it is disabled when no mark falls inside the block. "Copy"
  * copies it, to paste elsewhere (see `PasteMenu`); it is disabled for an
- * ongoing block. "Delete block" deletes it at once. Copy and Delete show the
- * keys that do the same on a selected block.
+ * ongoing block. "Delete block" deletes it at once. Each item shows the key
+ * that does the same on a selected block (C splits it at the pointer).
  */
 export function BlockMenu({ splitLabel, onSplit, onCopy, onDelete, ...menu }: BlockMenuProps) {
   return (
     <GridMenu {...menu}>
       <Menu.Item
         leftSection={<ScissorsIcon />}
+        {...itemKeys(SPLIT_KEYS)}
         disabled={splitLabel === null}
         title={splitLabel === null ? "No 15-minute mark inside the block here" : undefined}
         onClick={onSplit}

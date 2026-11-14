@@ -23,6 +23,7 @@ export const SHORTCUTS = {
   deleteBlockForward: { keys: "Delete", description: "Delete the selected block" },
   copyBlock: { keys: "mod+C", description: "Copy the selected block" },
   pasteBlock: { keys: "mod+V", description: "Paste the copied block at the pointer" },
+  splitBlock: { keys: "C", description: "Split the selected block at the pointer" },
 } as const satisfies Record<string, { keys: string; description: string }>;
 
 export type ShortcutId = keyof typeof SHORTCUTS;
