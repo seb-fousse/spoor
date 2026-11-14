@@ -62,7 +62,7 @@ interface BlockMenuProps extends GridMenuProps {
   onSplit: () => void;
   /** Copies the block, or `null` when it can't be: it is ongoing, so it has no length yet. */
   onCopy: (() => void) | null;
-  /** Asks to delete the block (it confirms first). */
+  /** Deletes the block, at once. */
   onDelete: () => void;
 }
 
@@ -71,7 +71,7 @@ interface BlockMenuProps extends GridMenuProps {
  * `useSplitAim`). "Split" cuts the block in two at the 15-minute mark nearest
  * the pointer; it is disabled when no mark falls inside the block. "Copy"
  * copies it, to paste elsewhere (see `PasteMenu`); it is disabled for an
- * ongoing block. "Delete block" asks to delete it. Copy and Delete show the
+ * ongoing block. "Delete block" deletes it at once. Copy and Delete show the
  * keys that do the same on a selected block.
  */
 export function BlockMenu({ splitLabel, onSplit, onCopy, onDelete, ...menu }: BlockMenuProps) {

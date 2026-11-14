@@ -66,7 +66,8 @@ can next be saved.
 
 Before deleting, the user sees what else goes, with counts (“This also deletes
 214 entries”), and must confirm. To retire a definition without losing data,
-archive it instead. Archiving never cascades. Archiving a timeline stops all
+archive it instead. A timeline block takes nothing else with it, so Home's
+grid deletes it at once, without asking. Archiving never cascades. Archiving a timeline stops all
 its categories being offered.
 
 A future sync will need to carry deletions to other devices. The planned

@@ -1,4 +1,3 @@
-import { useConfirmDelete } from "@components/ConfirmDelete";
 import { useNow } from "@hooks/useNow";
 import { describeShortcut, shortcutHandler, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
@@ -99,8 +98,8 @@ interface TimelineGridProps {
  * asks for its category on release. Dragging a block moves it, possibly to
  * another day, skipping over blocks in the way, and dragging its top or
  * bottom edge resizes it. Neither drag ever overlaps another block that
- * conflicts. Clicking a block selects it: ⌫ or Delete then asks to delete it,
- * ⌘C copies it, and Enter or a second click opens a popover to change its
+ * conflicts. Clicking a block selects it: ⌫ or Delete then deletes it, ⌘C
+ * copies it, and Enter or a second click opens a popover to change its
  * category. Its right-click menu splits, copies or deletes it. A copy (its
  * category and length) pastes any number of times on its timeline, from the
  * right-click menu of an empty stretch or with ⌘V at the pointer, landing
@@ -262,7 +261,6 @@ function Grid({
     setError(null);
     action().catch((e: Error) => setError(e.message));
   };
-  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   const move = useUpdateInterval(db);
   const recategorize = useUpdateInterval(db);
@@ -283,17 +281,16 @@ function Grid({
     recategorize.reset();
   };
 
-  // Asks first. Once the block is gone, nothing is selected and focus goes
-  // to the active day's header, the grid's tab stop, rather than the page.
-  // The write settles after the grid has refetched, so the block is gone by then.
-  const askDelete = (interval: TimelineInterval) => {
-    const name = categories.get(interval.categoryId)?.name ?? "Unknown category";
-    confirmDelete(`the ${name} block, ${rangeLabel(interval, timeZone)}`, async () => {
+  // At once, without asking: a block takes nothing else with it. Once it is
+  // gone, nothing is selected and focus goes to the active day's header, the
+  // grid's tab stop, rather than the page. The write settles after the grid
+  // has refetched, so the block is gone by then.
+  const deleteBlock = (interval: TimelineInterval) =>
+    run(async () => {
       await remove.mutateAsync(interval.id);
       blockDrag.cancel();
       focusDay(activeDay);
     });
-  };
 
   // Copy and paste. A copy of an ongoing block can't be made: it has no length yet.
   const copy = (interval: TimelineInterval) => {
@@ -479,7 +476,7 @@ function Grid({
             }
             onDelete={() => {
               splitAim.close();
-              askDelete(interval);
+              deleteBlock(interval);
             }}
           />
         ),
@@ -603,7 +600,7 @@ function Grid({
       // The selected block's keys, on whichever of its segments has focus.
       onKeyDown: selected
         ? blockKeyHandler({
-            onDelete: () => askDelete(block.interval),
+            onDelete: () => deleteBlock(block.interval),
             onCopy: () => copy(block.interval),
             onOpen: blockDrag.open,
             onDeselect: closeEdit,
@@ -644,7 +641,6 @@ function Grid({
 
   return (
     <div className={classes.grid} style={style}>
-      {deleteDialog}
       {/* Over the grid, so it doesn't push the hours down. */}
       <div className={classes.notice} role="status">
         {notice && <span className={classes.noticeText}>{notice}</span>}
