@@ -14,7 +14,7 @@ import { type DrawnRange, daysWindow } from "./dragRange";
 import type { BlockSegment, GridBlock } from "./gridLayout";
 import { pointerAt } from "./gridPointer";
 
-/** A block being dragged, saved, or edited in its popover. */
+/** A block being dragged, saved, selected, or edited in its popover. */
 export interface BlockEdit {
   interval: TimelineInterval;
   /** The pressed piece's day and segment, where the popover goes. */
@@ -25,9 +25,10 @@ export interface BlockEdit {
   range: EditedRange | null;
   /**
    * `dragging` while the pointer is down, `saving` once a changed range is
-   * released, `editing` once a press without a drag opens the popover.
+   * released, `selected` once a press without a drag selects it, and
+   * `editing` once its popover opens: a second such press, or `open`.
    */
-  phase: "dragging" | "saving" | "editing";
+  phase: "dragging" | "saving" | "selected" | "editing";
 }
 
 interface DragState extends BlockEdit {
@@ -38,6 +39,8 @@ interface DragState extends BlockEdit {
   gaps: DrawnRange[];
   /** Whether the pointer has left the pressed step, which makes this a drag, not a click. */
   moved: boolean;
+  /** Whether the block was already selected, so a click opens its popover. */
+  reopen: boolean;
 }
 
 /** Marks the handle for a block's start or end edge with `start` or `end`. */
@@ -53,8 +56,10 @@ export type SegmentHandlers = ReturnType<ReturnType<typeof useBlockDrag>["handle
  * dragging moves that edge, which stops at the neighbouring block. Both snap
  * to 15 minutes, and an edit never overlaps (see `blockEdit`).
  * Releasing a changed range calls `onSave`; once that write is done, `settle`
- * drops the edit. A press that doesn't drag opens the block's popover
- * instead, which `cancel` closes. Mouse and pen only.
+ * drops the edit. A press that doesn't drag selects the block instead, and
+ * focuses the pressed segment for the block's keys; pressing it again, or
+ * `open`, opens its popover. `cancel` drops the selection and the popover.
+ * Mouse and pen only.
  *
  * `handlers(block, segment)` is spread on each of a block's segments, inside
  * the grid's sub-columns (see `gridPointer`).
@@ -82,6 +87,7 @@ export function useBlockDrag(
       // One write at a time.
       if (latest.current?.phase === "saving") return;
       const { interval } = block;
+      const before = latest.current;
       const timeline = timelines.find((t) => t.id === interval.timelineId);
       if (!timeline) return;
       const visible = daysWindow(days, timeZone);
@@ -102,6 +108,7 @@ export function useBlockDrag(
         span: editSpan(interval, intervals, timeline, visible),
         gaps: mode === "move" ? freeGaps(interval, intervals, timeline, visible) : [],
         moved: false,
+        reopen: before?.phase === "selected" && before.interval.id === interval.id,
       });
     },
     onPointerMove: (event: PointerEvent<HTMLElement>) => {
@@ -124,11 +131,14 @@ export function useBlockDrag(
       if (s.moved && (range === s.range || (range && s.range && sameRange(range, s.range)))) return;
       update({ ...s, moved: true, range });
     },
-    onPointerUp: () => {
+    onPointerUp: (event: PointerEvent<HTMLElement>) => {
       const s = latest.current;
       if (s?.phase !== "dragging" || s.interval.id !== block.interval.id) return;
       if (!s.moved) {
-        update({ ...s, phase: "editing" });
+        update({ ...s, phase: s.reopen ? "editing" : "selected" });
+        // Captured, so this is the pressed segment. The press's `preventDefault`
+        // kept it from taking focus by itself.
+        if (!s.reopen) event.currentTarget.focus({ preventScroll: true });
       } else if (s.range && !sameRange(s.range, s.interval)) {
         update({ ...s, phase: "saving" });
         onSave(s.interval, s.range);
@@ -141,9 +151,16 @@ export function useBlockDrag(
     },
   });
 
-  /** Closes the popover. A drag that has just started stays. */
+  /** Drops the selection, and closes the popover. A drag that has just started stays. */
   const cancel = () => {
-    if (latest.current?.phase === "editing") update(null);
+    const phase = latest.current?.phase;
+    if (phase === "selected" || phase === "editing") update(null);
+  };
+
+  /** Opens the selected block's popover. */
+  const open = () => {
+    const s = latest.current;
+    if (s?.phase === "selected") update({ ...s, phase: "editing" });
   };
 
   /** Drops a saved edit, once its write has succeeded or failed. */
@@ -152,5 +169,5 @@ export function useBlockDrag(
   };
 
   const edit: BlockEdit | null = state;
-  return { edit, handlers, cancel, settle };
+  return { edit, handlers, cancel, open, settle };
 }

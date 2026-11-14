@@ -19,6 +19,7 @@ import {
   type CSSProperties,
   type Dispatch,
   Fragment,
+  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -32,6 +33,7 @@ import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
 import { BlockMenu } from "./BlockMenu";
 import { conflictingCategories } from "./blockEdit";
+import { blockKeyHandler } from "./blockShortcuts";
 import { CategoryPicker } from "./CategoryPicker";
 import { completeness, completenessLabel } from "./completeness";
 import { type DrawnRange, rangePieces } from "./dragRange";
@@ -90,8 +92,10 @@ interface TimelineGridProps {
  * empty stretch of a sub-column draws a new block, possibly across days, which
  * asks for its category on release. Dragging a block moves it, possibly to
  * another day, skipping over blocks in the way, and dragging its top or
- * bottom edge resizes it; clicking it opens a popover to change its category
- * or delete it. Neither drag ever overlaps another block that conflicts.
+ * bottom edge resizes it. Neither drag ever overlaps another block that
+ * conflicts. Clicking a block selects it: ⌫ or Delete then asks to delete it,
+ * and Enter or a second click opens a popover to change its category. Its
+ * right-click menu splits or deletes it.
  * Clicking a day's header or column makes it the active day. Each day's
  * header has a badge with how many of its observations are recorded.
  */
@@ -261,6 +265,18 @@ function Grid({
     recategorize.reset();
   };
 
+  // Asks first. Once the block is gone, nothing is selected and focus goes
+  // to the active day's header, the grid's tab stop, rather than the page.
+  // The write settles after the grid has refetched, so the block is gone by then.
+  const askDelete = (interval: TimelineInterval) => {
+    const name = categories.get(interval.categoryId)?.name ?? "Unknown category";
+    confirmDelete(`the ${name} block, ${rangeLabel(interval, timeZone)}`, async () => {
+      await remove.mutateAsync(interval.id);
+      blockDrag.cancel();
+      focusDay(activeDay);
+    });
+  };
+
   /** The timeline's unarchived categories, by name, to pick from. */
   const choicesFor = (timelineId: string) =>
     [...categories.values()]
@@ -356,6 +372,10 @@ function Grid({
               splitAim.close();
               run(() => split.mutateAsync({ id: interval.id, at }));
             }}
+            onDelete={() => {
+              splitAim.close();
+              askDelete(interval);
+            }}
           />
         ),
       });
@@ -366,7 +386,6 @@ function Grid({
     const { interval, segment } = edit;
     const timeline = timelines.find((t) => t.id === interval.timelineId);
     const choices = choicesFor(interval.timelineId);
-    const name = categories.get(interval.categoryId)?.name ?? "Unknown category";
     addExtra(edit.day, {
       key: "popover",
       timelineId: interval.timelineId,
@@ -393,12 +412,6 @@ function Grid({
               { onSuccess: closeEdit },
             )
           }
-          onDelete={() => {
-            closeEdit();
-            confirmDelete(`the ${name} block, ${rangeLabel(interval, timeZone)}`, () =>
-              remove.mutateAsync(interval.id),
-            );
-          }}
         >
           <div className={classes.anchor} style={segmentStyle(segment)} />
         </CategoryPicker>
@@ -412,6 +425,7 @@ function Grid({
   const blockHandlers = (block: GridBlock, segment: BlockSegment): BlockHandlers => {
     const handlers = blockDrag.handlers(block, segment);
     const aim = splitAim.handlers(block, segment);
+    const selected = edit?.phase === "selected" && edit.interval.id === block.interval.id;
     return {
       // A right-button press aims a split (see `useSplitAim`); the left
       // button drags the block.
@@ -427,8 +441,8 @@ function Grid({
       onPointerMove: (event: PointerEvent<HTMLElement>) => {
         if (!aim.onPointerMove(event)) handlers.onPointerMove(event);
       },
-      onPointerUp: () => {
-        if (!aim.onPointerUp()) handlers.onPointerUp();
+      onPointerUp: (event: PointerEvent<HTMLElement>) => {
+        if (!aim.onPointerUp()) handlers.onPointerUp(event);
       },
       onPointerCancel: () => {
         if (!aim.onPointerCancel()) handlers.onPointerCancel();
@@ -438,6 +452,14 @@ function Grid({
         event.preventDefault();
         event.stopPropagation();
       },
+      // The selected block's keys, on whichever of its segments has focus.
+      onKeyDown: selected
+        ? blockKeyHandler({
+            onDelete: () => askDelete(block.interval),
+            onOpen: blockDrag.open,
+            onDeselect: closeEdit,
+          })
+        : undefined,
     };
   };
   const subColumnHandlers = (day: LocalDate, timelineId: string) => {
@@ -534,7 +556,15 @@ function Grid({
               categories={categories}
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
-              onSelect={() => select(day)}
+              onSelect={(event) => {
+                // React passes clicks up from portals too, such as the popover's.
+                const target = event.target as Element;
+                if (!event.currentTarget.contains(target)) return;
+                // A click on a block selects it, and focuses it for its keys:
+                // the day becomes active, but its header doesn't take focus.
+                if (target.closest("[data-block]")) dispatch({ type: "select", day });
+                else select(day);
+              }}
             />
           ))}
         </div>
@@ -543,9 +573,13 @@ function Grid({
   );
 }
 
-/** What a block segment spreads: the drag handlers, and a right click for its menu. */
+/**
+ * What a block segment spreads: the drag handlers, a right click for its
+ * menu, and the selected block's keys.
+ */
 type BlockHandlers = SegmentHandlers & {
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+  onKeyDown: ((event: KeyboardEvent<HTMLElement>) => void) | undefined;
 };
 
 /** Something drawn in one of a day's sub-columns, over its blocks. */
@@ -716,8 +750,8 @@ interface DayColumnProps {
   timeZone: string;
   /** Where the now line goes, as a fraction of the day, or `null` when it is not today. */
   nowAt: number | null;
-  /** Makes this the active day. */
-  onSelect: () => void;
+  /** A click in the column, which makes this the active day. */
+  onSelect: (event: MouseEvent<HTMLDivElement>) => void;
 }
 
 function DayColumn({
@@ -780,7 +814,9 @@ interface BlockProps {
  * they have handles to resize it, with grips on hover (an ongoing interval has
  * no end to drag). The whole block lights up on hover, whichever segment is
  * under the pointer. While it is dragged somewhere else, a dashed outline
- * stays where it was; while its popover is open, it is framed.
+ * stays where it was; while it is selected or its popover is open, it is
+ * framed. Its segments take focus when it is selected, for its keys, but
+ * aren't tab stops.
  */
 function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
   const [hovered, setHovered] = useState(false);
@@ -799,13 +835,16 @@ function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
       className={classes.block}
       style={{ ...colors, ...segmentStyle(segment), ...seamStyle(block.segments, i) }}
       title={title}
+      tabIndex={-1}
       data-block
       data-start={(i === 0 && startHere) || undefined}
       data-end={(i === last && endHere) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}
       data-hover={hovered || undefined}
-      data-moving={(edit?.range && edit.phase !== "editing") || undefined}
-      data-selected={edit?.phase === "editing" || undefined}
+      data-moving={
+        (edit?.range && (edit.phase === "dragging" || edit.phase === "saving")) || undefined
+      }
+      data-selected={edit?.phase === "selected" || edit?.phase === "editing" || undefined}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       {...handlers(block, segment)}

@@ -14,7 +14,7 @@ interface Pending {
  * asks first, saying what else it does. `ask(what, remove, also)` reads `also`
  * (built from core's `preview*Deletion` counts) through `run`, so a failure
  * shows like any other, then opens the dialog; `remove` runs on confirm.
- * Render the returned dialog anywhere in the screen.
+ * Render the returned dialog anywhere in the screen. Enter confirms, Esc cancels.
  */
 export function useConfirmDelete(run: Run) {
   const [pending, setPending] = useState<Pending | null>(null);
@@ -50,7 +50,8 @@ export function useConfirmDelete(run: Run) {
           <Button size="xs" variant="default" onClick={() => setPending(null)}>
             Cancel
           </Button>
-          <Button size="xs" color="red" onClick={confirm}>
+          {/* Focused first, so Enter confirms; Esc cancels. */}
+          <Button size="xs" color="red" onClick={confirm} data-autofocus>
             Delete
           </Button>
         </Group>

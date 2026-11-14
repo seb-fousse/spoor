@@ -37,6 +37,11 @@ describe("describeHotkey", () => {
     expect(describeHotkey("Escape", false).keys).toEqual(["Esc"]);
     expect(describeHotkey("mod+Enter", true).keys).toEqual(["⌘", "Enter"]);
   });
+
+  it("writes the delete keys as symbols, and names them for assistive tech", () => {
+    expect(describeHotkey("Backspace", true)).toEqual({ keys: ["⌫"], ariaKeys: "Backspace" });
+    expect(describeHotkey("Delete", false)).toEqual({ keys: ["⌦"], ariaKeys: "Delete" });
+  });
 });
 
 describe("describeShortcut", () => {

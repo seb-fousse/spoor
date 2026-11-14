@@ -18,6 +18,9 @@ export const SHORTCUTS = {
   nextDay: { keys: "ArrowRight", description: "Next day" },
   earlierDays: { keys: "word+ArrowLeft", description: "Earlier days (one page)" },
   laterDays: { keys: "word+ArrowRight", description: "Later days (one page)" },
+  // Both delete keys do it: ⌫, and Delete (fn+⌫ on macOS).
+  deleteBlock: { keys: "Backspace", description: "Delete the selected block" },
+  deleteBlockForward: { keys: "Delete", description: "Delete the selected block" },
 } as const satisfies Record<string, { keys: string; description: string }>;
 
 export type ShortcutId = keyof typeof SHORTCUTS;
