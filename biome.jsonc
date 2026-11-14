@@ -1,0 +1,105 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    // The lint fixtures break the rules on purpose. `pnpm lint:selftest` lints them.
+    "includes": ["**", "!**/*.svg", "!tools/biome/fixtures"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended"
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    // The desktop app's conventions (#146), outside the data hooks, the tests and
+    // the POC pages. The POC pages are slated for replacement (#149) and still
+    // use the database, TanStack Query and their own date formats directly. They
+    // are listed here once, as exclusions, and nowhere else.
+    //
+    // Each rule is scoped by where it applies, never turned off where it's
+    // allowed, because in Biome 2.6.6 a later override can't undo part of this one:
+    // - `plugins` only adds: a later override can't remove a plugin.
+    // - A later override's `noRestrictedImports` options replace this one's whole,
+    //   `paths` and all; they are not merged. So a rule that also applies to some
+    //   of these files (rules 3 and 6) has to be added to the `paths` below as
+    //   well as to its own override, or its override wipes out rules 1 and 2.
+    {
+      "includes": [
+        "apps/desktop/src/**",
+        "!apps/desktop/src/data/**",
+        "!**/*.test.{ts,tsx}",
+        "!apps/desktop/src/test/**",
+        "!apps/desktop/src/pages/Things.tsx",
+        "!apps/desktop/src/pages/Observations.tsx",
+        "!apps/desktop/src/pages/Logs/**",
+        "!apps/desktop/src/pages/Timelines/**"
+      ],
+      "plugins": [
+        // Rule 4: dates and times are formatted only in lib/format.
+        {
+          "path": "./tools/biome/plugins/format-dates-in-lib-format.grit",
+          "includes": ["**", "!apps/desktop/src/lib/format.ts"]
+        }
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  // Rule 1: only the data hooks use the database. App.tsx imports
+                  // DatabaseProvider, which is allowed; the provider defines
+                  // useDatabase rather than importing it.
+                  "@platform/DatabaseProvider": {
+                    "importNames": ["useDatabase"],
+                    "message": "Only the data hooks in src/data/ use the database. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  },
+                  // Rule 2: only the data hooks use query keys and TanStack Query's
+                  // hooks. Its other exports, such as main.tsx's QueryClientProvider
+                  // and lib/queryClient's QueryClient, are allowed.
+                  "@data/queryKeys": "Only the data hooks in src/data/ use query keys. Read and write through them; a write hook lists what it invalidates in its useDbWrite call.",
+                  "@tanstack/react-query": {
+                    "importNames": ["useQuery", "useMutation", "useQueryClient"],
+                    "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    // Rule 4 in the data hooks too, which the block above leaves out for rules 1
+    // and 2. Tests may format dates.
+    {
+      "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
+      "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
+    }
+  ]
+}
