@@ -1,6 +1,5 @@
 import { EntryForm, type EntryTimeInput } from "@components/LogEntryForm";
-import { EMPTY_FIELDS, useFields } from "@data/logs";
-import { queryKeys } from "@data/queryKeys";
+import { EMPTY_FIELDS, useCreateLogEntry, useFields, useLogTypes } from "@data/logs";
 import { formatDay } from "@lib/format";
 import {
   ActionIcon,
@@ -12,17 +11,7 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
-import { useDatabase } from "@platform/DatabaseProvider";
-import {
-  createLogEntry,
-  type LocalDate,
-  type LogEntry,
-  type LogType,
-  listLogTypes,
-  type NewLogEntry,
-  type Value,
-} from "@spoor/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { LocalDate, LogEntry, LogType, NewLogEntry, Value } from "@spoor/core";
 import { useState } from "react";
 import classes from "./NewLogModal.module.css";
 
@@ -39,24 +28,15 @@ interface NewLogModalProps {
  * header to choose again. A type with child types then stays open to add them.
  */
 export function NewLogModal({ opened, day, onClose }: NewLogModalProps) {
-  const db = useDatabase();
-  const queryClient = useQueryClient();
   const [typeId, setTypeId] = useState<string | null>(null);
   const [created, setCreated] = useState<LogEntry | null>(null);
 
   // Loaded the first time the modal opens, then cached; the Logs page's type writes invalidate it.
-  const typesQuery = useQuery({
-    queryKey: queryKeys.logTypes.list,
-    queryFn: () => listLogTypes(db),
-    enabled: opened,
-  });
+  const typesQuery = useLogTypes({ enabled: opened });
   const types = typesQuery.data ?? null;
 
   // Each stored entry invalidates the day lists, so the rail shows it.
-  const createEntry = useMutation({
-    mutationFn: (input: NewLogEntry) => createLogEntry(db, input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.logs.all }),
-  });
+  const createEntry = useCreateLogEntry();
   // The last save's error, cleared by the next save or by going back.
   const error = createEntry.error?.message ?? typesQuery.error?.message ?? null;
 
