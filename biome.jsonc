@@ -36,18 +36,26 @@
     }
   },
   "overrides": [
-    // The desktop app's conventions (#146), everywhere in the app but the POC
-    // pages. Those are slated for replacement (#149) and still format dates
-    // themselves, so they are listed here once, as exclusions, and nowhere else.
+    // The desktop app's conventions (#146), outside the data hooks, the tests and
+    // the POC pages. The POC pages are slated for replacement (#149) and still
+    // use the database, TanStack Query and their own date formats directly. They
+    // are listed here once, as exclusions, and nowhere else.
     //
-    // A later override can't turn a plugin off (`plugins` only adds), so the POC
-    // pages are left out of this block instead of turned off in their own.
+    // Each rule is scoped by where it applies, never turned off where it's
+    // allowed, because in Biome 2.6.6 a later override can't undo part of this one:
+    // - `plugins` only adds: a later override can't remove a plugin.
+    // - A later override's `noRestrictedImports` options replace this one's whole,
+    //   `paths` and all; they are not merged. So a rule that also applies to some
+    //   of these files (rules 3 and 6) has to be added to the `paths` below as
+    //   well as to its own override, or its override wipes out rules 1 and 2.
     {
       "includes": [
         "apps/desktop/src/**",
+        "!apps/desktop/src/data/**",
+        "!**/*.test.{ts,tsx}",
+        "!apps/desktop/src/test/**",
         "!apps/desktop/src/pages/Things.tsx",
         "!apps/desktop/src/pages/Observations.tsx",
-        "!apps/desktop/src/pages/useObservationsData.ts",
         "!apps/desktop/src/pages/Logs/**",
         "!apps/desktop/src/pages/Timelines/**"
       ],
@@ -55,14 +63,43 @@
         // Rule 4: dates and times are formatted only in lib/format.
         {
           "path": "./tools/biome/plugins/format-dates-in-lib-format.grit",
-          "includes": [
-            "**",
-            "!apps/desktop/src/lib/format.ts",
-            "!**/*.test.{ts,tsx}",
-            "!apps/desktop/src/test/**"
-          ]
+          "includes": ["**", "!apps/desktop/src/lib/format.ts"]
         }
-      ]
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  // Rule 1: only the data hooks use the database. App.tsx imports
+                  // DatabaseProvider, which is allowed; the provider defines
+                  // useDatabase rather than importing it.
+                  "@platform/DatabaseProvider": {
+                    "importNames": ["useDatabase"],
+                    "message": "Only the data hooks in src/data/ use the database. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  },
+                  // Rule 2: only the data hooks use query keys and TanStack Query's
+                  // hooks. Its other exports, such as main.tsx's QueryClientProvider
+                  // and lib/queryClient's QueryClient, are allowed.
+                  "@data/queryKeys": "Only the data hooks in src/data/ use query keys. Read and write through them; a write hook lists what it invalidates in its useDbWrite call.",
+                  "@tanstack/react-query": {
+                    "importNames": ["useQuery", "useMutation", "useQueryClient"],
+                    "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    // Rule 4 in the data hooks too, which the block above leaves out for rules 1
+    // and 2. Tests may format dates.
+    {
+      "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
+      "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
     }
   ]
 }
