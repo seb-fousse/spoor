@@ -39,10 +39,13 @@ import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibil
 import {
   type BlockSegment,
   categoryColor,
+  clockRange,
   describeBlock,
   type GridBlock,
+  labelFit,
   layoutGrid,
   nowFraction,
+  sharedSpan,
 } from "./gridLayout";
 import { DAY_COLUMN, DRAG_ROOT } from "./gridPointer";
 import classes from "./TimelineGrid.module.css";
@@ -312,8 +315,12 @@ function Grid({
   if (edit?.range) {
     const { startAt, endAt } = edit.range;
     const shown = { startAt, endAt: endAt ?? Math.max(now, startAt) };
-    const colors = blockColors(edit.interval.categoryId);
-    for (const { day, node } of ghostPieces(shown, days, timeZone, colors, endAt === null)) {
+    const look = {
+      colors: blockColors(edit.interval.categoryId),
+      name: categories.get(edit.interval.categoryId)?.name ?? "Unknown category",
+      ongoing: endAt === null,
+    };
+    for (const { day, node } of ghostPieces(shown, days, timeZone, look)) {
       addExtra(day, { key: "edit", timelineId: edit.interval.timelineId, node });
     }
   }
@@ -548,15 +555,70 @@ interface Extra {
   node: ReactNode;
 }
 
-/** A category's colours, as the custom properties blocks and edit ghosts are drawn with. */
+/**
+ * A category's colours, as the custom properties blocks and edit ghosts are
+ * drawn with. They come from one colour, Mantine's filled shade for the scheme,
+ * mixed into the surface for the fills and into the text colour for the line
+ * and the label. Mixing into the scheme's own tokens keeps every category's
+ * label readable on its fill in light and dark mode (at least 4.5:1).
+ */
 function blockColors(categoryId: string) {
-  const color = categoryColor(categoryId);
+  const color = `var(--mantine-color-${categoryColor(categoryId)}-filled)`;
   return {
-    // Mantine's variant colours, which follow the light/dark scheme.
-    "--block-bg": `var(--mantine-color-${color}-light)`,
-    "--block-fg": `var(--mantine-color-${color}-light-color)`,
-    "--block-accent": `var(--mantine-color-${color}-filled)`,
+    "--block-bg": `color-mix(in srgb, ${color} 16%, var(--app-surface))`,
+    "--block-bg-strong": `color-mix(in srgb, ${color} 26%, var(--app-surface))`,
+    "--block-line": `color-mix(in oklab, ${color} 75%, var(--app-text))`,
+    "--block-fg": `color-mix(in oklab, ${color} 45%, var(--app-text))`,
   };
+}
+
+/**
+ * The line along a segment's top or bottom edge where the block changes lane:
+ * the whole edge, except the `shared` part (fractions of the segment's width)
+ * that joins the block's next segment. Drawn in the block's outline colour.
+ *
+ * The line lies in the segment's padding box, 4px narrower than its slot (a
+ * 1px inset and a 1px border each side), so a fraction `p` of the slot is at
+ * `p * (100% + 4px) - 2px`. The open part runs between the next segment's
+ * side borders, so the line meets them at the corners.
+ */
+function seamLine(shared: [number, number] | null): string {
+  const edge = "var(--block-edge)";
+  if (!shared) return `linear-gradient(${edge}, ${edge})`;
+  const [a, b] = shared;
+  const at = (p: number, px: number) => `calc(${(p * 100).toFixed(3)}% + ${px.toFixed(3)}px)`;
+  const from = at(a, 4 * a);
+  const to = at(b, 4 * b - 4);
+  return `linear-gradient(to right, ${edge} ${from}, transparent ${from} ${to}, ${edge} ${to})`;
+}
+
+/** The seam lines of a block's `i`th segment, as the custom properties it is drawn with. */
+function seamStyle(segments: readonly BlockSegment[], i: number) {
+  const segment = segments[i] as BlockSegment;
+  const above = segments[i - 1];
+  const below = segments[i + 1];
+  return {
+    ...(above && { "--seam-top": seamLine(sharedSpan(segment, above)) }),
+    ...(below && { "--seam-bottom": seamLine(sharedSpan(segment, below)) }),
+  };
+}
+
+/** How tall a stretch of `height` (a fraction of the day) is, in pixels. */
+const toPixels = (height: number) => height * 24 * HOUR_HEIGHT;
+
+/**
+ * A block's label: its category, if it has one yet, and its time. It's
+ * stacked, on one line, or left out, as fits the segment it's in.
+ */
+function BlockLabel({ name, time, height }: { name?: string; time: string; height: number }) {
+  const fit = labelFit(toPixels(height));
+  if (fit === "none") return null;
+  return (
+    <span className={classes.blockLabel} data-fit={fit}>
+      {name !== undefined && <span className={classes.blockName}>{name}</span>}
+      <span className={classes.blockTime}>{time}</span>
+    </span>
+  );
 }
 
 /** Where a block segment goes in its sub-column. */
@@ -583,31 +645,39 @@ function rangeLabel(range: { startAt: Instant; endAt: Instant | null }, timeZone
   return `${formatShortDay(startDay)} ${time(startAt)} – ${formatShortDay(endDay)} ${time(endAt)}`;
 }
 
+/** How an edited block's ghost is drawn: as the block, in its category. */
+interface GhostLook {
+  colors: Record<string, string>;
+  name: string;
+  /** Still going, so open at the bottom. */
+  ongoing: boolean;
+}
+
 /**
- * A block being drawn, or where an edited block is going: dashed, one piece
- * per day it covers, with its time in the first. An edited block's ghost is
- * in its category's `colors`, and open at the bottom when it is still `ongoing`.
+ * A block being drawn, or where an edited block is going: one piece per day it
+ * covers, with its label in the first. A drawn block is a dashed outline with
+ * its time; an edited block's ghost has its `look`: the block itself, framed.
  */
 function ghostPieces(
   range: DrawnRange,
   days: readonly LocalDate[],
   timeZone: string,
-  colors?: Record<string, string>,
-  ongoing = false,
+  look?: GhostLook,
 ): { day: LocalDate; node: ReactNode }[] {
   const pieces = rangePieces(range, days, timeZone);
-  const label = rangeLabel(ongoing ? { ...range, endAt: null } : range, timeZone);
+  const ongoing = look?.ongoing ?? false;
+  const time = rangeLabel(ongoing ? { ...range, endAt: null } : range, timeZone);
   return pieces.map(({ day, top, height }, i) => ({
     day,
     node: (
       <div
         className={classes.ghost}
-        style={{ ...colors, "--top": top, "--height": height } as CSSProperties}
-        data-edit={colors ? true : undefined}
+        style={{ ...look?.colors, "--top": top, "--height": height } as CSSProperties}
+        data-edit={look ? true : undefined}
         data-continues-before={i > 0 || undefined}
         data-continues-after={i < pieces.length - 1 || ongoing || undefined}
       >
-        {i === 0 && label}
+        {i === 0 && <BlockLabel name={look?.name} time={time} height={height} />}
       </div>
     ),
   }));
@@ -703,12 +773,17 @@ interface BlockProps {
 /**
  * One interval's piece of the day, drawn as its segments: one rectangle per
  * stretch with the same width, which fit together with overlapping blocks. The
- * label sits in the first segment. The outer corners are rounded where the
- * interval really starts and ends, and there its edges have handles to resize
- * it (an ongoing interval has no end to drag). While the block is dragged
- * somewhere else it is faded; while its popover is open it is outlined.
+ * label, its category and time, sits in the first segment. Its outline is
+ * drawn around the whole shape: the edges where the interval really starts and
+ * ends, its sides, and the steps where it changes lane, but not the seams
+ * between its segments. The start and end are rounded, and there
+ * they have handles to resize it, with grips on hover (an ongoing interval has
+ * no end to drag). The whole block lights up on hover, whichever segment is
+ * under the pointer. While it is dragged somewhere else, a dashed outline
+ * stays where it was; while its popover is open, it is framed.
  */
 function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
+  const [hovered, setHovered] = useState(false);
   const name = category?.name ?? "Unknown category";
   const title = describeBlock(block, name, timeZone);
   const colors = blockColors(block.interval.categoryId);
@@ -722,20 +797,29 @@ function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
       // biome-ignore lint/suspicious/noArrayIndexKey: see above.
       key={i}
       className={classes.block}
-      style={{ ...colors, ...segmentStyle(segment) }}
+      style={{ ...colors, ...segmentStyle(segment), ...seamStyle(block.segments, i) }}
       title={title}
       data-block
-      data-round-top={(i === 0 && startHere) || undefined}
-      data-round-bottom={(i === last && endHere) || undefined}
+      data-start={(i === 0 && startHere) || undefined}
+      data-end={(i === last && endHere) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}
+      data-hover={hovered || undefined}
       data-moving={(edit?.range && edit.phase !== "editing") || undefined}
       data-selected={edit?.phase === "editing" || undefined}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       {...handlers(block, segment)}
     >
       {i === 0 && startHere && (
         <div className={classes.handle} data-side="top" {...{ [EDGE_ATTR]: "start" }} />
       )}
-      {i === 0 && <span className={classes.blockLabel}>{name}</span>}
+      {i === 0 && (
+        <BlockLabel
+          name={name}
+          time={clockRange(block.interval, timeZone)}
+          height={segment.height}
+        />
+      )}
       {i === last && endHere && (
         <div className={classes.handle} data-side="bottom" {...{ [EDGE_ATTR]: "end" }} />
       )}

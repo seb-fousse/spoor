@@ -208,50 +208,100 @@
 /*
  * One segment of an interval's piece of the day. Its offset, length and slot
  * come in as unitless custom properties: fractions of the day, and a slot out
- * of `--lanes`. Corners are square unless the segment is where the interval
- * really starts or ends.
+ * of `--lanes`. Its colours come in as `--block-*` (see `blockColors`).
+ *
+ * A block is a cell drawn in hairlines, like the grid: a 1px outline in its
+ * category's colour around a light tint. Only the edges where the interval
+ * really starts or ends are drawn (`--edge-top`, `--edge-bottom`), so the
+ * segments of a block that shares its column, and the pieces of one that
+ * crosses midnight, read as one shape. Where a block changes lane, the part
+ * of the seam its next segment doesn't cover is drawn as a 1px line along the
+ * top or bottom (`--seam-top`, `--seam-bottom`, set by `Block`). Where it
+ * starts, it leaves a 1px gap, so back-to-back blocks stay apart.
  */
 .block {
+  --gap-top: 0px;
+  --edge-top: 0px;
+  --edge-bottom: 0px;
+  --seam-top: none;
+  --seam-bottom: none;
+  /* The outline's colour, seams included. */
+  --block-edge: var(--block-line);
+
   position: absolute;
-  top: calc(var(--top) * 100%);
+  top: calc(var(--top) * 100% + var(--gap-top));
   left: calc(var(--lane) * 100% / var(--lanes) + 1px);
   box-sizing: border-box;
   width: calc(100% / var(--lanes) - 2px);
-  height: calc(var(--height) * 100%);
+  height: calc(var(--height) * 100% - var(--gap-top));
   min-height: 3px;
-  padding: 2px 4px;
-  overflow: hidden;
-  border-left: 3px solid var(--block-accent);
-  background: var(--block-bg);
+  border: 1px solid var(--block-edge);
+  border-top-width: var(--edge-top);
+  border-bottom-width: var(--edge-bottom);
+  background:
+    var(--seam-top) top / 100% 1px no-repeat,
+    var(--seam-bottom) bottom / 100% 1px no-repeat,
+    var(--block-bg);
   color: var(--block-fg);
-  font-size: 11px;
-  line-height: 1.2;
 }
 
-.block[data-round-top] {
+.block[data-start] {
+  --gap-top: 1px;
+  --edge-top: 1px;
   border-top-left-radius: var(--mantine-radius-xs);
   border-top-right-radius: var(--mantine-radius-xs);
 }
 
-.block[data-round-bottom] {
+.block[data-end] {
+  --edge-bottom: 1px;
   border-bottom-left-radius: var(--mantine-radius-xs);
   border-bottom-right-radius: var(--mantine-radius-xs);
 }
 
-/* Still going: an open, dashed end at now. */
+/* Still going: open at now, with a dashed, square end. */
 .block[data-ongoing] {
-  border-bottom: 2px dashed var(--block-accent);
+  --edge-bottom: 1px;
+  border-bottom-style: dashed;
 }
 
-/* Dragged somewhere else: faded where it was, until the move is saved. */
-.block[data-moving] {
-  opacity: 0.35;
+/* The whole block, all its segments, under the pointer. */
+.block[data-hover] {
+  --block-edge: var(--block-fg);
+  background-color: var(--block-bg-strong);
 }
 
-/* Its popover is open. */
+/*
+ * Its popover is open: a second hairline around it, and the same drawn edges,
+ * so a block's segments still read as one. Where an edited block is going is
+ * framed the same way.
+ */
 .block[data-selected] {
-  outline: 2px solid var(--block-accent);
-  outline-offset: -1px;
+  --block-edge: var(--block-fg);
+  z-index: 1;
+  background-color: var(--block-bg-strong);
+}
+
+.block[data-selected]::before,
+.ghost[data-edit]::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--edge-top) * -3);
+  bottom: calc(var(--edge-bottom) * -3);
+  left: -3px;
+  right: -3px;
+  border: 1px solid var(--block-line);
+  border-top-width: var(--edge-top);
+  border-bottom-width: var(--edge-bottom);
+  border-radius: var(--mantine-radius-xs);
+  pointer-events: none;
+}
+
+/* Dragged somewhere else: a dashed outline of where it was, until the move is saved. */
+.block[data-moving] {
+  --block-edge: var(--block-line);
+  border-style: dashed;
+  background: transparent;
+  color: var(--app-text-muted);
 }
 
 /* Grab an edge where the interval really starts or ends to resize it. */
@@ -271,6 +321,26 @@
   bottom: 0;
 }
 
+/* On hover, a grip of two hairlines in the middle of each edge that resizes. */
+.block[data-hover]:not([data-moving]) .handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  box-sizing: border-box;
+  width: 12px;
+  height: 3px;
+  border-block: 1px solid var(--block-fg);
+  transform: translateX(-50%);
+}
+
+.handle[data-side="top"]::after {
+  top: 1px;
+}
+
+.handle[data-side="bottom"]::after {
+  bottom: 1px;
+}
+
 /* Where a clicked block's popover hangs from: the pressed segment, unseen. */
 .anchor {
   position: absolute;
@@ -281,11 +351,53 @@
   pointer-events: none;
 }
 
+/*
+ * The category over the time, in the grid's mono type. A block too short for
+ * two lines puts them on one, vertically centred: the time wraps out of sight
+ * when the name leaves no room for it.
+ */
 .blockLabel {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  box-sizing: border-box;
+  max-height: 100%;
+  padding: 1px 4px;
+  overflow: hidden;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  line-height: 12px;
+}
+
+.blockLabel[data-fit="line"] {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  flex-direction: row;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  height: 10px;
+  padding-block: 0;
+  line-height: 10px;
+  transform: translateY(-50%);
+}
+
+.blockName,
+.blockTime {
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.blockName {
+  font-weight: 600;
+}
+
+.blockTime {
+  flex: none;
 }
 
 /* Now, across all of today's sub-columns. */
@@ -310,57 +422,62 @@
   background: var(--app-accent);
 }
 
-/* The block being drawn: dashed, above the others, with its time range. */
+/*
+ * The block being drawn: a dashed outline in the accent, above the others,
+ * with its time range. It sits like a block, with the same gap and edges.
+ */
 .ghost {
+  --gap-top: 1px;
+  --edge-top: 1px;
+  --edge-bottom: 1px;
+
   position: absolute;
-  top: calc(var(--top) * 100%);
+  top: calc(var(--top) * 100% + var(--gap-top));
   left: 1px;
   right: 1px;
   z-index: 2;
   box-sizing: border-box;
-  height: calc(var(--height) * 100%);
-  padding: 2px 4px;
-  overflow: hidden;
+  height: calc(var(--height) * 100% - var(--gap-top));
   border: 1px dashed var(--app-accent);
+  border-top-width: var(--edge-top);
+  border-bottom-width: var(--edge-bottom);
   border-radius: var(--mantine-radius-xs);
-  background: color-mix(in srgb, var(--app-accent) 18%, transparent);
+  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
   color: var(--app-text);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  line-height: 1.2;
-  white-space: nowrap;
   pointer-events: none;
 }
 
 /* A drawn block that runs on past midnight: open, square ends where it continues. */
 .ghost[data-continues-before] {
-  border-top: 0;
+  --gap-top: 0px;
+  --edge-top: 0px;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 
 .ghost[data-continues-after] {
-  border-bottom: 0;
+  --edge-bottom: 0px;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
 
-/* Where an edited block is going: in its category's colours. */
+/* Where an edited block is going: the block itself, framed as when selected. */
 .ghost[data-edit] {
-  border-color: var(--block-accent);
-  background: var(--block-bg);
+  border-style: solid;
+  border-color: var(--block-fg);
+  background: var(--block-bg-strong);
   color: var(--block-fg);
 }
 
-/* Where a split from the block's menu would cut it. */
+/* Where a split from the block's menu would cut it, edge to edge. */
 .cutLine {
   position: absolute;
   top: calc(var(--top) * 100%);
-  left: calc(var(--lane) * 100% / var(--lanes) + 1px);
+  left: calc(var(--lane) * 100% / var(--lanes));
   z-index: 2;
-  width: calc(100% / var(--lanes) - 2px);
+  width: calc(100% / var(--lanes));
   height: 0;
-  border-top: 2px dashed var(--block-accent);
+  border-top: 1px dashed var(--block-fg);
   pointer-events: none;
 }
 

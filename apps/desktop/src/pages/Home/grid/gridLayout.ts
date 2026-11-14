@@ -56,6 +56,20 @@ export interface GridBlock {
   segments: BlockSegment[];
 }
 
+/**
+ * The part of `segment`'s width that `other` also spans, as fractions of
+ * `segment`'s width from 0 to 1, or `null` if they don't line up at all.
+ * `other` is the same block's segment just above or below it: where the block
+ * changes lane, the rest of the edge between them is the block's outline.
+ */
+export function sharedSpan(segment: BlockSegment, other: BlockSegment): [number, number] | null {
+  const left = segment.lane / segment.lanes;
+  const from = Math.max(left, other.lane / other.lanes);
+  const to = Math.min((segment.lane + 1) / segment.lanes, (other.lane + 1) / other.lanes);
+  if (to <= from) return null;
+  return [(from - left) * segment.lanes, (to - left) * segment.lanes];
+}
+
 /** Blocks by day, then by timeline id. */
 export type GridLayout = Map<LocalDate, Map<string, GridBlock[]>>;
 
@@ -244,6 +258,21 @@ export function categoryColor(categoryId: string): MantineColor {
   return CATEGORY_COLORS[(hash >>> 0) % CATEGORY_COLORS.length] as MantineColor;
 }
 
+/**
+ * A range's clock times, such as "09:00–10:30", or "since 09:00" while it is
+ * still going. Days are left out, so a range that crosses midnight reads
+ * "22:00–01:30" on both of its days.
+ */
+export function clockRange(
+  range: { startAt: Instant; endAt: Instant | null },
+  timeZone: string,
+  locale?: string,
+): string {
+  const start = formatClockTime(range.startAt, timeZone, locale);
+  if (range.endAt === null) return `since ${start}`;
+  return `${start}–${formatClockTime(range.endAt, timeZone, locale)}`;
+}
+
 /** A block's tooltip, such as "Work · 09:00–10:30" or "Work · since 09:00". */
 export function describeBlock(
   block: GridBlock,
@@ -251,8 +280,21 @@ export function describeBlock(
   timeZone: string,
   locale?: string,
 ): string {
-  const { startAt, endAt } = block.interval;
-  const start = formatClockTime(startAt, timeZone, locale);
-  if (endAt === null) return `${categoryName} · since ${start}`;
-  return `${categoryName} · ${start}–${formatClockTime(endAt, timeZone, locale)}`;
+  return `${categoryName} · ${clockRange(block.interval, timeZone, locale)}`;
+}
+
+/**
+ * How a block's label fits a segment `px` tall: not at all, on one line (the
+ * name, then the time if there's room), or stacked (the name over the time).
+ * A 15-minute block at 48px an hour gets one line.
+ */
+export type LabelFit = "none" | "line" | "stack";
+
+/** The shortest segment with a label, and the shortest with a two-line one, in pixels. */
+const LABEL_MIN = 9;
+const STACK_MIN = 28;
+
+export function labelFit(px: number): LabelFit {
+  if (px < LABEL_MIN) return "none";
+  return px < STACK_MIN ? "line" : "stack";
 }
