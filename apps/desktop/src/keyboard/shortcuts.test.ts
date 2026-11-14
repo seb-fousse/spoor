@@ -32,6 +32,8 @@ describe("hotkey", () => {
   it("leaves other keys as they are", () => {
     expect(hotkey("previousDay", true)).toBe("ArrowLeft");
     expect(hotkey("previousDay", false)).toBe("ArrowLeft");
+    expect(hotkey("splitBlock", true)).toBe("C");
+    expect(hotkey("splitBlock", false)).toBe("C");
   });
 });
 

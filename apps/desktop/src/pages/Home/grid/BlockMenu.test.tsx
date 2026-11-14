@@ -83,9 +83,12 @@ function item(text: string): HTMLButtonElement {
 }
 
 describe("BlockMenu", () => {
-  it("splits the block", () => {
+  it("splits the block, and shows the key that does it", () => {
     show();
-    act(() => item("Split at 10:30").click());
+    const split = item("Split at 10:30");
+    expect(split.getAttribute("aria-keyshortcuts")).toBe("C");
+    expect(split.querySelector("kbd")?.textContent).toBe("C");
+    act(() => split.click());
     expect(onSplit).toHaveBeenCalledOnce();
   });
 

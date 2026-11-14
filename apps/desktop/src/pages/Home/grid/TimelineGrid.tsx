@@ -32,7 +32,7 @@ import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
 import { BlockMenu, PasteMenu } from "./BlockMenu";
 import { type BlockCopy, copyOf, pasteTarget } from "./blockCopy";
-import { conflictingCategories } from "./blockEdit";
+import { conflictingCategories, splitPoint } from "./blockEdit";
 import { blockKeyHandler } from "./blockShortcuts";
 import { CategoryPicker } from "./CategoryPicker";
 import { completeness, completenessLabel } from "./completeness";
@@ -54,6 +54,7 @@ import classes from "./TimelineGrid.module.css";
 import { type BlockEdit, EDGE_ATTR, type SegmentHandlers, useBlockDrag } from "./useBlockDrag";
 import { type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
 import type { GridData } from "./useGridData";
+import { useGridPointer } from "./useGridPointer";
 import {
   useCreateInterval,
   useDeleteInterval,
@@ -99,8 +100,9 @@ interface TimelineGridProps {
  * another day, skipping over blocks in the way, and dragging its top or
  * bottom edge resizes it. Neither drag ever overlaps another block that
  * conflicts. Clicking a block selects it: ⌫ or Delete then deletes it, ⌘C
- * copies it, and Enter or a second click opens a popover to change its
- * category. Its right-click menu splits, copies or deletes it. A copy (its
+ * copies it, C splits it at the mark nearest the pointer, and Enter or a
+ * second click opens a popover to change its category. Its right-click menu
+ * splits, copies or deletes it. A copy (its
  * category and length) pastes any number of times on its timeline, from the
  * right-click menu of an empty stretch or with ⌘V at the pointer, landing
  * like a move would: never over a block it conflicts with.
@@ -266,6 +268,8 @@ function Grid({
   const recategorize = useUpdateInterval(db);
   const remove = useDeleteInterval(db);
   const split = useSplitInterval(db);
+  // Whether the split key's last split is still being saved.
+  const splitting = useRef(false);
   // The split a right-button press on a block aims, and the menu its release opens.
   const splitAim = useSplitAim(timeZone, now);
   const menu = splitAim.aim;
@@ -298,6 +302,8 @@ function Grid({
     if (c) onCopy(c);
   };
   const pasteMenu = usePasteMenu(timeZone);
+  // Where the pointer is, for the keys that act there: paste and split.
+  const gridPointer = useGridPointer(timeZone);
   const pasteWrite = useCreateInterval(db);
   const visible = daysWindow(days, timeZone);
   // Pastes still being saved. Each one counts as a block until the grid has
@@ -354,7 +360,7 @@ function Grid({
       "pasteBlock",
       () => {
         if (!copied) return say(`Nothing copied. Select a block and press ${COPY_KEYS} first.`);
-        const point = pasteMenu.atPointer();
+        const point = gridPointer.atPointer();
         if (!point) return say(`Point where the block should go, then press ${PASTE_KEYS}.`);
         const target = pasteTargetAt(point);
         if ("reason" in target) return say(`Can't paste here. ${target.reason}.`);
@@ -367,6 +373,31 @@ function Grid({
             `Pasted at ${day === point.day ? when : `${formatShortDay(day)} ${when}`}, the nearest free spot.`,
           );
         }
+      },
+    ],
+    // C splits the selected block, like ⌫ deletes it, at the mark nearest
+    // the pointer, like the menu's Split. The earlier half keeps the block's
+    // id, so it stays selected. One at a time: the next press needs the grid
+    // refetched with the halves. Like ⌫, it does nothing, quietly, when it
+    // can't: nothing selected, the pointer off it, or no mark inside it there.
+    [
+      "splitBlock",
+      () => {
+        const selected = blockDrag.edit;
+        if (splitting.current || selected?.phase !== "selected") return;
+        const point = gridPointer.atPointer();
+        const interval = intervals.find((i) => i.id === selected.interval.id);
+        if (!point || !interval || point.blockId !== interval.id) return;
+        const at = splitPoint(interval, point.at, now);
+        if (at === null) return;
+        splitAim.close();
+        pasteMenu.close();
+        splitting.current = true;
+        run(() =>
+          split.mutateAsync({ id: interval.id, at }).finally(() => {
+            splitting.current = false;
+          }),
+        );
       },
     ],
   ]);
@@ -999,7 +1030,8 @@ function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
       style={{ ...colors, ...segmentStyle(segment), ...seamStyle(block.segments, i) }}
       title={title}
       tabIndex={-1}
-      data-block
+      // Which block it is, so the split key can tell the pointer is on the selected one.
+      data-block={block.interval.id}
       data-start={(i === 0 && startHere) || undefined}
       data-end={(i === last && endHere) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}
