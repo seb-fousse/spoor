@@ -1,3 +1,4 @@
+import { IS_MAC } from "@platform/os";
 import type { Instant, LocalDate, Timeline, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useState } from "react";
 import { type DrawnRange, daysWindow, dragRange, freeSpan } from "./dragRange";
@@ -27,7 +28,8 @@ export type SubColumnHandlers = ReturnType<ReturnType<typeof useDragToCreate>["h
 /**
  * Drawing a block with the pointer: press in an empty stretch of a
  * sub-column, drag up, down, or across to another day's column of the same
- * timeline, release. Mouse and pen only. One draft at a time; pressing again
+ * timeline, release. Mouse and pen only, and not Control-click on macOS,
+ * which is a right click there. One draft at a time; pressing again
  * elsewhere replaces it. A click, or a drag that ends where it started, draws
  * nothing. On an exclusive timeline the drag stops at the neighbouring
  * blocks, and a press with no room (inside an ongoing interval's reach) does
@@ -51,7 +53,7 @@ export function useDragToCreate(
     [DAY_ATTR]: day,
     [TIMELINE_ATTR]: timelineId,
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
-      if (event.pointerType === "touch" || event.button !== 0) return;
+      if (event.pointerType === "touch" || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
       const target = event.target as HTMLElement;
       // React passes events up from portals too, such as the category popover's.
       if (!event.currentTarget.contains(target) || target.closest("[data-block]")) return;

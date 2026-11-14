@@ -12,6 +12,7 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  position: relative;
   /* Nothing on the grid is selectable, so drawing selects nothing. WebKit needs the prefix. */
   -webkit-user-select: none;
   user-select: none;
@@ -505,4 +506,30 @@
   width: 0;
   height: 0;
   pointer-events: none;
+}
+
+/*
+ * A short message, such as why the paste key did nothing: low over the grid,
+ * centred. The live region stays put, so screen readers hear each message.
+ */
+.notice {
+  position: absolute;
+  bottom: var(--mantine-spacing-md);
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--mantine-spacing-md));
+  pointer-events: none;
+}
+
+.noticeText {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-raised);
+  box-shadow: var(--mantine-shadow-md);
+  color: var(--app-text);
+  font-size: var(--mantine-font-size-sm);
+  text-align: center;
 }

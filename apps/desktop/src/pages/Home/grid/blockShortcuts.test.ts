@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { blockKeyHandler } from "./blockShortcuts";
 
-type Call = "delete" | "open" | "deselect";
+type Call = "delete" | "copy" | "open" | "deselect";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -21,6 +21,7 @@ function press(
   const handler = blockKeyHandler(
     {
       onDelete: () => calls.push("delete"),
+      onCopy: () => calls.push("copy"),
       onOpen: () => calls.push("open"),
       onDeselect: () => calls.push("deselect"),
     },
@@ -39,6 +40,13 @@ describe("blockKeyHandler", () => {
   it.each([true, false])("asks to delete with Backspace or Delete (mac: %s)", (mac) => {
     expect(press("Backspace", { mac })).toEqual(["delete"]);
     expect(press("Delete", { mac })).toEqual(["delete"]);
+  });
+
+  it("copies with ⌘C on macOS, and Ctrl+C elsewhere", () => {
+    expect(press("c", { mods: { metaKey: true } })).toEqual(["copy"]);
+    expect(press("c", { mods: { ctrlKey: true }, mac: false })).toEqual(["copy"]);
+    expect(press("c", { mods: { ctrlKey: true } })).toEqual([]);
+    expect(press("c")).toEqual([]);
   });
 
   it("opens the popover with Enter, and deselects with Esc", () => {
@@ -65,6 +73,7 @@ describe("blockKeyHandler", () => {
     const calls: Call[] = [];
     const handler = blockKeyHandler({
       onDelete: () => calls.push("delete"),
+      onCopy: () => calls.push("copy"),
       onOpen: () => calls.push("open"),
       onDeselect: () => calls.push("deselect"),
     });
