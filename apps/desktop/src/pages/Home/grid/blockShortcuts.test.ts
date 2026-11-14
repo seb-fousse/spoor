@@ -37,7 +37,7 @@ function press(
 }
 
 describe("blockKeyHandler", () => {
-  it.each([true, false])("asks to delete with Backspace or Delete (mac: %s)", (mac) => {
+  it.each([true, false])("deletes with Backspace or Delete (mac: %s)", (mac) => {
     expect(press("Backspace", { mac })).toEqual(["delete"]);
     expect(press("Delete", { mac })).toEqual(["delete"]);
   });

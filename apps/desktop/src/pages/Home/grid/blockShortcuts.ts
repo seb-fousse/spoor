@@ -3,7 +3,7 @@ import { IS_MAC } from "@platform/os";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 interface BlockKeys {
-  /** Asks to delete the block (it confirms first). */
+  /** Deletes the block, at once. */
   onDelete: () => void;
   /** Copies the block, to paste elsewhere. */
   onCopy: () => void;
@@ -15,8 +15,8 @@ interface BlockKeys {
 
 /**
  * The keys of a selected block on Home's grid, for its focused segment:
- * ⌫ or Delete asks to delete it, ⌘C (Ctrl+C elsewhere) copies it, Enter
- * opens its popover, Esc deselects it.
+ * ⌫ or Delete deletes it, ⌘C (Ctrl+C elsewhere) copies it, Enter opens its
+ * popover, Esc deselects it.
  * Each key it handles is taken with `preventDefault`. A key a field needs,
  * such as ⌫ in a text field, is never handled.
  */
