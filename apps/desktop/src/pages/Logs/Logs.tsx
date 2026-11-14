@@ -8,13 +8,20 @@ import {
 } from "@components/FieldList";
 import { describeValues, EntryForm, formatTime } from "@components/LogEntryForm";
 import {
+  useAddLogField,
   useChildEntries,
+  useCreateLogEntry,
+  useCreateLogType,
+  useDeleteLogEntry,
+  useDeleteLogField,
+  useDeleteLogType,
   useFields,
   useLogEntries,
-  useLogEntryWrites,
-  useLogFieldWrites,
   useLogTypes,
-  useLogTypeWrites,
+  useMoveChildEntry,
+  useReorderLogFields,
+  useSetLogTypeArchived,
+  useUpdateLogField,
 } from "@data/logs";
 import { useRefTitles, useThingTypes } from "@data/things";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
@@ -42,7 +49,9 @@ export function Logs() {
   const db = useDatabase();
   const typesQuery = useLogTypes();
   const types = typesQuery.data ?? [];
-  const typeWrites = useLogTypeWrites();
+  const createType = useCreateLogType();
+  const setTypeArchived = useSetLogTypeArchived();
+  const deleteType = useDeleteLogType();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const error = writeError ?? typesQuery.error?.message ?? null;
@@ -62,7 +71,7 @@ export function Logs() {
   const askDelete = (type: LogType) =>
     confirmDelete(
       `the ${type.name} log type`,
-      () => typeWrites.remove(type.id),
+      () => deleteType.mutateAsync(type.id),
       async () => {
         const n = await previewLogTypeDeletion(db, type.id);
         return [
@@ -81,7 +90,7 @@ export function Logs() {
       <LogTypeForm
         types={types}
         onCreate={(name, parentTypeId, fields) =>
-          run(() => typeWrites.create({ name, parentTypeId, fields }))
+          run(() => createType.mutateAsync({ name, parentTypeId, fields }))
         }
       />
       <Stack gap={4}>
@@ -106,7 +115,9 @@ export function Logs() {
               size="xs"
               variant="default"
               onClick={() =>
-                run(() => typeWrites.setArchived({ id: t.id, archived: t.archivedAt === null }))
+                run(() =>
+                  setTypeArchived.mutateAsync({ id: t.id, archived: t.archivedAt === null }),
+                )
               }
             >
               {t.archivedAt === null ? "Archive" : "Unarchive"}
@@ -219,8 +230,11 @@ function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; 
   const fields = useFields(type.id);
   const thingTypes = useThingTypes();
   const entries = useLogEntries(type.id).data ?? [];
-  const fieldWrites = useLogFieldWrites(type.id);
-  const entryWrites = useLogEntryWrites();
+  const addField = useAddLogField(type.id);
+  const updateField = useUpdateLogField();
+  const reorderFields = useReorderLogFields(type.id);
+  const deleteField = useDeleteLogField();
+  const createEntry = useCreateLogEntry();
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   const parent = types.find((t) => t.id === type.parentTypeId);
@@ -234,13 +248,13 @@ function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; 
       <FieldList
         fields={fields}
         thingTypes={thingTypes}
-        onAdd={(field) => run(() => fieldWrites.add(field))}
-        onUpdate={(fieldId, patch) => run(() => fieldWrites.update({ fieldId, patch }))}
-        onReorder={(ids) => run(() => fieldWrites.reorder(ids))}
+        onAdd={(field) => run(() => addField.mutateAsync(field))}
+        onUpdate={(fieldId, patch) => run(() => updateField.mutateAsync({ fieldId, patch }))}
+        onReorder={(ids) => run(() => reorderFields.mutateAsync(ids))}
         onDelete={(field) =>
           confirmDelete(
             `the ${field.name} field`,
-            () => fieldWrites.remove(field.id),
+            () => deleteField.mutateAsync(field.id),
             async () => [
               effect(
                 "removes its value from",
@@ -264,7 +278,7 @@ function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; 
             fields={fields}
             child={false}
             onCreate={(time, values) =>
-              run(() => entryWrites.create({ logTypeId: type.id, ...time, values }))
+              run(() => createEntry.mutateAsync({ logTypeId: type.id, ...time, values }))
             }
           />
         )
@@ -297,7 +311,8 @@ function EntryItem({
   const fields = useFields(entry.logTypeId);
   const titles = useRefTitles(fields, entry);
   const children = useChildEntries(entry.id).data ?? [];
-  const entryWrites = useLogEntryWrites();
+  const moveEntry = useMoveChildEntry();
+  const deleteEntry = useDeleteLogEntry();
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
@@ -319,7 +334,7 @@ function EntryItem({
               variant="default"
               disabled={place.index === 1}
               onClick={() =>
-                run(() => entryWrites.move({ id: entry.id, position: place.index - 1 }))
+                run(() => moveEntry.mutateAsync({ id: entry.id, position: place.index - 1 }))
               }
             >
               ↑
@@ -329,7 +344,7 @@ function EntryItem({
               variant="default"
               disabled={place.index === place.count}
               onClick={() =>
-                run(() => entryWrites.move({ id: entry.id, position: place.index + 1 }))
+                run(() => moveEntry.mutateAsync({ id: entry.id, position: place.index + 1 }))
               }
             >
               ↓
@@ -343,7 +358,7 @@ function EntryItem({
           onClick={() =>
             confirmDelete(
               `the entry of ${formatTime(entry)}`,
-              () => entryWrites.remove(entry.id),
+              () => deleteEntry.mutateAsync(entry.id),
               async () => [
                 effect(
                   "deletes",
@@ -391,7 +406,7 @@ function ChildEntryForm({
   run: Run;
 }) {
   const fields = useFields(type.id);
-  const entryWrites = useLogEntryWrites();
+  const createEntry = useCreateLogEntry();
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>
@@ -399,7 +414,7 @@ function ChildEntryForm({
         fields={fields}
         child
         onCreate={(_, values) =>
-          run(() => entryWrites.create({ logTypeId: type.id, parentEntryId, values }))
+          run(() => createEntry.mutateAsync({ logTypeId: type.id, parentEntryId, values }))
         }
       />
     </Group>

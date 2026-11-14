@@ -1,5 +1,14 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
-import { useMetricObservations, useMetrics, useObservationWrites } from "@data/observations";
+import {
+  useCreateMetric,
+  useDeleteMetric,
+  useDeleteObservation,
+  useMetricObservations,
+  useMetrics,
+  useRecordObservation,
+  useSetMetricArchived,
+  useUpdateMetric,
+} from "@data/observations";
 import { useTimeZone } from "@data/settings";
 import {
   Alert,
@@ -41,7 +50,9 @@ export function Observations() {
   const db = useDatabase();
   const metricsQuery = useMetrics();
   const metrics = metricsQuery.data ?? [];
-  const writes = useObservationWrites();
+  const createMetric = useCreateMetric();
+  const setMetricArchived = useSetMetricArchived();
+  const deleteMetric = useDeleteMetric();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +78,11 @@ export function Observations() {
         submitLabel="Add"
         onSubmit={(shape, { name, labels }) =>
           run(() =>
-            writes.createMetric({ ...shape, name, optionLabels: parseJson(labels) as never }),
+            createMetric.mutateAsync({
+              ...shape,
+              name,
+              optionLabels: parseJson(labels) as never,
+            }),
           )
         }
       />
@@ -89,7 +104,9 @@ export function Observations() {
               size="xs"
               variant="default"
               onClick={() =>
-                run(() => writes.setMetricArchived({ id: m.id, archived: m.archivedAt === null }))
+                run(() =>
+                  setMetricArchived.mutateAsync({ id: m.id, archived: m.archivedAt === null }),
+                )
               }
             >
               {m.archivedAt === null ? "Archive" : "Unarchive"}
@@ -101,7 +118,7 @@ export function Observations() {
               onClick={() =>
                 confirmDelete(
                   `the ${m.name} metric`,
-                  () => writes.deleteMetric(m.id),
+                  () => deleteMetric.mutateAsync(m.id),
                   async () => [
                     effect(
                       "deletes",
@@ -185,7 +202,9 @@ function ShapeForm({
 
 function MetricDetail({ metric, run }: { metric: ObservationMetric; run: Run }) {
   const observations = useMetricObservations(metric.id).data ?? [];
-  const writes = useObservationWrites();
+  const updateMetric = useUpdateMetric();
+  const recordObservation = useRecordObservation();
+  const deleteObservation = useDeleteObservation();
   const timeZone = useTimeZone().data;
   // Set from the metric once, when it is selected (the parent keys this by id),
   // so the refetch after a save leaves what the user typed alone.
@@ -210,7 +229,7 @@ function MetricDetail({ metric, run }: { metric: ObservationMetric; run: Run }) 
   const rename = (e: FormEvent) => {
     e.preventDefault();
     run(() =>
-      writes.updateMetric({
+      updateMetric.mutateAsync({
         id: metric.id,
         patch: {
           name,
@@ -262,7 +281,7 @@ function MetricDetail({ metric, run }: { metric: ObservationMetric; run: Run }) 
         onDate={setDate}
         onRecord={(value) =>
           run(async () => {
-            const { skipped } = await writes.recordObservation({
+            const { skipped } = await recordObservation.mutateAsync({
               metricId: metric.id,
               date,
               value,
@@ -284,7 +303,9 @@ function MetricDetail({ metric, run }: { metric: ObservationMetric; run: Run }) 
               variant="light"
               color="red"
               onClick={() =>
-                confirmDelete(`the observation for ${o.date}`, () => writes.deleteObservation(o.id))
+                confirmDelete(`the observation for ${o.date}`, () =>
+                  deleteObservation.mutateAsync(o.id),
+                )
               }
             >
               Delete
