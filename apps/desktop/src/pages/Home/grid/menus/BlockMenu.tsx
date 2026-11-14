@@ -2,7 +2,7 @@ import { Icon } from "@components/Icon";
 import { describeShortcut, type ShortcutId, shortcutLabel } from "@keyboard";
 import { Kbd, Menu } from "@mantine/core";
 import type { CSSProperties, ReactNode } from "react";
-import classes from "./TimelineGrid.module.css";
+import classes from "./BlockMenu.module.css";
 
 /**
  * The keys that do what a menu item does: the first shown by the item, and

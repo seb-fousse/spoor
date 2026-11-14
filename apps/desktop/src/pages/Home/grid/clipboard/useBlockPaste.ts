@@ -7,9 +7,9 @@ import type {
   TimelineInterval,
 } from "@spoor/core";
 import { useRef } from "react";
+import { useCreateInterval } from "../data/useIntervalWrites";
+import { type DrawnRange, daysWindow } from "../layout/dragRange";
 import { type BlockCopy, type PasteTarget, pasteTarget } from "./blockCopy";
-import { type DrawnRange, daysWindow } from "./dragRange";
-import { useCreateInterval } from "./useIntervalWrites";
 import type { PastePoint } from "./usePasteMenu";
 
 interface BlockPasteOptions {

@@ -3,8 +3,7 @@ import { Icon } from "@components/Icon";
 import { SegmentedControl, UnstyledButton } from "@mantine/core";
 import type { LocalDate, Timeline } from "@spoor/core";
 import type { Dispatch } from "react";
-import { TimelineFilter } from "./grid/filter/TimelineFilter";
-import type { HiddenTimelines } from "./grid/filter/timelineVisibility";
+import { type HiddenTimelines, TimelineFilter } from "./grid";
 import classes from "./Home.module.css";
 import {
   type DayRange,

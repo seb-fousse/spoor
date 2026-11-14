@@ -11,7 +11,7 @@ import {
   type TimelineInterval,
 } from "@spoor/core";
 import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
-import { daysWindow } from "./dragRange";
+import { daysWindow } from "../layout/dragRange";
 
 interface GridMeta {
   /** The timelines shown, one sub-column each: the unarchived ones, by name. */

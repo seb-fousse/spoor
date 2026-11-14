@@ -6,8 +6,8 @@ import {
   type TimelineCategory,
   type TimelineInterval,
 } from "@spoor/core";
-import { freeGaps, movedRange } from "./blockEdit";
-import type { DrawnRange } from "./dragRange";
+import { freeGaps, movedRange } from "../edit/blockEdit";
+import type { DrawnRange } from "../layout/dragRange";
 
 /**
  * Copying a block on Home's grid and pasting it elsewhere. A copy is the

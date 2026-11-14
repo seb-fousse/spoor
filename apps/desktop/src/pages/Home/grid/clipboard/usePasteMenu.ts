@@ -1,6 +1,6 @@
 import type { Instant, LocalDate } from "@spoor/core";
 import { type MouseEvent, useState } from "react";
-import { instantIn, isOnBlock, menuAnchor, ownsEvent } from "./gridPointer";
+import { instantIn, isOnBlock, menuAnchor, ownsEvent } from "../layout/gridPointer";
 
 /** Where on the grid a paste goes: a sub-column, and the 15-minute mark there. */
 export interface PastePoint {

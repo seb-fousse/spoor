@@ -1,8 +1,15 @@
 import { IS_MAC } from "@platform/os";
 import type { Instant, LocalDate, Timeline, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useState } from "react";
-import { type DrawnRange, daysWindow, dragRange, freeSpan } from "./dragRange";
-import { DAY_ATTR, instantIn, isOnBlock, ownsEvent, pointerAt, TIMELINE_ATTR } from "./gridPointer";
+import { type DrawnRange, daysWindow, dragRange, freeSpan } from "../layout/dragRange";
+import {
+  DAY_ATTR,
+  instantIn,
+  isOnBlock,
+  ownsEvent,
+  pointerAt,
+  TIMELINE_ATTR,
+} from "../layout/gridPointer";
 
 /** A block being drawn, or drawn and waiting for its category. It may span several days. */
 export interface Draft {

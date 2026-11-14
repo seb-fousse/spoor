@@ -1,7 +1,7 @@
 import type { TimelineCategory, TimelineInterval } from "@spoor/core";
 import { describe, expect, it } from "vitest";
+import { daysWindow } from "../layout/dragRange";
 import { type BlockCopy, copyOf, landingLabel, pasteTarget } from "./blockCopy";
-import { daysWindow } from "./dragRange";
 
 const ZONE = "Europe/Paris";
 /** Paris is UTC+1 in November. */

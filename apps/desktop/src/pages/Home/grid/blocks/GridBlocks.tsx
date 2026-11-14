@@ -17,8 +17,9 @@ import {
   type ReactNode,
   useState,
 } from "react";
-import { completeness, completenessLabel } from "./completeness";
-import { type DrawnRange, rangePieces } from "./dragRange";
+import { type BlockEdit, EDGE_ATTR, type SegmentHandlers } from "../edit/useBlockDrag";
+import type { SubColumnHandlers } from "../edit/useDragToCreate";
+import { type DrawnRange, rangePieces } from "../layout/dragRange";
 import {
   type BlockSegment,
   categoryColor,
@@ -27,11 +28,10 @@ import {
   type GridBlock,
   labelFit,
   sharedSpan,
-} from "./gridLayout";
-import { BLOCK_ATTR, DAY_COLUMN } from "./gridPointer";
-import classes from "./TimelineGrid.module.css";
-import { type BlockEdit, EDGE_ATTR, type SegmentHandlers } from "./useBlockDrag";
-import type { SubColumnHandlers } from "./useDragToCreate";
+} from "../layout/gridLayout";
+import { BLOCK_ATTR, DAY_COLUMN } from "../layout/gridPointer";
+import { completeness, completenessLabel } from "./completeness";
+import classes from "./GridBlocks.module.css";
 
 /**
  * What Home's timeline grid draws: its day columns, the blocks in them, and

@@ -9,7 +9,7 @@ import {
   updateInterval,
 } from "@spoor/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { DrawnRange } from "./dragRange";
+import type { DrawnRange } from "../layout/dragRange";
 
 /**
  * The grid's writes to intervals. Core rejects an overlap conflict, and

@@ -1,8 +1,8 @@
 import type { Instant, LocalDate, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useRef, useState } from "react";
+import type { BlockSegment, GridBlock } from "../layout/gridLayout";
+import { DAY_ATTR, instantIn, menuAnchor } from "../layout/gridPointer";
 import { splitPoint } from "./blockEdit";
-import type { BlockSegment, GridBlock } from "./gridLayout";
-import { DAY_ATTR, instantIn, menuAnchor } from "./gridPointer";
 
 /** A block's split menu: aimed while the right button is held, open once it is released. */
 export interface SplitAim {

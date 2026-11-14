@@ -25,12 +25,6 @@ import {
 } from "react";
 import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
-import { BlockMenu, PasteMenu } from "./BlockMenu";
-import { type BlockCopy, copyOf, landingLabel } from "./blockCopy";
-import { conflictingCategories, splitPoint } from "./blockEdit";
-import { blockKeyHandler } from "./blockShortcuts";
-import { CategoryPicker } from "./CategoryPicker";
-import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
   type BlockHandlers,
   blockColors,
@@ -42,25 +36,31 @@ import {
   ghostPieces,
   HOUR_HEIGHT,
   segmentStyle,
-} from "./GridBlocks";
-import { type BlockSegment, type GridBlock, layoutGrid, nowFraction } from "./gridLayout";
-import { DRAG_ROOT, isOnBlock, ownsEvent } from "./gridPointer";
-import classes from "./TimelineGrid.module.css";
-import { useBlockDrag } from "./useBlockDrag";
-import { useBlockPaste } from "./useBlockPaste";
-import { useDragToCreate } from "./useDragToCreate";
-import type { GridData } from "./useGridData";
-import { useGridPointer } from "./useGridPointer";
+} from "./blocks/GridBlocks";
+import { type BlockCopy, copyOf, landingLabel } from "./clipboard/blockCopy";
+import { useBlockPaste } from "./clipboard/useBlockPaste";
+import { usePasteMenu } from "./clipboard/usePasteMenu";
+import type { GridData } from "./data/useGridData";
 import {
   useCreateInterval,
   useDeleteInterval,
   useSplitInterval,
   useUpdateInterval,
-} from "./useIntervalWrites";
+} from "./data/useIntervalWrites";
+import { useObservationCounts } from "./data/useObservationCounts";
+import { conflictingCategories, splitPoint } from "./edit/blockEdit";
+import { blockKeyHandler } from "./edit/blockShortcuts";
+import { useBlockDrag } from "./edit/useBlockDrag";
+import { useDragToCreate } from "./edit/useDragToCreate";
+import { useSplitAim } from "./edit/useSplitAim";
+import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
+import { type BlockSegment, type GridBlock, layoutGrid, nowFraction } from "./layout/gridLayout";
+import { DRAG_ROOT, isOnBlock, ownsEvent } from "./layout/gridPointer";
+import { useGridPointer } from "./layout/useGridPointer";
+import { BlockMenu, PasteMenu } from "./menus/BlockMenu";
+import { CategoryPicker } from "./menus/CategoryPicker";
+import classes from "./TimelineGrid.module.css";
 import { useNotice } from "./useNotice";
-import { useObservationCounts } from "./useObservationCounts";
-import { usePasteMenu } from "./usePasteMenu";
-import { useSplitAim } from "./useSplitAim";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 /** The earliest hour the grid opens scrolled to. */
