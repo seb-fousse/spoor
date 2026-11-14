@@ -1,15 +1,13 @@
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler, shortcutLabel, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
-import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { Alert, Button, Center, Loader, Stack, Text } from "@mantine/core";
 import {
   type Database,
   type DayObservationCount,
   dayOf,
   dayRange,
-  type Instant,
   type LocalDate,
-  startOfDay,
   type Timeline,
   type TimelineCategory,
   type TimelineInterval,
@@ -17,11 +15,8 @@ import {
 import {
   type CSSProperties,
   type Dispatch,
-  Fragment,
-  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
-  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -31,28 +26,29 @@ import {
 import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
 import { BlockMenu, PasteMenu } from "./BlockMenu";
-import { type BlockCopy, copyOf, pasteTarget } from "./blockCopy";
+import { type BlockCopy, copyOf, landingLabel } from "./blockCopy";
 import { conflictingCategories, splitPoint } from "./blockEdit";
 import { blockKeyHandler } from "./blockShortcuts";
 import { CategoryPicker } from "./CategoryPicker";
-import { completeness, completenessLabel } from "./completeness";
-import { type DrawnRange, daysWindow, rangePieces } from "./dragRange";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
-  type BlockSegment,
-  categoryColor,
-  clockRange,
-  describeBlock,
-  type GridBlock,
-  labelFit,
-  layoutGrid,
-  nowFraction,
-  sharedSpan,
-} from "./gridLayout";
-import { BLOCK_ATTR, DAY_COLUMN, DRAG_ROOT, isOnBlock, ownsEvent } from "./gridPointer";
+  type BlockHandlers,
+  blockColors,
+  type ColumnHandlers,
+  DayBadge,
+  DayColumn,
+  type Extra,
+  ghostLook,
+  ghostPieces,
+  HOUR_HEIGHT,
+  segmentStyle,
+} from "./GridBlocks";
+import { type BlockSegment, type GridBlock, layoutGrid, nowFraction } from "./gridLayout";
+import { DRAG_ROOT, isOnBlock, ownsEvent } from "./gridPointer";
 import classes from "./TimelineGrid.module.css";
-import { type BlockEdit, EDGE_ATTR, type SegmentHandlers, useBlockDrag } from "./useBlockDrag";
-import { type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
+import { useBlockDrag } from "./useBlockDrag";
+import { useBlockPaste } from "./useBlockPaste";
+import { useDragToCreate } from "./useDragToCreate";
 import type { GridData } from "./useGridData";
 import { useGridPointer } from "./useGridPointer";
 import {
@@ -61,12 +57,11 @@ import {
   useSplitInterval,
   useUpdateInterval,
 } from "./useIntervalWrites";
+import { useNotice } from "./useNotice";
 import { useObservationCounts } from "./useObservationCounts";
-import { type PastePoint, usePasteMenu } from "./usePasteMenu";
+import { usePasteMenu } from "./usePasteMenu";
 import { useSplitAim } from "./useSplitAim";
 
-/** Height of one hour, in pixels. */
-const HOUR_HEIGHT = 48;
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 /** The earliest hour the grid opens scrolled to. */
 const MORNING = 7;
@@ -108,6 +103,8 @@ interface TimelineGridProps {
  * like a move would: never over a block it conflicts with.
  * Clicking a day's header or column makes it the active day. Each day's
  * header has a badge with how many of its observations are recorded.
+ *
+ * The blocks and ghosts themselves are drawn by `GridBlocks`.
  */
 export function TimelineGrid({
   db,
@@ -257,7 +254,8 @@ function Grid({
     create.reset();
   };
 
-  // Failed moves, resizes and deletes show above the grid; failed picks show in the popover.
+  // Failed moves, resizes, deletes, splits and pastes show above the grid;
+  // failed picks show in the popover.
   const [error, setError] = useState<string | null>(null);
   const run = (action: () => Promise<unknown>) => {
     setError(null);
@@ -273,13 +271,13 @@ function Grid({
   // The split a right-button press on a block aims, and the menu its release opens.
   const splitAim = useSplitAim(timeZone, now);
   const menu = splitAim.aim;
-  const blockDrag = useBlockDrag(timeZone, days, timelines, intervals, now, (interval, range) => {
-    setError(null);
-    move.mutate(
-      { id: interval.id, timelineId: interval.timelineId, ...range },
-      { onError: (e) => setError(e.message), onSettled: () => blockDrag.settle() },
-    );
-  });
+  const blockDrag = useBlockDrag(timeZone, days, timelines, intervals, now, (interval, range) =>
+    run(() =>
+      move
+        .mutateAsync({ id: interval.id, timelineId: interval.timelineId, ...range })
+        .finally(() => blockDrag.settle()),
+    ),
+  );
   const closeEdit = () => {
     blockDrag.cancel();
     recategorize.reset();
@@ -304,54 +302,20 @@ function Grid({
   const pasteMenu = usePasteMenu(timeZone);
   // Where the pointer is, for the keys that act there: paste and split.
   const gridPointer = useGridPointer(timeZone);
-  const pasteWrite = useCreateInterval(db);
-  const visible = daysWindow(days, timeZone);
-  // Pastes still being saved. Each one counts as a block until the grid has
-  // refetched with it, so pasting again right away lands clear of it.
-  const inFlight = useRef<TimelineInterval[]>([]);
-  const pasteCount = useRef(0);
-  /** Where pasting the copy at `point` lands, or why it can't. */
-  const pasteTargetAt = (point: PastePoint) => {
-    const timeline = timelines.find((t) => t.id === point.timelineId);
-    if (!timeline) return { reason: "This timeline is hidden" };
-    return pasteTarget(copied, point.timelineId, point.at, {
-      intervals: [...intervals, ...inFlight.current],
-      timeline,
-      category: copied ? categories.get(copied.categoryId) : undefined,
-      window: visible,
-    });
-  };
-  // Failures show above the grid.
-  const paste = (range: DrawnRange) => {
-    if (!copied) return;
-    const { timelineId, categoryId } = copied;
-    pasteCount.current += 1;
-    const pending: TimelineInterval = {
-      id: `paste-${pasteCount.current}`,
-      timelineId,
-      categoryId,
-      ...range,
-      timeZone,
-      createdAt: now,
-      updatedAt: now,
-    };
-    inFlight.current = [...inFlight.current, pending];
-    run(() =>
-      pasteWrite.mutateAsync({ ...range, timelineId, categoryId }).finally(() => {
-        inFlight.current = inFlight.current.filter((i) => i !== pending);
-      }),
-    );
-  };
+  const pasting = useBlockPaste({
+    db,
+    copied,
+    timelines,
+    intervals,
+    categories,
+    days,
+    timeZone,
+    now,
+    run,
+  });
 
   // A short message over the grid, such as why the paste key did nothing.
-  const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const say = (text: string) => {
-    clearTimeout(noticeTimer.current);
-    setNotice(text);
-    noticeTimer.current = setTimeout(() => setNotice(null), NOTICE_MS);
-  };
-  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const { notice, say } = useNotice(NOTICE_MS);
 
   // ⌘V pastes at the pointer. It never fails silently: it says why it can't,
   // and where the paste went when a block in the way moved it.
@@ -362,16 +326,12 @@ function Grid({
         if (!copied) return say(`Nothing copied. Select a block and press ${COPY_KEYS} first.`);
         const point = gridPointer.atPointer();
         if (!point) return say(`Point where the block should go, then press ${PASTE_KEYS}.`);
-        const target = pasteTargetAt(point);
+        const target = pasting.targetAt(point);
         if ("reason" in target) return say(`Can't paste here. ${target.reason}.`);
-        paste(target.range);
+        pasting.paste(target.range);
         if (target.range.startAt !== point.at) {
-          const { startAt } = target.range;
-          const when = formatClockTime(startAt, timeZone);
-          const day = dayOf(startAt, timeZone);
-          say(
-            `Pasted at ${day === point.day ? when : `${formatShortDay(day)} ${when}`}, the nearest free spot.`,
-          );
+          const where = landingLabel(target.range.startAt, point.day, timeZone);
+          say(`Pasted at ${where}, the nearest free spot.`);
         }
       },
     ],
@@ -456,11 +416,7 @@ function Grid({
   if (edit?.range) {
     const { startAt, endAt } = edit.range;
     const shown = { startAt, endAt: endAt ?? Math.max(now, startAt) };
-    const look = {
-      colors: blockColors(edit.interval.categoryId),
-      name: categories.get(edit.interval.categoryId)?.name ?? "Unknown category",
-      ongoing: endAt === null,
-    };
+    const look = ghostLook(edit.interval.categoryId, categories, endAt === null);
     for (const { day, node } of ghostPieces(shown, days, timeZone, look)) {
       addExtra(day, { key: "edit", timelineId: edit.interval.timelineId, node });
     }
@@ -518,23 +474,13 @@ function Grid({
   // The paste menu, and a ghost of where the paste would land.
   const pasteAt = pasteMenu.menu;
   if (pasteAt) {
-    const target = pasteTargetAt(pasteAt);
+    const target = pasting.targetAt(pasteAt);
     let item: { label: string } | { reason: string } = {
       reason: "reason" in target ? target.reason : "Nothing copied",
     };
     if (copied && "range" in target) {
-      // The day too, when a block in the way pushed it onto another one.
-      const { startAt } = target.range;
-      const startDay = dayOf(startAt, timeZone);
-      const when = formatClockTime(startAt, timeZone);
-      item = {
-        label: `Paste at ${startDay === pasteAt.day ? when : `${formatShortDay(startDay)} ${when}`}`,
-      };
-      const look = {
-        colors: blockColors(copied.categoryId),
-        name: categories.get(copied.categoryId)?.name ?? "Unknown category",
-        ongoing: false,
-      };
+      item = { label: `Paste at ${landingLabel(target.range.startAt, pasteAt.day, timeZone)}` };
+      const look = ghostLook(copied.categoryId, categories, false);
       for (const { day, node } of ghostPieces(target.range, days, timeZone, look)) {
         addExtra(day, { key: "paste", timelineId: pasteAt.timelineId, node });
       }
@@ -550,7 +496,7 @@ function Grid({
           onClose={pasteMenu.close}
           onPaste={() => {
             pasteMenu.close();
-            if ("range" in target) paste(target.range);
+            if ("range" in target) pasting.paste(target.range);
           }}
         />
       ),
@@ -641,7 +587,7 @@ function Grid({
   };
   const subColumnHandlers = (day: LocalDate, timelineId: string): ColumnHandlers => {
     const handlers = drag.handlers(day, timelineId);
-    const pasting = pasteMenu.handlers(day, timelineId);
+    const pasteHandlers = pasteMenu.handlers(day, timelineId);
     return {
       ...handlers,
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
@@ -655,7 +601,7 @@ function Grid({
       },
       // A right click in an empty stretch opens the paste menu, in place of any other.
       onContextMenu: (event: MouseEvent<HTMLElement>) => {
-        if (!pasting.onContextMenu(event)) return;
+        if (!pasteHandlers.onContextMenu(event)) return;
         cancel();
         closeEdit();
         splitAim.close();
@@ -758,303 +704,4 @@ function Grid({
       </div>
     </div>
   );
-}
-
-/**
- * What a block segment spreads: the drag handlers, a right click for its
- * menu, and the selected block's keys.
- */
-type BlockHandlers = SegmentHandlers & {
-  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
-  onKeyDown: ((event: KeyboardEvent<HTMLElement>) => void) | undefined;
-};
-
-/** What a sub-column spreads: the drawing handlers, and the paste menu's. */
-type ColumnHandlers = SubColumnHandlers & {
-  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
-};
-
-/** Something drawn in one of a day's sub-columns, over its blocks. */
-interface Extra {
-  key: string;
-  timelineId: string;
-  node: ReactNode;
-}
-
-/**
- * A category's colours, as the custom properties blocks and edit ghosts are
- * drawn with. They come from one colour, Mantine's filled shade for the scheme,
- * mixed into the surface for the fills and into the text colour for the line
- * and the label. Mixing into the scheme's own tokens keeps every category's
- * label readable on its fill in light and dark mode (at least 4.5:1).
- */
-function blockColors(categoryId: string) {
-  const color = `var(--mantine-color-${categoryColor(categoryId)}-filled)`;
-  return {
-    "--block-bg": `color-mix(in srgb, ${color} 16%, var(--app-surface))`,
-    "--block-bg-strong": `color-mix(in srgb, ${color} 26%, var(--app-surface))`,
-    "--block-line": `color-mix(in oklab, ${color} 75%, var(--app-text))`,
-    "--block-fg": `color-mix(in oklab, ${color} 45%, var(--app-text))`,
-  };
-}
-
-/**
- * The line along a segment's top or bottom edge where the block changes lane:
- * the whole edge, except the `shared` part (fractions of the segment's width)
- * that joins the block's next segment. Drawn in the block's outline colour.
- *
- * The line lies in the segment's padding box, 4px narrower than its slot (a
- * 1px inset and a 1px border each side), so a fraction `p` of the slot is at
- * `p * (100% + 4px) - 2px`. The open part runs between the next segment's
- * side borders, so the line meets them at the corners.
- */
-function seamLine(shared: [number, number] | null): string {
-  const edge = "var(--block-edge)";
-  if (!shared) return `linear-gradient(${edge}, ${edge})`;
-  const [a, b] = shared;
-  const at = (p: number, px: number) => `calc(${(p * 100).toFixed(3)}% + ${px.toFixed(3)}px)`;
-  const from = at(a, 4 * a);
-  const to = at(b, 4 * b - 4);
-  return `linear-gradient(to right, ${edge} ${from}, transparent ${from} ${to}, ${edge} ${to})`;
-}
-
-/** The seam lines of a block's `i`th segment, as the custom properties it is drawn with. */
-function seamStyle(segments: readonly BlockSegment[], i: number) {
-  const segment = segments[i] as BlockSegment;
-  const above = segments[i - 1];
-  const below = segments[i + 1];
-  return {
-    ...(above && { "--seam-top": seamLine(sharedSpan(segment, above)) }),
-    ...(below && { "--seam-bottom": seamLine(sharedSpan(segment, below)) }),
-  };
-}
-
-/** How tall a stretch of `height` (a fraction of the day) is, in pixels. */
-const toPixels = (height: number) => height * 24 * HOUR_HEIGHT;
-
-/**
- * A block's label: its category, if it has one yet, and its time. It's
- * stacked, on one line, or left out, as fits the segment it's in.
- */
-function BlockLabel({ name, time, height }: { name?: string; time: string; height: number }) {
-  const fit = labelFit(toPixels(height));
-  if (fit === "none") return null;
-  return (
-    <span className={classes.blockLabel} data-fit={fit}>
-      {name !== undefined && <span className={classes.blockName}>{name}</span>}
-      <span className={classes.blockTime}>{time}</span>
-    </span>
-  );
-}
-
-/** Where a block segment goes in its sub-column. */
-function segmentStyle(segment: BlockSegment) {
-  return {
-    "--top": segment.top,
-    "--height": segment.height,
-    "--lane": segment.lane,
-    "--lanes": segment.lanes,
-  } as CSSProperties;
-}
-
-/** A range's time, such as "9:00–10:30", with the days when it crosses midnight. */
-function rangeLabel(range: { startAt: Instant; endAt: Instant | null }, timeZone: string) {
-  const { startAt, endAt } = range;
-  const time = (at: Instant) => formatClockTime(at, timeZone);
-  if (endAt === null) return `since ${time(startAt)}`;
-  const startDay = dayOf(startAt, timeZone);
-  const endDay = dayOf(endAt, timeZone);
-  // A range that ends at midnight is still on one day.
-  if (startDay === endDay || endAt === startOfDay(endDay, timeZone)) {
-    return `${time(startAt)}–${time(endAt)}`;
-  }
-  return `${formatShortDay(startDay)} ${time(startAt)} – ${formatShortDay(endDay)} ${time(endAt)}`;
-}
-
-/** How an edited block's ghost is drawn: as the block, in its category. */
-interface GhostLook {
-  colors: Record<string, string>;
-  name: string;
-  /** Still going, so open at the bottom. */
-  ongoing: boolean;
-}
-
-/**
- * A block being drawn, or where an edited block is going: one piece per day it
- * covers, with its label in the first. A drawn block is a dashed outline with
- * its time; an edited block's ghost has its `look`: the block itself, framed.
- */
-function ghostPieces(
-  range: DrawnRange,
-  days: readonly LocalDate[],
-  timeZone: string,
-  look?: GhostLook,
-): { day: LocalDate; node: ReactNode }[] {
-  const pieces = rangePieces(range, days, timeZone);
-  const ongoing = look?.ongoing ?? false;
-  const time = rangeLabel(ongoing ? { ...range, endAt: null } : range, timeZone);
-  return pieces.map(({ day, top, height }, i) => ({
-    day,
-    node: (
-      <div
-        className={classes.ghost}
-        style={{ ...look?.colors, "--top": top, "--height": height } as CSSProperties}
-        data-edit={look ? true : undefined}
-        data-continues-before={i > 0 || undefined}
-        data-continues-after={i < pieces.length - 1 || ongoing || undefined}
-      >
-        {i === 0 && <BlockLabel name={look?.name} time={time} height={height} />}
-      </div>
-    ),
-  }));
-}
-
-/**
- * How many of the day's observations are recorded, such as "3/7": filled when
- * all are, outlined when some are, dashed when none are. It sits inside the
- * day's button, so focusing the header reads the count out in words too.
- */
-function DayBadge({ count }: { count: DayObservationCount | undefined }) {
-  const state = count && completeness(count);
-  if (!count || !state) return null;
-  return (
-    <>
-      <span className={classes.badge} data-state={state} aria-hidden="true">
-        {count.recorded}/{count.total}
-      </span>
-      <VisuallyHidden>, {completenessLabel(count)}</VisuallyHidden>
-    </>
-  );
-}
-
-interface DayColumnProps {
-  blocks: Map<string, GridBlock[]> | undefined;
-  /** What the day's sub-columns draw over their blocks, such as the block being drawn. */
-  extras: readonly Extra[];
-  /** The drawing and paste handlers for one of the day's sub-columns. */
-  handlers: (timelineId: string) => ColumnHandlers;
-  /** The editing handlers for one of a block's segments. */
-  blockHandlers: (block: GridBlock, segment: BlockSegment) => BlockHandlers;
-  /** The block being dragged, saved or edited, if any. */
-  edit: BlockEdit | null;
-  timelines: Timeline[];
-  categories: Map<string, TimelineCategory>;
-  timeZone: string;
-  /** Where the now line goes, as a fraction of the day, or `null` when it is not today. */
-  nowAt: number | null;
-  /** A click in the column, which makes this the active day. */
-  onSelect: (event: MouseEvent<HTMLDivElement>) => void;
-}
-
-function DayColumn({
-  blocks,
-  extras,
-  handlers,
-  blockHandlers,
-  edit,
-  timelines,
-  categories,
-  timeZone,
-  nowAt,
-  onSelect,
-}: DayColumnProps) {
-  return (
-    // A mouse shortcut only: the day's header button is the keyboard way to select it.
-    // biome-ignore lint/a11y/noStaticElementInteractions: see above.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: see above.
-    <div className={classes.day} {...{ [DAY_COLUMN]: "" }} onClick={onSelect}>
-      {timelines.map((t) => (
-        <div key={t.id} className={classes.subColumn} {...handlers(t.id)}>
-          {blocks?.get(t.id)?.map((block) => (
-            <Block
-              key={block.interval.id}
-              block={block}
-              category={categories.get(block.interval.categoryId)}
-              timeZone={timeZone}
-              handlers={blockHandlers}
-              edit={edit?.interval.id === block.interval.id ? edit : null}
-            />
-          ))}
-          {extras
-            .filter((e) => e.timelineId === t.id)
-            .map((e) => (
-              <Fragment key={e.key}>{e.node}</Fragment>
-            ))}
-        </div>
-      ))}
-      {nowAt !== null && <div className={classes.nowLine} style={{ top: `${nowAt * 100}%` }} />}
-    </div>
-  );
-}
-
-interface BlockProps {
-  block: GridBlock;
-  category: TimelineCategory | undefined;
-  timeZone: string;
-  handlers: (block: GridBlock, segment: BlockSegment) => BlockHandlers;
-  /** This block's edit, if it is the one being dragged, saved or edited. */
-  edit: BlockEdit | null;
-}
-
-/**
- * One interval's piece of the day, drawn as its segments: one rectangle per
- * stretch with the same width, which fit together with overlapping blocks. The
- * label, its category and time, sits in the first segment. Its outline is
- * drawn around the whole shape: the edges where the interval really starts and
- * ends, its sides, and the steps where it changes lane, but not the seams
- * between its segments. The start and end are rounded, and there
- * they have handles to resize it, with grips on hover (an ongoing interval has
- * no end to drag). The whole block lights up on hover, whichever segment is
- * under the pointer. While it is dragged somewhere else, a dashed outline
- * stays where it was; while it is selected or its popover is open, it is
- * framed. Its segments take focus when it is selected, for its keys, but
- * aren't tab stops.
- */
-function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
-  const [hovered, setHovered] = useState(false);
-  const name = category?.name ?? "Unknown category";
-  const title = describeBlock(block, name, timeZone);
-  const colors = blockColors(block.interval.categoryId);
-  const last = block.segments.length - 1;
-  const startHere = !block.startsBefore;
-  const endHere = !block.endsAfter && !block.ongoing;
-
-  return block.segments.map((segment, i) => (
-    <div
-      // Segments never move between blocks, and a block's segments keep their order.
-      // biome-ignore lint/suspicious/noArrayIndexKey: see above.
-      key={i}
-      className={classes.block}
-      style={{ ...colors, ...segmentStyle(segment), ...seamStyle(block.segments, i) }}
-      title={title}
-      tabIndex={-1}
-      // Which block it is, so the split key can tell the pointer is on the selected one.
-      {...{ [BLOCK_ATTR]: block.interval.id }}
-      data-start={(i === 0 && startHere) || undefined}
-      data-end={(i === last && endHere) || undefined}
-      data-ongoing={(i === last && block.ongoing) || undefined}
-      data-hover={hovered || undefined}
-      data-moving={
-        (edit?.range && (edit.phase === "dragging" || edit.phase === "saving")) || undefined
-      }
-      data-selected={edit?.phase === "selected" || edit?.phase === "editing" || undefined}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
-      {...handlers(block, segment)}
-    >
-      {i === 0 && startHere && (
-        <div className={classes.handle} data-side="top" {...{ [EDGE_ATTR]: "start" }} />
-      )}
-      {i === 0 && (
-        <BlockLabel
-          name={name}
-          time={clockRange(block.interval, timeZone)}
-          height={segment.height}
-        />
-      )}
-      {i === last && endHere && (
-        <div className={classes.handle} data-side="bottom" {...{ [EDGE_ATTR]: "end" }} />
-      )}
-    </div>
-  ));
 }

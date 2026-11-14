@@ -1,4 +1,11 @@
-import type { Instant, TimelineCategory, TimelineInterval } from "@spoor/core";
+import { formatClockTime, formatShortDay } from "@lib/format";
+import {
+  dayOf,
+  type Instant,
+  type LocalDate,
+  type TimelineCategory,
+  type TimelineInterval,
+} from "@spoor/core";
 import { freeGaps, movedRange } from "./blockEdit";
 import type { DrawnRange } from "./dragRange";
 
@@ -65,4 +72,20 @@ export function pasteTarget(
     return { reason: "No room for it on the visible days" };
   }
   return { range: movedRange({ startAt: at, endAt: at + copy.length }, 0, gaps) };
+}
+
+/**
+ * Where a paste starting at `startAt` lands, for its menu item and notice:
+ * the time, such as "14:00", with the day too, such as "Tue 10 14:00", when
+ * a block in the way pushed it off `pointDay`, the day it was asked for.
+ */
+export function landingLabel(
+  startAt: Instant,
+  pointDay: LocalDate,
+  timeZone: string,
+  locale?: string,
+): string {
+  const when = formatClockTime(startAt, timeZone, locale);
+  const day = dayOf(startAt, timeZone);
+  return day === pointDay ? when : `${formatShortDay(day, locale)} ${when}`;
 }
