@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   CATEGORY_COLORS,
   categoryColor,
+  clockRange,
   describeBlock,
   fitSegments,
+  labelFit,
   layoutGrid,
   nowFraction,
+  sharedSpan,
   splitByDay,
 } from "./gridLayout";
 
@@ -294,5 +297,59 @@ describe("describeBlock", () => {
     if (!done || !ongoing) throw new Error("expected blocks");
     expect(describeBlock(done, "Work", ZONE, "en-GB")).toBe("Work · 09:00–10:30");
     expect(describeBlock(ongoing, "Work", ZONE, "en-GB")).toBe("Work · since 09:00");
+  });
+});
+
+describe("sharedSpan", () => {
+  const seg = (lane: number, lanes: number) => ({ top: 0, height: 0.1, lane, lanes });
+
+  it("shares all of a segment that stays in its lane", () => {
+    expect(sharedSpan(seg(0, 1), seg(0, 1))).toEqual([0, 1]);
+    expect(sharedSpan(seg(1, 2), seg(0, 1))).toEqual([0, 1]);
+  });
+
+  it("shares part of a wider segment above or below a narrower one", () => {
+    expect(sharedSpan(seg(0, 1), seg(0, 2))).toEqual([0, 0.5]);
+    expect(sharedSpan(seg(0, 1), seg(1, 2))).toEqual([0.5, 1]);
+    const [from, to] = sharedSpan(seg(1, 2), seg(1, 3)) ?? [];
+    expect(from).toBeCloseTo(0);
+    expect(to).toBeCloseTo(1 / 3);
+  });
+
+  it("shares nothing when the lanes don't line up", () => {
+    expect(sharedSpan(seg(1, 2), seg(0, 3))).toBeNull();
+  });
+});
+
+describe("clockRange", () => {
+  it("shows the start and end, or since when for an ongoing range", () => {
+    const range = { startAt: at("2026-11-08T09:00:00.000"), endAt: at("2026-11-08T10:30:00.000") };
+    expect(clockRange(range, ZONE, "en-GB")).toBe("09:00–10:30");
+    expect(clockRange({ ...range, endAt: null }, ZONE, "en-GB")).toBe("since 09:00");
+  });
+
+  it("leaves the days out of a range that crosses midnight", () => {
+    const range = { startAt: at("2026-11-08T22:00:00.000"), endAt: at("2026-11-09T01:30:00.000") };
+    expect(clockRange(range, ZONE, "en-GB")).toBe("22:00–01:30");
+  });
+});
+
+describe("labelFit", () => {
+  /** A duration in minutes, as pixels at 48px an hour. */
+  const px = (minutes: number) => (minutes / 60) * 48;
+
+  it("has no label on a sliver", () => {
+    expect(labelFit(px(5))).toBe("none");
+    expect(labelFit(0)).toBe("none");
+  });
+
+  it("fits a 15-minute block on one line", () => {
+    expect(labelFit(px(15))).toBe("line");
+    expect(labelFit(px(30))).toBe("line");
+  });
+
+  it("stacks the time under the name from 35 minutes", () => {
+    expect(labelFit(px(35))).toBe("stack");
+    expect(labelFit(px(90))).toBe("stack");
   });
 });
