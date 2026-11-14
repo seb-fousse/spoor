@@ -270,8 +270,13 @@
   background-color: var(--block-bg-strong);
 }
 
+/* The frame below shows a selected block; its focus needs no ring of its own. */
+.block:focus {
+  outline: none;
+}
+
 /*
- * Its popover is open: a second hairline around it, and the same drawn edges,
+ * Selected, or its popover is open: a second hairline around it, and the same drawn edges,
  * so a block's segments still read as one. Where an edited block is going is
  * framed the same way.
  */
@@ -482,6 +487,17 @@
 }
 
 /* Where a block's menu opens from: the pointer, unseen. */
+/*
+ * A key in the block menu, such as ⌫. Key symbols draw small at a monospace
+ * label's size, so it is larger, in the system font, which draws them best.
+ */
+.menuKey {
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+}
+
 .menuAnchor {
   position: absolute;
   top: calc(var(--top) * 100%);

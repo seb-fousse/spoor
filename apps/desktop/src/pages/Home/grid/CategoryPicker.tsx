@@ -1,4 +1,4 @@
-import { Divider, Popover, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { Popover, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
 import type { TimelineCategory } from "@spoor/core";
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import classes from "./CategoryPicker.module.css";
@@ -14,8 +14,6 @@ interface CategoryPickerProps {
   currentId?: string;
   /** Categories the block can't take, because it would overlap their blocks. */
   disabledIds?: ReadonlySet<string>;
-  /** Offers to delete an existing block. */
-  onDelete?: () => void;
   /** The last failed save's message. */
   error: string | null;
   saving: boolean;
@@ -26,7 +24,7 @@ interface CategoryPickerProps {
 
 /**
  * The popover that asks a block's category: a drawn block's, or an existing
- * one's, which can also be deleted from here. Typing filters the list, `1`–`9`
+ * one's (deleting one is in its right-click menu, `BlockMenu`). Typing filters the list, `1`–`9`
  * picks from it while the filter is empty, Enter picks the first match.
  * Categories the block can't take are shown but can't be picked, and get no
  * number. "+ New category" creates one named by the filter.
@@ -37,7 +35,6 @@ export function CategoryPicker({
   categories,
   currentId,
   disabledIds,
-  onDelete,
   error,
   saving,
   onPick,
@@ -140,19 +137,6 @@ export function CategoryPicker({
             <Text size="xs" c="red" px={6}>
               {error}
             </Text>
-          )}
-          {onDelete && (
-            <>
-              <Divider my={2} />
-              <UnstyledButton
-                className={classes.option}
-                data-danger
-                disabled={saving}
-                onClick={onDelete}
-              >
-                Delete block
-              </UnstyledButton>
-            </>
           )}
         </Stack>
       </Popover.Dropdown>

@@ -39,7 +39,6 @@ let onPick: ReturnType<
   typeof vi.fn<(choice: { categoryId: string } | { newCategory: string }) => void>
 >;
 let onCancel: ReturnType<typeof vi.fn<() => void>>;
-let onDelete: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
   container = document.createElement("div");
@@ -47,7 +46,6 @@ beforeEach(() => {
   root = createRoot(container);
   onPick = vi.fn<(choice: { categoryId: string } | { newCategory: string }) => void>();
   onCancel = vi.fn<() => void>();
-  onDelete = vi.fn<() => void>();
 });
 
 afterEach(() => {
@@ -69,7 +67,6 @@ function showForBlock() {
           saving={false}
           onPick={onPick}
           onCancel={onCancel}
-          onDelete={onDelete}
         >
           <div />
         </CategoryPicker>
@@ -118,9 +115,20 @@ describe("CategoryPicker for an existing block", () => {
     expect(onPick).toHaveBeenCalledWith({ categoryId: sport.id });
   });
 
-  it("offers to delete the block", () => {
+  it("leaves Backspace in the filter field to the field", () => {
     showForBlock();
-    act(() => option("Delete block").click());
-    expect(onDelete).toHaveBeenCalledOnce();
+    const input = document.body.querySelector("input");
+    if (!input) throw new Error("No filter input");
+    const event = new KeyboardEvent("keydown", {
+      key: "Backspace",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      input.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
