@@ -1,6 +1,6 @@
 import type { Instant, LocalDate } from "@spoor/core";
 import { type MouseEvent, useState } from "react";
-import { instantIn } from "./gridPointer";
+import { instantIn, isOnBlock, menuAnchor, ownsEvent } from "./gridPointer";
 
 /** Where on the grid a paste goes: a sub-column, and the 15-minute mark there. */
 export interface PastePoint {
@@ -24,7 +24,7 @@ export interface PasteMenuState extends PastePoint {
  *
  * `handlers(day, timelineId)` is spread on each sub-column, next to the
  * drawing handlers; its `onContextMenu` returns whether it opened the menu.
- * A right click on a block (anything matching `[data-block]`) is left to the
+ * A right click on a block (anything marked with `BLOCK_ATTR`) is left to the
  * block's own menu.
  */
 export function usePasteMenu(timeZone: string) {
@@ -32,19 +32,16 @@ export function usePasteMenu(timeZone: string) {
 
   const handlers = (day: LocalDate, timelineId: string) => ({
     onContextMenu: (event: MouseEvent<HTMLElement>): boolean => {
-      const target = event.target as HTMLElement;
-      // React passes events up from portals too, such as the menu's own.
-      if (!event.currentTarget.contains(target) || target.closest("[data-block]")) return false;
+      // Not a click in the menu itself (see `ownsEvent`), nor on a block.
+      if (!ownsEvent(event) || isOnBlock(event.target as Element)) return false;
       // The webview's own menu would hide this one.
       event.preventDefault();
       const column = event.currentTarget;
-      const rect = column.getBoundingClientRect();
       setMenu({
         day,
         timelineId,
         at: instantIn(column, event.clientY, day, timeZone),
-        top: (event.clientY - rect.top) / rect.height,
-        left: Math.min(rect.width, Math.max(0, event.clientX - rect.left)),
+        ...menuAnchor(column, event),
       });
       return true;
     },

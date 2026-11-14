@@ -15,6 +15,37 @@ export const DAY_COLUMN = "data-drag-day-column";
 /** Mark each sub-column with its day and timeline. */
 export const DAY_ATTR = "data-drag-day";
 export const TIMELINE_ATTR = "data-drag-timeline";
+/** Marks each of a block's segments with its interval's id. */
+export const BLOCK_ATTR = "data-block";
+
+/** Whether `target` is on a block, so a press or click there is the block's. */
+export function isOnBlock(target: Element): boolean {
+  return target.closest(`[${BLOCK_ATTR}]`) !== null;
+}
+
+/**
+ * Whether `event` happened inside the element handling it. React passes
+ * events up from portals too, such as a popover's or a menu's, so a handler
+ * on a sub-column also sees presses in the popover hanging off it.
+ */
+export function ownsEvent(event: { currentTarget: Element; target: EventTarget }): boolean {
+  return event.currentTarget.contains(event.target as Node);
+}
+
+/**
+ * Where a menu opens at the pointer in `column`: as a fraction down the day,
+ * and in pixels from the column's left, kept inside the column.
+ */
+export function menuAnchor(
+  column: HTMLElement,
+  pointer: { clientX: number; clientY: number },
+): { top: number; left: number } {
+  const rect = column.getBoundingClientRect();
+  return {
+    top: (pointer.clientY - rect.top) / rect.height,
+    left: Math.min(rect.width, Math.max(0, pointer.clientX - rect.left)),
+  };
+}
 
 /** The snapped instant at `clientY` in `column`, a sub-column of `day`. */
 export function instantIn(

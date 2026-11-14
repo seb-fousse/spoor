@@ -1,15 +1,14 @@
 import { formatClockTime } from "@lib/format";
 import type { MantineColor } from "@mantine/core";
 import {
-  addDays,
   dayRange,
   daysSpanned,
   type Instant,
   type LocalDate,
-  startOfDay,
   type Timeline,
   type TimelineInterval,
 } from "@spoor/core";
+import { daysWindow } from "./dragRange";
 
 /**
  * Layout for Home's timeline grid: where each interval's blocks go.
@@ -84,11 +83,8 @@ export function splitByDay(
   timeZone: string,
   now: Instant,
 ): GridBlock[] {
-  const first = days[0];
-  const last = days.at(-1);
-  if (first === undefined || last === undefined) return [];
-  const windowFrom = startOfDay(first, timeZone);
-  const windowTo = startOfDay(addDays(last, 1), timeZone);
+  if (days.length === 0) return [];
+  const { startAt: windowFrom, endAt: windowTo } = daysWindow(days, timeZone);
   const visible = new Set(days);
   const ranges = new Map<LocalDate, [Instant, Instant]>();
   const rangeOf = (day: LocalDate) => {

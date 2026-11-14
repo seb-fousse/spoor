@@ -62,3 +62,8 @@ export function describeHotkey(keys: string, mac = IS_MAC): ShortcutDisplay {
 export function describeShortcut(id: ShortcutId, mac = IS_MAC): ShortcutDisplay {
   return describeHotkey(hotkey(id, mac), mac);
 }
+
+/** Shortcut `id` as one string for running text or a menu, such as "⌘+C" or "Ctrl+C". */
+export function shortcutLabel(id: ShortcutId, mac = IS_MAC): string {
+  return describeShortcut(id, mac).keys.join("+");
+}

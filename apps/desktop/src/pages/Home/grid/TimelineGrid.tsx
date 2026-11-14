@@ -1,5 +1,5 @@
 import { useNow } from "@hooks/useNow";
-import { describeShortcut, shortcutHandler, useShortcuts } from "@keyboard";
+import { shortcutHandler, shortcutLabel, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
 import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
 import {
@@ -49,7 +49,7 @@ import {
   nowFraction,
   sharedSpan,
 } from "./gridLayout";
-import { DAY_COLUMN, DRAG_ROOT } from "./gridPointer";
+import { BLOCK_ATTR, DAY_COLUMN, DRAG_ROOT, isOnBlock, ownsEvent } from "./gridPointer";
 import classes from "./TimelineGrid.module.css";
 import { type BlockEdit, EDGE_ATTR, type SegmentHandlers, useBlockDrag } from "./useBlockDrag";
 import { type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
@@ -72,8 +72,8 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const MORNING = 7;
 /** How long a notice, such as why a paste was refused, stays up. */
 const NOTICE_MS = 4000;
-const COPY_KEYS = describeShortcut("copyBlock").keys.join("+");
-const PASTE_KEYS = describeShortcut("pasteBlock").keys.join("+");
+const COPY_KEYS = shortcutLabel("copyBlock");
+const PASTE_KEYS = shortcutLabel("pasteBlock");
 
 interface TimelineGridProps {
   db: Database;
@@ -645,12 +645,11 @@ function Grid({
     return {
       ...handlers,
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
-        // React passes events up from portals too, such as the popover's.
-        const target = event.target as HTMLElement;
-        if (event.currentTarget.contains(target)) {
+        // Not a press in a popover (see `ownsEvent`).
+        if (ownsEvent(event)) {
           closeEdit();
           pasteMenu.close();
-          if (!target.closest("[data-block]")) splitAim.close();
+          if (!isOnBlock(event.target as Element)) splitAim.close();
         }
         handlers.onPointerDown(event);
       },
@@ -746,12 +745,11 @@ function Grid({
               timeZone={timeZone}
               nowAt={day === today ? nowFraction(now, day, timeZone) : null}
               onSelect={(event) => {
-                // React passes clicks up from portals too, such as the popover's.
-                const target = event.target as Element;
-                if (!event.currentTarget.contains(target)) return;
+                // Not a click in a popover (see `ownsEvent`).
+                if (!ownsEvent(event)) return;
                 // A click on a block selects it, and focuses it for its keys:
                 // the day becomes active, but its header doesn't take focus.
-                if (target.closest("[data-block]")) dispatch({ type: "select", day });
+                if (isOnBlock(event.target as Element)) dispatch({ type: "select", day });
                 else select(day);
               }}
             />
@@ -1031,7 +1029,7 @@ function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
       title={title}
       tabIndex={-1}
       // Which block it is, so the split key can tell the pointer is on the selected one.
-      data-block={block.interval.id}
+      {...{ [BLOCK_ATTR]: block.interval.id }}
       data-start={(i === 0 && startHere) || undefined}
       data-end={(i === last && endHere) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}

@@ -1,18 +1,17 @@
 import { useTimeZone } from "@hooks/useTimeZone";
 import { queryKeys } from "@lib/queryKeys";
 import {
-  addDays,
   type Database,
   type LocalDate,
   listCategories,
   listIntervalsInRange,
   listTimelines,
-  startOfDay,
   type Timeline,
   type TimelineCategory,
   type TimelineInterval,
 } from "@spoor/core";
 import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
+import { daysWindow } from "./dragRange";
 
 interface GridMeta {
   /** The timelines shown, one sub-column each: the unarchived ones, by name. */
@@ -63,12 +62,11 @@ export function useGridData(db: Database, days: readonly LocalDate[]): GridData 
   const intervals = useQuery({
     queryKey: queryKeys.timelines.intervals(timelineIds ?? [], first, last, zone),
     queryFn:
-      zone !== undefined && timelineIds && first !== undefined && last !== undefined
-        ? () =>
-            listIntervalsInRange(db, timelineIds, {
-              from: startOfDay(first, zone),
-              to: startOfDay(addDays(last, 1), zone),
-            })
+      zone !== undefined && timelineIds && days.length > 0
+        ? () => {
+            const { startAt: from, endAt: to } = daysWindow(days, zone);
+            return listIntervalsInRange(db, timelineIds, { from, to });
+          }
         : skipToken,
     placeholderData: keepPreviousData,
   });

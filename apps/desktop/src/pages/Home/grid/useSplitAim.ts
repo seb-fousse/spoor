@@ -2,7 +2,7 @@ import type { Instant, LocalDate, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useRef, useState } from "react";
 import { splitPoint } from "./blockEdit";
 import type { BlockSegment, GridBlock } from "./gridLayout";
-import { DAY_ATTR, instantIn } from "./gridPointer";
+import { DAY_ATTR, instantIn, menuAnchor } from "./gridPointer";
 
 /** A block's split menu: aimed while the right button is held, open once it is released. */
 export interface SplitAim {
@@ -45,14 +45,12 @@ export function useSplitAim(timeZone: string, now: Instant) {
 
   /** Where the pointer is on the pressed piece, and the cut there. */
   const place = (event: PointerEvent<HTMLElement>, block: GridBlock, column: HTMLElement) => {
-    const rect = column.getBoundingClientRect();
-    const fraction = (event.clientY - rect.top) / rect.height;
-    const top = Math.min(block.top + block.height, Math.max(block.top, fraction));
+    const { top, left } = menuAnchor(column, event);
     const snapped = instantIn(column, event.clientY, block.day, timeZone);
     const at = Math.min(block.end, Math.max(block.start, snapped));
     return {
-      top,
-      left: Math.min(rect.width, Math.max(0, event.clientX - rect.left)),
+      top: Math.min(block.top + block.height, Math.max(block.top, top)),
+      left,
       at: splitPoint(block.interval, at, now),
     };
   };

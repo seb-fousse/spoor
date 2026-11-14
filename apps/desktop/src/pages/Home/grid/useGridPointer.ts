@@ -1,13 +1,13 @@
 import type { Instant, LocalDate } from "@spoor/core";
 import { useEffect, useRef } from "react";
-import { DAY_ATTR, DRAG_ROOT, instantIn, TIMELINE_ATTR } from "./gridPointer";
+import { BLOCK_ATTR, DAY_ATTR, DRAG_ROOT, instantIn, TIMELINE_ATTR } from "./gridPointer";
 
 /** Where the pointer is on the grid: a sub-column, the 15-minute mark there, and the block under it. */
 export interface GridPoint {
   day: LocalDate;
   timelineId: string;
   at: Instant;
-  /** The block under the pointer (its `data-block`), or `null` over an empty stretch. */
+  /** The block under the pointer (its `BLOCK_ATTR`), or `null` over an empty stretch. */
   blockId: string | null;
 }
 
@@ -67,7 +67,7 @@ export function useGridPointer(timeZone: string) {
     const day = column?.getAttribute(DAY_ATTR) as LocalDate | null | undefined;
     const timelineId = column?.getAttribute(TIMELINE_ATTR);
     if (!column || !day || !timelineId) return null;
-    const blockId = hit.closest("[data-block]")?.getAttribute("data-block") || null;
+    const blockId = hit.closest(`[${BLOCK_ATTR}]`)?.getAttribute(BLOCK_ATTR) || null;
     return { day, timelineId, at: instantIn(column, p.y, day, timeZone), blockId };
   };
 

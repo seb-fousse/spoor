@@ -2,7 +2,7 @@ import { IS_MAC } from "@platform/os";
 import type { Instant, LocalDate, Timeline, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useState } from "react";
 import { type DrawnRange, daysWindow, dragRange, freeSpan } from "./dragRange";
-import { DAY_ATTR, instantIn, pointerAt, TIMELINE_ATTR } from "./gridPointer";
+import { DAY_ATTR, instantIn, isOnBlock, ownsEvent, pointerAt, TIMELINE_ATTR } from "./gridPointer";
 
 /** A block being drawn, or drawn and waiting for its category. It may span several days. */
 export interface Draft {
@@ -38,7 +38,7 @@ export type SubColumnHandlers = ReturnType<ReturnType<typeof useDragToCreate>["h
  * `handlers(day, timelineId)` is spread on each sub-column, inside a day
  * column marked with `DAY_COLUMN`, inside an element marked with `DRAG_ROOT`
  * (see `gridPointer`).
- * A press on an existing block (anything matching `[data-block]`) is left
+ * A press on an existing block (anything marked with `BLOCK_ATTR`) is left
  * alone. `cancel` drops a released draft.
  */
 export function useDragToCreate(
@@ -54,9 +54,8 @@ export function useDragToCreate(
     [TIMELINE_ATTR]: timelineId,
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (event.pointerType === "touch" || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
-      const target = event.target as HTMLElement;
-      // React passes events up from portals too, such as the category popover's.
-      if (!event.currentTarget.contains(target) || target.closest("[data-block]")) return;
+      // Not a press in the category popover (see `ownsEvent`), nor on a block.
+      if (!ownsEvent(event) || isOnBlock(event.target as Element)) return;
       const timeline = timelines.find((t) => t.id === timelineId);
       const anchor = instantIn(event.currentTarget, event.clientY, day, timeZone);
       const span = timeline && freeSpan(anchor, intervals, timeline, daysWindow(days, timeZone));

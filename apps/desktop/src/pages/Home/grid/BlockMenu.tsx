@@ -1,14 +1,16 @@
-import { describeShortcut, type ShortcutId } from "@keyboard";
+import { describeShortcut, type ShortcutId, shortcutLabel } from "@keyboard";
 import { Kbd, Menu } from "@mantine/core";
 import type { CSSProperties, ReactNode } from "react";
 import classes from "./TimelineGrid.module.css";
 
-/** The keys that do what a menu item does, shown by the item and given to `aria-keyshortcuts`. */
-function keysOf(...ids: ShortcutId[]) {
-  const [first] = ids;
+/**
+ * The keys that do what a menu item does: the first shown by the item, and
+ * all of them given to `aria-keyshortcuts`.
+ */
+function keysOf(first: ShortcutId, ...more: ShortcutId[]) {
   return {
-    label: first ? describeShortcut(first).keys.join("+") : "",
-    aria: ids.map((id) => describeShortcut(id).ariaKeys).join(" "),
+    label: shortcutLabel(first),
+    aria: [first, ...more].map((id) => describeShortcut(id).ariaKeys).join(" "),
   };
 }
 
