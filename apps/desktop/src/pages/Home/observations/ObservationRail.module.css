@@ -1,66 +1,8 @@
-/* The observations half of the rail: a fixed header, then the cards scrolling below it. */
-.rail {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-/*
- * The panel's header, in the header bars' blueprint style (see Home.module.css):
- * a hairline divider, mono labels, the title on the left and the count on the right.
- */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-sm);
-  flex-shrink: 0;
-  height: 44px;
-  padding: 0 var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface-raised);
-  color: var(--app-text);
-  font-family: var(--app-font-mono);
-  white-space: nowrap;
-}
-
-.title {
-  margin: 0;
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.count {
-  font-size: var(--mantine-font-size-xs);
-  color: var(--app-text-muted);
-}
-
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  flex: 1;
-  min-height: 0;
-  padding: var(--mantine-spacing-md);
-  overflow-y: auto;
-}
-
+/* The observations half of the rail. Its header and body are RailPanel's. */
 .cards {
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-xs);
-
-  /*
-   * The previous day's cards, while the active day's load. Faded only if the
-   * load takes a while: a fast load clears the attribute before the delay ends,
-   * so stepping through days doesn't blink.
-   */
-  &:where([data-stale]) {
-    opacity: 0.5;
-    transition: opacity 150ms ease 250ms;
-  }
 }
 
 /* One metric: its name, then its control. */

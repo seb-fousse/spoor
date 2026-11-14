@@ -1,4 +1,4 @@
-import { Alert, Chip, Group, Loader, NumberInput, SegmentedControl, Text } from "@mantine/core";
+import { Chip, Group, NumberInput, SegmentedControl, Text } from "@mantine/core";
 import {
   type Database,
   type LocalDate,
@@ -7,6 +7,7 @@ import {
   type Value,
 } from "@spoor/core";
 import { type ReactNode, useEffect, useState } from "react";
+import { RailPanel } from "../rail/RailPanel";
 import classes from "./ObservationRail.module.css";
 import {
   atMaximum,
@@ -34,48 +35,43 @@ export function ObservationRail({ db, day }: ObservationRailProps) {
   const { recorded, total } = countRecorded(data.items);
   // The previous day's cards stay until the new ones load, shown but not usable.
   // Most loads finish within a frame, so the stale styling only shows after a
-  // delay (see the CSS), and nothing else changes until the new day arrives.
+  // delay (see RailPanel's CSS), and nothing else changes until the new day arrives.
   const { stale } = data;
 
-  return (
-    <section className={classes.rail} aria-labelledby="observations-title">
-      <header className={classes.header}>
-        <h2 id="observations-title" className={classes.title}>
-          Observations
-        </h2>
-        {data.day !== null && data.items.length > 0 && (
-          <span className={classes.count} aria-live="polite">
-            {recorded}/{total} recorded
-          </span>
-        )}
-      </header>
+  const loaded = data.day !== null;
 
-      <div className={classes.body}>
-        {data.error !== null && (
-          <Alert color="red" title="Could not save or load observations">
-            {data.error}
-          </Alert>
-        )}
-        {data.loading && <Loader size="sm" />}
-        {data.day !== null && data.items.length === 0 && (
+  return (
+    <RailPanel
+      title="Observations"
+      count={loaded && data.items.length > 0 ? `${recorded}/${total} recorded` : undefined}
+      error={
+        data.error === null
+          ? null
+          : { title: "Could not save or load observations", message: data.error }
+      }
+      loading={data.loading}
+      empty={
+        loaded &&
+        data.items.length === 0 && (
           <Text c="dimmed">
             No metrics yet. Add one on the Observations page to record it here.
           </Text>
-        )}
-        <div className={classes.cards} inert={stale} data-stale={stale || undefined}>
-          {data.items.map((item) => (
-            <ObservationCard
-              // Per metric, not per day: the cards stay mounted across days, so
-              // their controls update in place instead of being rebuilt.
-              key={item.metric.id}
-              day={data.day}
-              item={item}
-              onRecord={(value) => data.record(item.metric.id, value)}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
+        )
+      }
+      stale={stale}
+      listClassName={classes.cards}
+    >
+      {data.items.map((item) => (
+        <ObservationCard
+          // Per metric, not per day: the cards stay mounted across days, so
+          // their controls update in place instead of being rebuilt.
+          key={item.metric.id}
+          day={data.day}
+          item={item}
+          onRecord={(value) => data.record(item.metric.id, value)}
+        />
+      ))}
+    </RailPanel>
   );
 }
 

@@ -1,49 +1,4 @@
-/* The logs half of the rail, in the same style as the observations half above it. */
-.rail {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  flex-shrink: 0;
-  height: 44px;
-  padding: 0 var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface-raised);
-  color: var(--app-text);
-  font-family: var(--app-font-mono);
-  white-space: nowrap;
-}
-
-.title {
-  margin: 0;
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* Pushes the New button to the right edge. */
-.count {
-  flex: 1;
-  font-size: var(--mantine-font-size-xs);
-  color: var(--app-text-muted);
-}
-
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  flex: 1;
-  min-height: 0;
-  padding: var(--mantine-spacing-md);
-  overflow-y: auto;
-}
-
+/* The logs half of the rail. Its header and body are RailPanel's. */
 .empty {
   display: flex;
   flex-direction: column;
@@ -55,12 +10,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-md);
-
-  /* The previous day's logs, faded only if the load is slow (see ObservationRail). */
-  &:where([data-stale]) {
-    opacity: 0.5;
-    transition: opacity 150ms ease 250ms;
-  }
 }
 
 .group {
