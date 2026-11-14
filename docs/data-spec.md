@@ -188,6 +188,11 @@ and a non-exclusive one at most one per category.
 An interval selects exactly one category and has no other payload. A category
 change closes the current interval and starts another.
 
+Splitting an interval at an instant strictly inside it ends it there and starts
+a new interval in the same category and zone, running to where the original
+ended (ongoing if it was). The two cover the same time, so a split never
+creates an overlap.
+
 Core enforces the overlap rule, checking and writing in one transaction. There
 is no database trigger, because a future sync merge must apply a conflict
 policy rather than fail. A partial unique index on `category_id` where

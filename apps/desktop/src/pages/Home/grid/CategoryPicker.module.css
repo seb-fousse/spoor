@@ -16,6 +16,10 @@
   &:disabled {
     opacity: 0.6;
   }
+
+  &[data-danger] {
+    color: var(--mantine-color-red-text);
+  }
 }
 
 .swatch {
@@ -36,4 +40,9 @@
   font-family: var(--app-font-mono);
   font-size: 10px;
   color: var(--app-text-muted);
+}
+
+/* The block's current category. */
+.current {
+  color: var(--app-accent);
 }

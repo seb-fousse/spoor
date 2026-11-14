@@ -1,3 +1,4 @@
+import { useConfirmDelete } from "@components/ConfirmDelete";
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
@@ -6,7 +7,10 @@ import {
   type Database,
   type DayObservationCount,
   dayOf,
+  dayRange,
+  type Instant,
   type LocalDate,
+  startOfDay,
   type Timeline,
   type TimelineCategory,
   type TimelineInterval,
@@ -14,30 +18,45 @@ import {
 import {
   type CSSProperties,
   type Dispatch,
+  Fragment,
+  type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
+import { BlockMenu } from "./BlockMenu";
+import { conflictingCategories } from "./blockEdit";
 import { CategoryPicker } from "./CategoryPicker";
 import { completeness, completenessLabel } from "./completeness";
-import { rangePieces } from "./dragRange";
+import { type DrawnRange, rangePieces } from "./dragRange";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
+  type BlockSegment,
   categoryColor,
   describeBlock,
   type GridBlock,
   layoutGrid,
   nowFraction,
 } from "./gridLayout";
+import { DAY_COLUMN, DRAG_ROOT } from "./gridPointer";
 import classes from "./TimelineGrid.module.css";
-import { useCreateInterval } from "./useCreateInterval";
-import { DAY_COLUMN, DRAG_ROOT, type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
+import { type BlockEdit, EDGE_ATTR, type SegmentHandlers, useBlockDrag } from "./useBlockDrag";
+import { type SubColumnHandlers, useDragToCreate } from "./useDragToCreate";
 import type { GridData } from "./useGridData";
+import {
+  useCreateInterval,
+  useDeleteInterval,
+  useSplitInterval,
+  useUpdateInterval,
+} from "./useIntervalWrites";
 import { useObservationCounts } from "./useObservationCounts";
+import { useSplitAim } from "./useSplitAim";
 
 /** Height of one hour, in pixels. */
 const HOUR_HEIGHT = 48;
@@ -66,9 +85,12 @@ interface TimelineGridProps {
  * there is one hour axis down the left. The two-tier header (days, then
  * timeline names) stays at the top while the hours scroll. Dragging in an
  * empty stretch of a sub-column draws a new block, possibly across days, which
- * asks for its category on release; existing blocks are read-only. Clicking a
- * day's header or column makes it the active day. Each day's header has a
- * badge with how many of its observations are recorded.
+ * asks for its category on release. Dragging a block moves it, possibly to
+ * another day, skipping over blocks in the way, and dragging its top or
+ * bottom edge resizes it; clicking it opens a popover to change its category
+ * or delete it. Neither drag ever overlaps another block that conflicts.
+ * Clicking a day's header or column makes it the active day. Each day's
+ * header has a badge with how many of its observations are recorded.
  */
 export function TimelineGrid({
   db,
@@ -209,61 +231,223 @@ function Grid({
     create.reset();
   };
 
-  // The drawn block, one piece per day it covers. The piece under the pointer
-  // carries the category popover once released.
-  const ghosts = new Map<LocalDate, ReactNode>();
+  // Failed moves, resizes and deletes show above the grid; failed picks show in the popover.
+  const [error, setError] = useState<string | null>(null);
+  const run = (action: () => Promise<unknown>) => {
+    setError(null);
+    action().catch((e: Error) => setError(e.message));
+  };
+  const [confirmDelete, deleteDialog] = useConfirmDelete(run);
+
+  const move = useUpdateInterval(db);
+  const recategorize = useUpdateInterval(db);
+  const remove = useDeleteInterval(db);
+  const split = useSplitInterval(db);
+  // The split a right-button press on a block aims, and the menu its release opens.
+  const splitAim = useSplitAim(timeZone, now);
+  const menu = splitAim.aim;
+  const blockDrag = useBlockDrag(timeZone, days, timelines, intervals, now, (interval, range) => {
+    setError(null);
+    move.mutate(
+      { id: interval.id, timelineId: interval.timelineId, ...range },
+      { onError: (e) => setError(e.message), onSettled: () => blockDrag.settle() },
+    );
+  });
+  const closeEdit = () => {
+    blockDrag.cancel();
+    recategorize.reset();
+  };
+
+  /** The timeline's unarchived categories, by name, to pick from. */
+  const choicesFor = (timelineId: string) =>
+    [...categories.values()]
+      .filter((c) => c.timelineId === timelineId && c.archivedAt === null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+  // What each day's sub-columns draw over their blocks: the block being drawn
+  // or edited, one piece per day it covers, and the popover's anchor.
+  const extras = new Map<LocalDate, Extra[]>();
+  const addExtra = (day: LocalDate, extra: Extra) =>
+    extras.set(day, [...(extras.get(day) ?? []), extra]);
+
+  // The block being drawn. The piece under the pointer carries the category
+  // popover once released.
   const draft = drag.draft;
-  const timeline = draft && timelines.find((t) => t.id === draft.timelineId);
-  if (draft && timeline) {
-    const { startAt, endAt } = draft.range;
-    const pieces = rangePieces(draft.range, days, timeZone);
+  if (draft && timelines.some((t) => t.id === draft.timelineId)) {
+    const pieces = ghostPieces(draft.range, days, timeZone);
     const popoverDay = pieces.some((p) => p.day === draft.pointerDay)
       ? draft.pointerDay
       : pieces.at(-1)?.day;
-    const time = (at: number) => formatClockTime(at, timeZone);
-    const label =
-      pieces.length > 1
-        ? `${formatShortDay(dayOf(startAt, timeZone))} ${time(startAt)} – ${formatShortDay(dayOf(endAt, timeZone))} ${time(endAt)}`
-        : `${time(startAt)}–${time(endAt)}`;
-    const choices = [...categories.values()]
-      .filter((c) => c.timelineId === timeline.id && c.archivedAt === null)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const [i, { day, top, height }] of pieces.entries()) {
-      const piece = (
-        <div
-          className={classes.ghost}
-          style={{ "--top": top, "--height": height } as CSSProperties}
-          data-continues-before={i > 0 || undefined}
-          data-continues-after={i < pieces.length - 1 || undefined}
-        >
-          {i === 0 && label}
-        </div>
-      );
-      ghosts.set(
-        day,
-        day !== popoverDay ? (
-          piece
-        ) : (
-          <CategoryPicker
-            opened={draft.phase === "choosing"}
-            categories={choices}
-            error={create.error?.message ?? null}
-            saving={create.isPending}
-            onCancel={cancel}
-            onPick={(choice) =>
-              create.mutate(
-                { ...draft.range, ...choice, timelineId: timeline.id },
-                { onSuccess: cancel },
-              )
-            }
-          >
-            {piece}
-          </CategoryPicker>
-        ),
-      );
+    for (const { day, node } of pieces) {
+      addExtra(day, {
+        key: "draft",
+        timelineId: draft.timelineId,
+        node:
+          day !== popoverDay ? (
+            node
+          ) : (
+            <CategoryPicker
+              opened={draft.phase === "choosing"}
+              categories={choicesFor(draft.timelineId)}
+              error={create.error?.message ?? null}
+              saving={create.isPending}
+              onCancel={cancel}
+              onPick={(choice) =>
+                create.mutate(
+                  { ...draft.range, ...choice, timelineId: draft.timelineId },
+                  { onSuccess: cancel },
+                )
+              }
+            >
+              {node}
+            </CategoryPicker>
+          ),
+      });
     }
   }
+
+  // The block being edited: where it is going, in its category's colours,
+  // while it is dragged and saved; its popover once clicked.
+  const edit = blockDrag.edit;
+  if (edit?.range) {
+    const { startAt, endAt } = edit.range;
+    const shown = { startAt, endAt: endAt ?? Math.max(now, startAt) };
+    const colors = blockColors(edit.interval.categoryId);
+    for (const { day, node } of ghostPieces(shown, days, timeZone, colors, endAt === null)) {
+      addExtra(day, { key: "edit", timelineId: edit.interval.timelineId, node });
+    }
+  }
+  if (menu) {
+    const { interval, day, segment, at } = menu;
+    const [dayStart, dayEnd] = dayRange(day, timeZone);
+    if (at !== null) {
+      // Where the cut goes, across the block.
+      const style = { ...blockColors(interval.categoryId), ...segmentStyle(segment) };
+      addExtra(day, {
+        key: "cut",
+        timelineId: interval.timelineId,
+        node: (
+          <div
+            className={classes.cutLine}
+            style={{ ...style, "--top": (at - dayStart) / (dayEnd - dayStart) } as CSSProperties}
+          />
+        ),
+      });
+    }
+    if (menu.phase === "open") {
+      addExtra(day, {
+        key: "menu",
+        timelineId: interval.timelineId,
+        node: (
+          <BlockMenu
+            top={menu.top}
+            left={menu.left}
+            splitLabel={at === null ? null : `Split at ${formatClockTime(at, timeZone)}`}
+            onClose={() => splitAim.close()}
+            onSplit={() => {
+              if (at === null) return;
+              splitAim.close();
+              run(() => split.mutateAsync({ id: interval.id, at }));
+            }}
+          />
+        ),
+      });
+    }
+  }
+
+  if (edit?.phase === "editing") {
+    const { interval, segment } = edit;
+    const timeline = timelines.find((t) => t.id === interval.timelineId);
+    const choices = choicesFor(interval.timelineId);
+    const name = categories.get(interval.categoryId)?.name ?? "Unknown category";
+    addExtra(edit.day, {
+      key: "popover",
+      timelineId: interval.timelineId,
+      node: (
+        <CategoryPicker
+          opened
+          categories={choices}
+          currentId={interval.categoryId}
+          disabledIds={
+            timeline &&
+            conflictingCategories(
+              interval,
+              intervals,
+              timeline,
+              choices.map((c) => c.id),
+            )
+          }
+          error={recategorize.error?.message ?? null}
+          saving={recategorize.isPending}
+          onCancel={closeEdit}
+          onPick={(choice) =>
+            recategorize.mutate(
+              { id: interval.id, timelineId: interval.timelineId, ...choice },
+              { onSuccess: closeEdit },
+            )
+          }
+          onDelete={() => {
+            closeEdit();
+            confirmDelete(`the ${name} block, ${rangeLabel(interval, timeZone)}`, () =>
+              remove.mutateAsync(interval.id),
+            );
+          }}
+        >
+          <div className={classes.anchor} style={segmentStyle(segment)} />
+        </CategoryPicker>
+      ),
+    });
+  }
+
+  // A press on a block, and a press in an empty stretch, each closes the
+  // other's popover, and the block menu. Mantine can't see these presses: the
+  // drags cancel them.
+  const blockHandlers = (block: GridBlock, segment: BlockSegment): BlockHandlers => {
+    const handlers = blockDrag.handlers(block, segment);
+    const aim = splitAim.handlers(block, segment);
+    return {
+      // A right-button press aims a split (see `useSplitAim`); the left
+      // button drags the block.
+      onPointerDown: (event: PointerEvent<HTMLElement>) => {
+        cancel();
+        if (blockDrag.edit?.phase !== "saving" && aim.onPointerDown(event)) {
+          closeEdit();
+          return;
+        }
+        splitAim.close();
+        handlers.onPointerDown(event);
+      },
+      onPointerMove: (event: PointerEvent<HTMLElement>) => {
+        if (!aim.onPointerMove(event)) handlers.onPointerMove(event);
+      },
+      onPointerUp: () => {
+        if (!aim.onPointerUp()) handlers.onPointerUp();
+      },
+      onPointerCancel: () => {
+        if (!aim.onPointerCancel()) handlers.onPointerCancel();
+      },
+      // The webview's own menu would hide the block's.
+      onContextMenu: (event: MouseEvent<HTMLElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+    };
+  };
+  const subColumnHandlers = (day: LocalDate, timelineId: string) => {
+    const handlers = drag.handlers(day, timelineId);
+    return {
+      ...handlers,
+      onPointerDown: (event: PointerEvent<HTMLElement>) => {
+        // React passes events up from portals too, such as the popover's.
+        const target = event.target as HTMLElement;
+        if (event.currentTarget.contains(target)) {
+          closeEdit();
+          if (!target.closest("[data-block]")) splitAim.close();
+        }
+        handlers.onPointerDown(event);
+      },
+    };
+  };
 
   const style = {
     "--days": days.length,
@@ -273,6 +457,20 @@ function Grid({
 
   return (
     <div className={classes.grid} style={style}>
+      {deleteDialog}
+      {error && (
+        <Alert
+          color="red"
+          m="xs"
+          py={6}
+          withCloseButton
+          closeButtonLabel="Dismiss"
+          onClose={() => setError(null)}
+        >
+          {error}
+        </Alert>
+      )}
+
       {/* Outside the scroller, so only the hours scroll. */}
       <div ref={headerRef} className={classes.header}>
         <div className={classes.corner} />
@@ -321,12 +519,10 @@ function Grid({
             <DayColumn
               key={day}
               blocks={layout.get(day)}
-              ghost={
-                draft && ghosts.has(day)
-                  ? { timelineId: draft.timelineId, node: ghosts.get(day) }
-                  : null
-              }
-              handlers={(timelineId) => drag.handlers(day, timelineId)}
+              extras={extras.get(day) ?? []}
+              handlers={(timelineId) => subColumnHandlers(day, timelineId)}
+              blockHandlers={blockHandlers}
+              edit={edit}
               timelines={timelines}
               categories={categories}
               timeZone={timeZone}
@@ -338,6 +534,83 @@ function Grid({
       </div>
     </div>
   );
+}
+
+/** What a block segment spreads: the drag handlers, and a right click for its menu. */
+type BlockHandlers = SegmentHandlers & {
+  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+};
+
+/** Something drawn in one of a day's sub-columns, over its blocks. */
+interface Extra {
+  key: string;
+  timelineId: string;
+  node: ReactNode;
+}
+
+/** A category's colours, as the custom properties blocks and edit ghosts are drawn with. */
+function blockColors(categoryId: string) {
+  const color = categoryColor(categoryId);
+  return {
+    // Mantine's variant colours, which follow the light/dark scheme.
+    "--block-bg": `var(--mantine-color-${color}-light)`,
+    "--block-fg": `var(--mantine-color-${color}-light-color)`,
+    "--block-accent": `var(--mantine-color-${color}-filled)`,
+  };
+}
+
+/** Where a block segment goes in its sub-column. */
+function segmentStyle(segment: BlockSegment) {
+  return {
+    "--top": segment.top,
+    "--height": segment.height,
+    "--lane": segment.lane,
+    "--lanes": segment.lanes,
+  } as CSSProperties;
+}
+
+/** A range's time, such as "9:00–10:30", with the days when it crosses midnight. */
+function rangeLabel(range: { startAt: Instant; endAt: Instant | null }, timeZone: string) {
+  const { startAt, endAt } = range;
+  const time = (at: Instant) => formatClockTime(at, timeZone);
+  if (endAt === null) return `since ${time(startAt)}`;
+  const startDay = dayOf(startAt, timeZone);
+  const endDay = dayOf(endAt, timeZone);
+  // A range that ends at midnight is still on one day.
+  if (startDay === endDay || endAt === startOfDay(endDay, timeZone)) {
+    return `${time(startAt)}–${time(endAt)}`;
+  }
+  return `${formatShortDay(startDay)} ${time(startAt)} – ${formatShortDay(endDay)} ${time(endAt)}`;
+}
+
+/**
+ * A block being drawn, or where an edited block is going: dashed, one piece
+ * per day it covers, with its time in the first. An edited block's ghost is
+ * in its category's `colors`, and open at the bottom when it is still `ongoing`.
+ */
+function ghostPieces(
+  range: DrawnRange,
+  days: readonly LocalDate[],
+  timeZone: string,
+  colors?: Record<string, string>,
+  ongoing = false,
+): { day: LocalDate; node: ReactNode }[] {
+  const pieces = rangePieces(range, days, timeZone);
+  const label = rangeLabel(ongoing ? { ...range, endAt: null } : range, timeZone);
+  return pieces.map(({ day, top, height }, i) => ({
+    day,
+    node: (
+      <div
+        className={classes.ghost}
+        style={{ ...colors, "--top": top, "--height": height } as CSSProperties}
+        data-edit={colors ? true : undefined}
+        data-continues-before={i > 0 || undefined}
+        data-continues-after={i < pieces.length - 1 || ongoing || undefined}
+      >
+        {i === 0 && label}
+      </div>
+    ),
+  }));
 }
 
 /**
@@ -360,10 +633,14 @@ function DayBadge({ count }: { count: DayObservationCount | undefined }) {
 
 interface DayColumnProps {
   blocks: Map<string, GridBlock[]> | undefined;
-  /** The day's piece of the block being drawn, if any, and its timeline. */
-  ghost: { timelineId: string; node: ReactNode } | null;
+  /** What the day's sub-columns draw over their blocks, such as the block being drawn. */
+  extras: readonly Extra[];
   /** The drawing handlers for one of the day's sub-columns. */
   handlers: (timelineId: string) => SubColumnHandlers;
+  /** The editing handlers for one of a block's segments. */
+  blockHandlers: (block: GridBlock, segment: BlockSegment) => BlockHandlers;
+  /** The block being dragged, saved or edited, if any. */
+  edit: BlockEdit | null;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   timeZone: string;
@@ -375,8 +652,10 @@ interface DayColumnProps {
 
 function DayColumn({
   blocks,
-  ghost,
+  extras,
   handlers,
+  blockHandlers,
+  edit,
   timelines,
   categories,
   timeZone,
@@ -396,9 +675,15 @@ function DayColumn({
               block={block}
               category={categories.get(block.interval.categoryId)}
               timeZone={timeZone}
+              handlers={blockHandlers}
+              edit={edit?.interval.id === block.interval.id ? edit : null}
             />
           ))}
-          {ghost?.timelineId === t.id && ghost.node}
+          {extras
+            .filter((e) => e.timelineId === t.id)
+            .map((e) => (
+              <Fragment key={e.key}>{e.node}</Fragment>
+            ))}
         </div>
       ))}
       {nowAt !== null && <div className={classes.nowLine} style={{ top: `${nowAt * 100}%` }} />}
@@ -410,25 +695,26 @@ interface BlockProps {
   block: GridBlock;
   category: TimelineCategory | undefined;
   timeZone: string;
+  handlers: (block: GridBlock, segment: BlockSegment) => BlockHandlers;
+  /** This block's edit, if it is the one being dragged, saved or edited. */
+  edit: BlockEdit | null;
 }
 
 /**
  * One interval's piece of the day, drawn as its segments: one rectangle per
  * stretch with the same width, which fit together with overlapping blocks. The
  * label sits in the first segment. The outer corners are rounded where the
- * interval really starts and ends.
+ * interval really starts and ends, and there its edges have handles to resize
+ * it (an ongoing interval has no end to drag). While the block is dragged
+ * somewhere else it is faded; while its popover is open it is outlined.
  */
-function Block({ block, category, timeZone }: BlockProps) {
-  const color = categoryColor(block.interval.categoryId);
+function Block({ block, category, timeZone, handlers, edit }: BlockProps) {
   const name = category?.name ?? "Unknown category";
   const title = describeBlock(block, name, timeZone);
-  const colors = {
-    // Mantine's variant colours, which follow the light/dark scheme.
-    "--block-bg": `var(--mantine-color-${color}-light)`,
-    "--block-fg": `var(--mantine-color-${color}-light-color)`,
-    "--block-accent": `var(--mantine-color-${color}-filled)`,
-  };
+  const colors = blockColors(block.interval.categoryId);
   const last = block.segments.length - 1;
+  const startHere = !block.startsBefore;
+  const endHere = !block.endsAfter && !block.ongoing;
 
   return block.segments.map((segment, i) => (
     <div
@@ -436,22 +722,23 @@ function Block({ block, category, timeZone }: BlockProps) {
       // biome-ignore lint/suspicious/noArrayIndexKey: see above.
       key={i}
       className={classes.block}
-      style={
-        {
-          ...colors,
-          "--top": segment.top,
-          "--height": segment.height,
-          "--lane": segment.lane,
-          "--lanes": segment.lanes,
-        } as CSSProperties
-      }
+      style={{ ...colors, ...segmentStyle(segment) }}
       title={title}
       data-block
-      data-round-top={(i === 0 && !block.startsBefore) || undefined}
-      data-round-bottom={(i === last && !block.endsAfter && !block.ongoing) || undefined}
+      data-round-top={(i === 0 && startHere) || undefined}
+      data-round-bottom={(i === last && endHere) || undefined}
       data-ongoing={(i === last && block.ongoing) || undefined}
+      data-moving={(edit?.range && edit.phase !== "editing") || undefined}
+      data-selected={edit?.phase === "editing" || undefined}
+      {...handlers(block, segment)}
     >
+      {i === 0 && startHere && (
+        <div className={classes.handle} data-side="top" {...{ [EDGE_ATTR]: "start" }} />
+      )}
       {i === 0 && <span className={classes.blockLabel}>{name}</span>}
+      {i === last && endHere && (
+        <div className={classes.handle} data-side="bottom" {...{ [EDGE_ATTR]: "end" }} />
+      )}
     </div>
   ));
 }

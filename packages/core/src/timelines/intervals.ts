@@ -201,6 +201,49 @@ export async function stopInterval(
   return (await getInterval(db, id)) as TimelineInterval;
 }
 
+/**
+ * Cuts the interval in two at `at`, which must fall strictly inside it: the
+ * interval keeps its id and now ends at `at`, and a new one in the same
+ * category and zone runs from `at` to where it ended (ongoing if it was).
+ * Returns both, earlier first. Together they cover the same time, so the
+ * split never overlaps anything.
+ */
+export async function splitInterval(
+  db: Database,
+  id: string,
+  at: Instant,
+): Promise<[TimelineInterval, TimelineInterval]> {
+  const laterId = newId();
+  await transaction(db, async () => {
+    const interval = await requireInterval(db, id);
+    if (
+      !isInstant(at) ||
+      at <= interval.startAt ||
+      (interval.endAt !== null && at >= interval.endAt)
+    ) {
+      throw new Error(`Timeline interval ${id}: cannot split at ${at}, which is not inside it`);
+    }
+    const timeline = await requireTimeline(db, interval.timelineId);
+    // Shortened first, so the later piece doesn't overlap it.
+    await queryBuilder(db)
+      .updateTable("timeline_intervals")
+      .set({ end_at: at, updated_at: now() })
+      .where("id", "=", id)
+      .execute();
+    await insertInterval(db, timeline, {
+      id: laterId,
+      categoryId: interval.categoryId,
+      startAt: at,
+      endAt: interval.endAt,
+      timeZone: interval.timeZone,
+    });
+  });
+  return [
+    (await getInterval(db, id)) as TimelineInterval,
+    (await getInterval(db, laterId)) as TimelineInterval,
+  ];
+}
+
 /** Deletes the interval. */
 export async function deleteInterval(db: Database, id: string): Promise<void> {
   await transaction(db, async () => {
