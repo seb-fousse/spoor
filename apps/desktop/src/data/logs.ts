@@ -3,6 +3,7 @@ import {
   addLogField,
   createLogEntry,
   createLogType,
+  type Database,
   deleteLogEntry,
   deleteLogField,
   deleteLogType,
@@ -21,48 +22,77 @@ import {
   setLogTypeArchived,
   updateLogField,
 } from "@spoor/core";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "./queryKeys";
+import type { ReadOptions } from "./readResult";
 import { useDbWrite } from "./useDbWrite";
 
-/** Every log type by name, archived included: the same list Home's new-log modal offers. */
-export function useLogTypes() {
-  const db = useDatabase();
-  return useQuery({ queryKey: queryKeys.logTypes.list, queryFn: () => listLogTypes(db) });
-}
-
-// One empty list for every caller: a new [] each render would re-run effects that depend on it.
-const NO_FIELDS: LogField[] = [];
+/**
+ * The log reads. Each keeps its key with its query, so `.queryKey` types the
+ * cache by its data.
+ */
+export const logQueries = {
+  /** Every log type by name, archived included. */
+  types: (db: Database) =>
+    queryOptions({ queryKey: queryKeys.logTypes.list, queryFn: () => listLogTypes(db) }),
+  /** A log type's fields, by position. */
+  fields: (db: Database, typeId: string) =>
+    queryOptions({
+      queryKey: queryKeys.logTypes.fields(typeId),
+      queryFn: () => getLogTypeFields(db, typeId),
+    }),
+  /** A log type's entries, latest first. */
+  entries: (db: Database, logTypeId: string) =>
+    queryOptions({
+      queryKey: queryKeys.logs.type(logTypeId),
+      queryFn: () => listLogEntries(db, logTypeId),
+    }),
+  /** An entry's child entries, by position. */
+  children: (db: Database, parentEntryId: string) =>
+    queryOptions({
+      queryKey: queryKeys.logs.children(parentEntryId),
+      queryFn: () => listChildEntries(db, parentEntryId),
+    }),
+  /** A day's top-level entries by log type, with child entries nested. */
+  day: (db: Database, day: LocalDate) =>
+    queryOptions({ queryKey: queryKeys.logs.day(day), queryFn: () => listDayLogEntries(db, day) }),
+};
 
 /**
- * The fields of a log type, empty until they load. Cached per type, so every
- * row of one type shares one query; writes to log types invalidate them.
+ * Every log type by name, archived included: the same list Home's new-log
+ * modal offers. With `enabled: false` it waits, as the modal does until it
+ * first opens.
  */
-export function useFields(typeId: string): LogField[] {
+export function useLogTypes({ enabled = true }: ReadOptions = {}) {
   const db = useDatabase();
-  const { data } = useQuery({
-    queryKey: queryKeys.logTypes.fields(typeId),
-    queryFn: () => getLogTypeFields(db, typeId),
-  });
-  return data ?? NO_FIELDS;
+  return useQuery({ ...logQueries.types(db), enabled });
+}
+
+/**
+ * The one empty list of fields, for a caller to show until a type's fields
+ * load. A new [] each render would re-run effects and memos that depend on it.
+ */
+export const EMPTY_FIELDS: LogField[] = [];
+
+/**
+ * The fields of a log type. Cached per type, so every row of one type shares
+ * one query; writes to log types invalidate them.
+ */
+export function useFields(typeId: string) {
+  const db = useDatabase();
+  return useQuery(logQueries.fields(db, typeId));
 }
 
 /** A log type's entries, latest first. */
 export function useLogEntries(logTypeId: string) {
   const db = useDatabase();
-  return useQuery({
-    queryKey: queryKeys.logs.type(logTypeId),
-    queryFn: () => listLogEntries(db, logTypeId),
-  });
+  return useQuery(logQueries.entries(db, logTypeId));
 }
 
 /** An entry's child entries, by position. */
 export function useChildEntries(parentEntryId: string) {
   const db = useDatabase();
-  return useQuery({
-    queryKey: queryKeys.logs.children(parentEntryId),
-    queryFn: () => listChildEntries(db, parentEntryId),
-  });
+  return useQuery(logQueries.children(db, parentEntryId));
 }
 
 /**
@@ -72,11 +102,7 @@ export function useChildEntries(parentEntryId: string) {
  */
 export function useDayLogs(day: LocalDate) {
   const db = useDatabase();
-  return useQuery({
-    queryKey: queryKeys.logs.day(day),
-    queryFn: () => listDayLogEntries(db, day),
-    placeholderData: keepPreviousData,
-  });
+  return useQuery({ ...logQueries.day(db, day), placeholderData: keepPreviousData });
 }
 
 // Writes to log types and their fields. Each invalidates the types and their

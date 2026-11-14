@@ -12,4 +12,4 @@
 export { TimelineFilter } from "./filter/TimelineFilter";
 export type { HiddenTimelines } from "./filter/timelineVisibility";
 export { TimelineGrid } from "./TimelineGrid";
-export { type GridData, useGridData } from "./useGridData";
+export { type GridView, useGridData } from "./useGridData";

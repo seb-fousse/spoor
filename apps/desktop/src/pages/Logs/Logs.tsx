@@ -8,6 +8,7 @@ import {
 } from "@components/FieldList";
 import { describeValues, EntryForm, formatTime } from "@components/LogEntryForm";
 import {
+  EMPTY_FIELDS,
   useAddLogField,
   useChildEntries,
   useCreateLogEntry,
@@ -23,7 +24,7 @@ import {
   useSetLogTypeArchived,
   useUpdateLogField,
 } from "@data/logs";
-import { useRefTitles, useThingTypes } from "@data/things";
+import { EMPTY_THING_TYPES, EMPTY_TITLES, useRefTitles, useThingTypes } from "@data/things";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useDatabase } from "@platform/DatabaseProvider";
 import {
@@ -195,7 +196,7 @@ function FieldsEditor({
   rows: NewFieldDraft[];
   setRows: (rows: NewFieldDraft[]) => void;
 }) {
-  const thingTypes = useThingTypes();
+  const thingTypes = useThingTypes().data ?? EMPTY_THING_TYPES;
   return (
     <Stack gap={4}>
       {rows.map((row, i) => (
@@ -227,8 +228,8 @@ function FieldsEditor({
 
 function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; run: Run }) {
   const db = useDatabase();
-  const fields = useFields(type.id);
-  const thingTypes = useThingTypes();
+  const fields = useFields(type.id).data ?? EMPTY_FIELDS;
+  const thingTypes = useThingTypes().data ?? EMPTY_THING_TYPES;
   const entries = useLogEntries(type.id).data ?? [];
   const addField = useAddLogField(type.id);
   const updateField = useUpdateLogField();
@@ -308,8 +309,8 @@ function EntryItem({
   run: Run;
 }) {
   const db = useDatabase();
-  const fields = useFields(entry.logTypeId);
-  const titles = useRefTitles(fields, entry);
+  const fields = useFields(entry.logTypeId).data ?? EMPTY_FIELDS;
+  const titles = useRefTitles(fields, entry).data ?? EMPTY_TITLES;
   const children = useChildEntries(entry.id).data ?? [];
   const moveEntry = useMoveChildEntry();
   const deleteEntry = useDeleteLogEntry();
@@ -405,7 +406,7 @@ function ChildEntryForm({
   parentEntryId: string;
   run: Run;
 }) {
-  const fields = useFields(type.id);
+  const fields = useFields(type.id).data ?? EMPTY_FIELDS;
   const createEntry = useCreateLogEntry();
   return (
     <Group gap="xs" align="flex-end">

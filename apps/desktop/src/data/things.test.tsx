@@ -27,7 +27,7 @@ let titles: Map<string, string> | undefined;
 /** A log rail row showing a thing's title, beside the Things page writing. */
 function Screen() {
   write = useThingWrite();
-  titles = useRefTitles([refField], entry);
+  titles = useRefTitles([refField], entry).data;
   return null;
 }
 

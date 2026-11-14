@@ -1,4 +1,4 @@
-import { useDayObservations } from "@data/observations";
+import { useDayObservations, useRecordObservation } from "@data/observations";
 import { Chip, Group, NumberInput, SegmentedControl, Text } from "@mantine/core";
 import { type LocalDate, type MetricDay, optionLabel, type Value } from "@spoor/core";
 import { type ReactNode, useEffect, useState } from "react";
@@ -25,44 +25,50 @@ interface ObservationRailProps {
  * leaving the field) records the value; recording again revises it.
  */
 export function ObservationRail({ day }: ObservationRailProps) {
-  const data = useDayObservations(day);
-  const { recorded, total } = countRecorded(data.items);
-  // The previous day's cards stay until the new ones load, shown but not usable.
-  // Most loads finish within a frame, so the stale styling only shows after a
-  // delay (see RailPanel's CSS), and nothing else changes until the new day arrives.
-  const { stale } = data;
+  // The previous day's cards stay until the new ones load (`shown.day` is then
+  // the previous day), shown but not usable. Most loads finish within a frame,
+  // so the stale styling only shows after a delay (see RailPanel's CSS), and
+  // nothing else changes until the new day arrives.
+  const observations = useDayObservations(day);
+  const shown = observations.data;
+  const items = shown?.items ?? [];
+  const { recorded, total } = countRecorded(items);
 
-  const loaded = data.day !== null;
+  const record = useRecordObservation();
+  // A failed save, until the next one. It shows only on the day it was for, so
+  // it doesn't follow the user around, and there ahead of a failed load.
+  const saveError = record.variables?.date === day ? record.error : null;
 
   return (
     <RailPanel
       title="Observations"
-      count={loaded && data.items.length > 0 ? `${recorded}/${total} recorded` : undefined}
-      error={
-        data.error === null
-          ? null
-          : { title: "Could not save or load observations", message: data.error }
-      }
-      loading={data.loading}
+      count={shown !== undefined && items.length > 0 ? `${recorded}/${total} recorded` : undefined}
+      read={{
+        status: observations.status,
+        error: saveError ?? observations.error,
+        isPlaceholderData: observations.isPlaceholderData,
+      }}
+      errorTitle="Could not save or load observations"
       empty={
-        loaded &&
-        data.items.length === 0 && (
+        shown !== undefined &&
+        items.length === 0 && (
           <Text c="dimmed">
             No metrics yet. Add one on the Observations page to record it here.
           </Text>
         )
       }
-      stale={stale}
       listClassName={classes.cards}
     >
-      {data.items.map((item) => (
+      {items.map((item) => (
         <ObservationCard
           // Per metric, not per day: the cards stay mounted across days, so
           // their controls update in place instead of being rebuilt.
           key={item.metric.id}
-          day={data.day}
+          day={shown?.day ?? null}
           item={item}
-          onRecord={(value) => data.record(item.metric.id, value)}
+          onRecord={async (value) => {
+            await record.mutateAsync({ metricId: item.metric.id, date: day, value });
+          }}
         />
       ))}
     </RailPanel>

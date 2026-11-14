@@ -1,4 +1,5 @@
 import { useObservationCounts } from "@data/observations";
+import type { ReadResult } from "@data/readResult";
 import {
   useCreateInterval,
   useDeleteInterval,
@@ -58,7 +59,7 @@ import { useGridPointer } from "./layout/useGridPointer";
 import { BlockMenu, PasteMenu } from "./menus/BlockMenu";
 import { CategoryPicker } from "./menus/CategoryPicker";
 import classes from "./TimelineGrid.module.css";
-import type { GridData } from "./useGridData";
+import type { GridView } from "./useGridData";
 import { useNotice } from "./useNotice";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -71,7 +72,7 @@ const PASTE_KEYS = shortcutLabel("pasteBlock");
 
 interface TimelineGridProps {
   /** What to draw for `days`. Loaded by Home, which also feeds the header's timeline filter. */
-  data: GridData;
+  read: ReadResult<GridView>;
   /** The timelines the header's filter has switched off. */
   hiddenTimelines: HiddenTimelines;
   /** Switches every timeline back on, from the empty state shown when all are off. */
@@ -105,7 +106,7 @@ interface TimelineGridProps {
  * The blocks and ghosts themselves are drawn by `GridBlocks`.
  */
 export function TimelineGrid({
-  data,
+  read,
   hiddenTimelines,
   onShowAllTimelines,
   days,
@@ -116,20 +117,21 @@ export function TimelineGrid({
   // Held here, so it survives paging the days and the timeline filter.
   const [copied, setCopied] = useState<BlockCopy | null>(null);
 
-  if (data.status === "loading") {
+  if (read.status === "pending") {
     return (
       <Center className={classes.state}>
         <Loader />
       </Center>
     );
   }
-  if (data.status === "error") {
+  if (read.status === "error") {
     return (
       <Alert m="md" color="red" title="Could not load the timelines">
-        {data.error}
+        {read.error.message}
       </Alert>
     );
   }
+  const { data } = read;
   if (data.timelines.length === 0) {
     return (
       <Center className={classes.state}>
@@ -155,7 +157,8 @@ export function TimelineGrid({
       days={days}
       activeDay={activeDay}
       dispatch={dispatch}
-      counts={counts}
+      // Hidden if loading them fails, rather than left showing old counts.
+      counts={counts.isError ? undefined : counts.data}
       timeZone={data.timeZone}
       timelines={shown}
       categories={data.categories}
@@ -170,8 +173,11 @@ interface GridProps {
   days: LocalDate[];
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
-  /** Each day's observation counts, for its badge. A day without one has no badge. */
-  counts: ReadonlyMap<LocalDate, DayObservationCount>;
+  /**
+   * Each day's observation counts, for its badge. A day without one has no
+   * badge, and no day has one until they load.
+   */
+  counts: ReadonlyMap<LocalDate, DayObservationCount> | undefined;
   timeZone: string;
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
@@ -648,7 +654,7 @@ function Grid({
               onKeyDown={onHeaderKeyDown}
             >
               {formatShortDay(day)}
-              <DayBadge count={counts.get(day)} />
+              <DayBadge count={counts?.get(day)} />
             </button>
             <div className={classes.timelineNames}>
               {timelines.map((t) => (

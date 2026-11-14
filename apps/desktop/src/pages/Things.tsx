@@ -1,7 +1,14 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
 import { FieldList } from "@components/FieldList";
 import { queryKeys } from "@data/queryKeys";
-import { type ThingWriteReach, useRefTitles, useThings, useThingWrite } from "@data/things";
+import {
+  EMPTY_THINGS,
+  EMPTY_TITLES,
+  type ThingWriteReach,
+  useRefTitles,
+  useThings,
+  useThingWrite,
+} from "@data/things";
 import {
   Alert,
   Button,
@@ -464,7 +471,10 @@ function ThingSelect({
   value: string | string[];
   onChange: (value: string | string[]) => void;
 }) {
-  const data = useThings(thingTypeId).map((o) => ({ value: o.id, label: o.title }));
+  const data = (useThings(thingTypeId).data ?? EMPTY_THINGS).map((o) => ({
+    value: o.id,
+    label: o.title,
+  }));
   return multiple ? (
     <MultiSelect
       {...label}
@@ -487,7 +497,7 @@ function ThingSelect({
 /** A thing's values, with references shown by title. */
 function ValuesList({ thing }: { thing: Thing }) {
   const { data: fields = [] } = useThingFields(thing.thingTypeId);
-  const titles = useRefTitles(fields, thing);
+  const titles = useRefTitles(fields, thing).data ?? EMPTY_TITLES;
   const show = (f: FieldDefinition, v: Value) => {
     if (f.shape.valueType === "ref") return titles.get(v as string) ?? String(v);
     if (f.shape.valueType === "multi_ref")
