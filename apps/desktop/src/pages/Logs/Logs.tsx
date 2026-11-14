@@ -24,6 +24,7 @@ import {
   useSetLogTypeArchived,
   useUpdateLogField,
 } from "@data/logs";
+import { useTimeZone } from "@data/settings";
 import { EMPTY_THING_TYPES, EMPTY_TITLES, useRefTitles, useThingTypes } from "@data/things";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useDatabase } from "@platform/DatabaseProvider";
@@ -311,6 +312,7 @@ function EntryItem({
   const db = useDatabase();
   const fields = useFields(entry.logTypeId).data ?? EMPTY_FIELDS;
   const titles = useRefTitles(fields, entry).data ?? EMPTY_TITLES;
+  const timeZone = useTimeZone().data;
   const children = useChildEntries(entry.id).data ?? [];
   const moveEntry = useMoveChildEntry();
   const deleteEntry = useDeleteLogEntry();
@@ -327,7 +329,9 @@ function EntryItem({
         <Text size="sm" c="dimmed">
           ({entry.resolved.timeZone}, day {entry.day ?? "none"})
         </Text>
-        <Text size="sm">{describeValues(fields, entry, titles)}</Text>
+        <Text size="sm">
+          {timeZone !== undefined && describeValues(fields, entry, titles, timeZone)}
+        </Text>
         {place && (
           <>
             <Button
