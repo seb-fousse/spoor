@@ -1,6 +1,6 @@
 import { describeValues, formatTime } from "@components/LogEntryForm";
-import { useDayLogs, useFields } from "@data/logs";
-import { useRefTitles } from "@data/things";
+import { EMPTY_FIELDS, useDayLogs, useFields } from "@data/logs";
+import { EMPTY_TITLES, useRefTitles } from "@data/things";
 import { Button, Text } from "@mantine/core";
 import type { DayLogEntry, LocalDate } from "@spoor/core";
 import { useState } from "react";
@@ -16,8 +16,9 @@ interface LogRailProps {
 /** The day's logs by log type, with a modal card to add one. */
 export function LogRail({ day }: LogRailProps) {
   const [modalOpen, setModalOpen] = useState(false);
-  // `stale`: the previous day's list, while the active day's loads.
-  const { data, error, isPending: loading, isPlaceholderData: stale } = useDayLogs(day);
+  // While the active day's list loads, the previous day's shows, stale.
+  const logs = useDayLogs(day);
+  const { data } = logs;
   const groups = data ?? [];
 
   const count = groups.reduce((n, g) => n + g.entries.length, 0);
@@ -33,8 +34,8 @@ export function LogRail({ day }: LogRailProps) {
             New
           </Button>
         }
-        error={error && { title: "Could not load logs", message: error.message }}
-        loading={loading}
+        read={logs}
+        errorTitle="Could not load logs"
         empty={
           data !== undefined &&
           groups.length === 0 && (
@@ -46,7 +47,6 @@ export function LogRail({ day }: LogRailProps) {
             </div>
           )
         }
-        stale={stale}
         listClassName={classes.groups}
       >
         {groups.map(({ logType, entries }) => (
@@ -70,8 +70,8 @@ export function LogRail({ day }: LogRailProps) {
 
 function EntryRow({ entry }: { entry: DayLogEntry }) {
   // Field definitions never change under the rail, so they load once per entry.
-  const fields = useFields(entry.logTypeId);
-  const titles = useRefTitles(fields, entry);
+  const fields = useFields(entry.logTypeId).data ?? EMPTY_FIELDS;
+  const titles = useRefTitles(fields, entry).data ?? EMPTY_TITLES;
   const values = describeValues(fields, entry, titles);
   return (
     <div className={classes.entry}>
@@ -94,7 +94,7 @@ function EntryRow({ entry }: { entry: DayLogEntry }) {
 }
 
 function ChildRow({ child }: { child: DayLogEntry["children"][number] }) {
-  const fields = useFields(child.logTypeId);
-  const titles = useRefTitles(fields, child);
+  const fields = useFields(child.logTypeId).data ?? EMPTY_FIELDS;
+  const titles = useRefTitles(fields, child).data ?? EMPTY_TITLES;
   return <span className={classes.values}>{describeValues(fields, child, titles) || "·"}</span>;
 }

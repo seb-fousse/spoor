@@ -1,3 +1,4 @@
+import type { ReadResult } from "@data/readResult";
 import { Alert, Loader } from "@mantine/core";
 import { type ReactNode, useId } from "react";
 import classes from "./RailPanel.module.css";
@@ -8,14 +9,17 @@ interface RailPanelProps {
   count?: ReactNode;
   /** At the header's right edge, such as a button to add one. */
   action?: ReactNode;
-  /** A failed load or save, shown at the top of the body. */
-  error: { title: string; message: string } | null;
-  /** Nothing has loaded yet, and nothing has failed. */
-  loading: boolean;
+  /**
+   * The list's read: a query's result, or the fields of several combined. A
+   * loader shows while it is `pending`, and its error at the top of the body.
+   * While its data is a placeholder, the list shows another day's items until
+   * the active day's load: shown, but not usable.
+   */
+  read: Pick<ReadResult<unknown>, "status" | "error" | "isPlaceholderData">;
+  /** The title of a failed read's error, such as "Could not load logs". */
+  errorTitle: string;
   /** Shown above the list, such as a note that there is nothing yet. */
   empty?: ReactNode;
-  /** The list shows another day's items while the active day's load: shown, but not usable. */
-  stale: boolean;
   /** Laid out by the list, such as a column of cards. */
   listClassName: string;
   /** The list's items. */
@@ -31,14 +35,14 @@ export function RailPanel({
   title,
   count,
   action,
-  error,
-  loading,
+  read,
+  errorTitle,
   empty,
-  stale,
   listClassName,
   children,
 }: RailPanelProps) {
   const titleId = useId();
+  const stale = read.isPlaceholderData;
   return (
     <section className={classes.rail} aria-labelledby={titleId}>
       <header className={classes.header}>
@@ -54,12 +58,12 @@ export function RailPanel({
       </header>
 
       <div className={classes.body}>
-        {error && (
-          <Alert color="red" title={error.title}>
-            {error.message}
+        {read.error && (
+          <Alert color="red" title={errorTitle}>
+            {read.error.message}
           </Alert>
         )}
-        {loading && <Loader size="sm" />}
+        {read.status === "pending" && <Loader size="sm" />}
         {empty}
         <div
           className={`${classes.list} ${listClassName}`}

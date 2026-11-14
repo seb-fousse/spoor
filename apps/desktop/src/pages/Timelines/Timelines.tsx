@@ -1,5 +1,10 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
-import { useTimelineDetail, useTimelineList, useTimelinesWrite } from "@data/timelines";
+import {
+  useTimelineCategories,
+  useTimelineIntervals,
+  useTimelineList,
+  useTimelinesWrite,
+} from "@data/timelines";
 import {
   Alert,
   Button,
@@ -148,7 +153,10 @@ function TimelineDetail({
   run: (action: () => Promise<unknown>) => void;
 }) {
   const db = useDatabase();
-  const detail = useTimelineDetail(timeline.id);
+  const detail = {
+    categories: useTimelineCategories(timeline.id),
+    intervals: useTimelineIntervals(timeline.id),
+  };
   const categories = detail.categories.data ?? [];
   const intervals = detail.intervals.data ?? [];
   // The page's error shows write failures; these reads report their own.

@@ -1,5 +1,5 @@
 import { EntryForm, type EntryTimeInput } from "@components/LogEntryForm";
-import { useFields } from "@data/logs";
+import { EMPTY_FIELDS, useFields } from "@data/logs";
 import { queryKeys } from "@data/queryKeys";
 import { formatDay } from "@lib/format";
 import {
@@ -174,7 +174,7 @@ function TypeForm({
   day: LocalDate;
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }) {
-  const fields = useFields(type.id);
+  const fields = useFields(type.id).data ?? EMPTY_FIELDS;
   return <EntryForm fields={fields} child={false} layout="stacked" day={day} onCreate={onCreate} />;
 }
 
@@ -185,7 +185,7 @@ function ChildForm({
   type: LogType;
   onCreate: (values: Record<string, Value>) => Promise<unknown>;
 }) {
-  const fields = useFields(type.id);
+  const fields = useFields(type.id).data ?? EMPTY_FIELDS;
   const [added, setAdded] = useState(0);
   return (
     <Stack gap="xs">

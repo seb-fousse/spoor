@@ -5,7 +5,6 @@ import * as core from "@spoor/core";
 import {
   type LocalDate,
   listDayObservations,
-  type MetricDay,
   type Observation,
   type ObservationMetric,
   type RecordObservationResult,
@@ -16,7 +15,7 @@ import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  type DayObservations,
+  observationQueries,
   useCreateMetric,
   useDayObservations,
   useDeleteMetric,
@@ -72,11 +71,16 @@ function Probe() {
   return null;
 }
 
+/** What the rail uses: the day's observations, and the write that records one. */
+function useRail(day: LocalDate) {
+  return { day, observations: useDayObservations(day), record: useRecordObservation() };
+}
+
 /** What the rail sees, captured on each render. */
-let seen: DayObservations | undefined;
+let seen: ReturnType<typeof useRail> | undefined;
 
 function Rail({ day }: { day: LocalDate }) {
-  seen = useDayObservations(day);
+  seen = useRail(day);
   return null;
 }
 
@@ -107,16 +111,16 @@ describe("the Observations page's writes", () => {
     vi.clearAllMocks();
   });
 
-  /** Each of the page's writes, called the way the page calls it. */
+  /**
+   * Each of the page's writes but recording, called the way the page calls it.
+   * Recording, which the rail shares, writes into its day's cache and
+   * invalidates less; its tests are with the rail's, below.
+   */
   const calls: [string, (w: ObservationWrites) => Promise<unknown>][] = [
     ["creating a metric", (w) => w.createMetric.mutateAsync({ name: "Mood", valueType: "number" })],
     ["editing a metric", (w) => w.updateMetric.mutateAsync({ id: "m1", patch: { name: "Sleep" } })],
     ["archiving a metric", (w) => w.setMetricArchived.mutateAsync({ id: "m1", archived: true })],
     ["deleting a metric", (w) => w.deleteMetric.mutateAsync("m1")],
-    [
-      "recording an observation",
-      (w) => w.recordObservation.mutateAsync({ metricId: "m1", date: day, value: 7 }),
-    ],
     ["deleting an observation", (w) => w.deleteObservation.mutateAsync("o1")],
   ];
 
@@ -139,7 +143,7 @@ describe("the Observations page's writes", () => {
   });
 });
 
-describe("useDayObservations", () => {
+describe("useDayObservations and useRecordObservation", () => {
   const MONDAY = "2026-11-09" as LocalDate;
   const TUESDAY = "2026-11-10" as LocalDate;
 
@@ -165,7 +169,7 @@ describe("useDayObservations", () => {
    * Lets every query in flight finish, and its result render. TanStack Query tells
    * components on a `setTimeout(0)` of its own, so one tick can run before it does;
    * hence the last tick once nothing is loading. Saves aren't waited for here: the
-   * tests await `record` themselves, and one holds a save open across a day change.
+   * tests await the save themselves, and one holds a save open across a day change.
    */
   async function settle() {
     do await tick();
@@ -179,24 +183,23 @@ describe("useDayObservations", () => {
     await settle();
   }
 
-  function current(): DayObservations {
+  function current() {
     if (!seen) throw new Error("The rail did not render");
     return seen;
   }
 
   /** The user records `value` for sleep on the day shown; returns the save, still running. */
-  function recordSleep(value: number): Promise<void> {
-    let saving: Promise<void> = Promise.resolve();
+  function recordSleep(value: number): Promise<unknown> {
+    let saving: Promise<unknown> = Promise.resolve();
     act(() => {
-      saving = current().record(sleep.id, value);
+      const { day, record } = current();
+      saving = record.mutateAsync({ metricId: sleep.id, date: day, value });
     });
     return saving;
   }
 
   function cachedDay(day: LocalDate) {
-    return queryClient.getQueryData<{ day: LocalDate; items: MetricDay[] }>(
-      queryKeys.observations.day(day),
-    );
+    return queryClient.getQueryData(observationQueries.day(db, day).queryKey);
   }
 
   beforeEach(() => {
@@ -222,7 +225,7 @@ describe("useDayObservations", () => {
     await settle();
 
     expect(recordObservation).toHaveBeenCalledWith(db, sleep.id, MONDAY, 7);
-    expect(current().items).toEqual([{ metric: sleep, observation: stored }]);
+    expect(current().observations.data?.items).toEqual([{ metric: sleep, observation: stored }]);
     expect(listDayObservations).toHaveBeenCalledTimes(1);
   });
 
@@ -240,8 +243,8 @@ describe("useDayObservations", () => {
 
     expect(cachedDay(MONDAY)?.items).toEqual([{ metric: sleep, observation: stored }]);
     // Tuesday, on screen, is untouched.
-    expect(current().day).toBe(TUESDAY);
-    expect(current().items).toEqual([{ metric: sleep, observation: null }]);
+    expect(current().observations.data?.day).toBe(TUESDAY);
+    expect(current().observations.data?.items).toEqual([{ metric: sleep, observation: null }]);
   });
 
   it("marks the grid's day counts and the metric's list out of date when a save succeeds", async () => {
@@ -264,21 +267,6 @@ describe("useDayObservations", () => {
     expect(queryClient.getQueryState(sleepList)?.isInvalidated).toBe(true);
     // Another metric's observations didn't change.
     expect(queryClient.getQueryState(otherList)?.isInvalidated).toBe(false);
-  });
-
-  it("shows a failed save on its day, and not on other days", async () => {
-    vi.mocked(recordObservation).mockRejectedValue(new Error("disk full"));
-    await showDay(MONDAY);
-
-    await expect(recordSleep(7)).rejects.toThrow("disk full");
-    await settle();
-    expect(current().error).toBe("disk full");
-
-    await showDay(TUESDAY);
-    expect(current().error).toBeNull();
-
-    await showDay(MONDAY);
-    expect(current().error).toBe("disk full");
   });
 
   it("leaves the grid's day counts and the metric's list alone when a save fails", async () => {

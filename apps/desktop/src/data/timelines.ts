@@ -17,29 +17,9 @@ import {
   type TimelineCategory,
   updateInterval,
 } from "@spoor/core";
-import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, skipToken, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "./queryKeys";
 import { useDbWrite } from "./useDbWrite";
-
-/** Every timeline by name, archived included. */
-export function useTimelineList() {
-  const db = useDatabase();
-  return useQuery({ queryKey: queryKeys.timelines.list, queryFn: () => listTimelines(db) });
-}
-
-/** A timeline's categories and intervals, archived categories included. */
-export function useTimelineDetail(timelineId: string) {
-  const db = useDatabase();
-  const categories = useQuery({
-    queryKey: queryKeys.timelines.categories(timelineId),
-    queryFn: () => listCategories(db, timelineId),
-  });
-  const intervals = useQuery({
-    queryKey: queryKeys.timelines.timelineIntervals(timelineId),
-    queryFn: () => listIntervals(db, timelineId),
-  });
-  return { categories, intervals };
-}
 
 /** What the grid shows of the timelines, before any intervals. */
 export interface GridMeta {
@@ -62,12 +42,79 @@ async function loadGridMeta(db: Database): Promise<GridMeta> {
 }
 
 /**
+ * The timeline reads. Each keeps its key with its query, so `.queryKey` types
+ * the cache by its data.
+ */
+export const timelineQueries = {
+  /** Every timeline by name, archived included. */
+  list: (db: Database) =>
+    queryOptions({ queryKey: queryKeys.timelines.list, queryFn: () => listTimelines(db) }),
+  /** A timeline's categories, archived included. */
+  categories: (db: Database, timelineId: string) =>
+    queryOptions({
+      queryKey: queryKeys.timelines.categories(timelineId),
+      queryFn: () => listCategories(db, timelineId),
+    }),
+  /** All of a timeline's intervals. */
+  timelineIntervals: (db: Database, timelineId: string) =>
+    queryOptions({
+      queryKey: queryKeys.timelines.timelineIntervals(timelineId),
+      queryFn: () => listIntervals(db, timelineId),
+    }),
+  /** The unarchived timelines and their categories, for the grid. */
+  grid: (db: Database) =>
+    queryOptions({ queryKey: queryKeys.timelines.grid, queryFn: () => loadGridMeta(db) }),
+  /**
+   * The intervals of `timelineIds` across `days`, counted in `timeZone`. Waits
+   * until the timelines, the zone and at least one day are known.
+   */
+  intervals: (
+    db: Database,
+    timelineIds: readonly string[] | undefined,
+    days: readonly LocalDate[],
+    timeZone: string | undefined,
+  ) => {
+    const first = days[0];
+    const last = days.at(-1);
+    return queryOptions({
+      queryKey: queryKeys.timelines.intervals(timelineIds ?? [], first, last, timeZone),
+      queryFn:
+        timeZone !== undefined && timelineIds && first !== undefined && last !== undefined
+          ? () =>
+              listIntervalsInRange(db, timelineIds, {
+                from: startOfDay(first, timeZone),
+                to: startOfDay(addDays(last, 1), timeZone),
+              })
+          : skipToken,
+    });
+  },
+};
+
+/** Every timeline by name, archived included. */
+export function useTimelineList() {
+  const db = useDatabase();
+  return useQuery(timelineQueries.list(db));
+}
+
+/** A timeline's categories, archived included. */
+export function useTimelineCategories(timelineId: string) {
+  const db = useDatabase();
+  return useQuery(timelineQueries.categories(db, timelineId));
+}
+
+/** All of a timeline's intervals. */
+export function useTimelineIntervals(timelineId: string) {
+  const db = useDatabase();
+  return useQuery(timelineQueries.timelineIntervals(db, timelineId));
+}
+
+/**
  * The grid's timelines and their categories. They stay cached until a write
  * to timelines, categories or intervals invalidates `timelines.all`.
  */
 export function useGridMeta() {
   const db = useDatabase();
-  return useQuery({ queryKey: queryKeys.timelines.grid, queryFn: () => loadGridMeta(db) });
+  return useQuery(timelineQueries.grid(db));
 }
 
 /**
@@ -82,18 +129,8 @@ export function useGridIntervals(
   timeZone: string | undefined,
 ) {
   const db = useDatabase();
-  const first = days[0];
-  const last = days.at(-1);
   return useQuery({
-    queryKey: queryKeys.timelines.intervals(timelineIds ?? [], first, last, timeZone),
-    queryFn:
-      timeZone !== undefined && timelineIds && first !== undefined && last !== undefined
-        ? () =>
-            listIntervalsInRange(db, timelineIds, {
-              from: startOfDay(first, timeZone),
-              to: startOfDay(addDays(last, 1), timeZone),
-            })
-        : skipToken,
+    ...timelineQueries.intervals(db, timelineIds, days, timeZone),
     placeholderData: keepPreviousData,
   });
 }

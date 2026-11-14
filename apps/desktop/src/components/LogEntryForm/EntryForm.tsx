@@ -1,4 +1,4 @@
-import { useThings } from "@data/things";
+import { EMPTY_THINGS, useThings } from "@data/things";
 import { Button, Group, MultiSelect, NumberInput, Select, Stack, TextInput } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { type LogField, optionLabel, type Precision, type Value } from "@spoor/core";
@@ -99,11 +99,11 @@ function ValueInput({
   onChange: (value: string | string[]) => void;
 }) {
   const { shape } = field;
-  const things = useThings(
+  const thingTypeId =
     shape.valueType === "ref" || shape.valueType === "multi_ref"
       ? shape.constraints.thingTypeId
-      : null,
-  );
+      : null;
+  const things = useThings(thingTypeId).data ?? EMPTY_THINGS;
   const text = value as string;
   // The field's name labels its input; "*" marks a required one.
   const common = { size, label: field.name, withAsterisk: field.required } as const;

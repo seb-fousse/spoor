@@ -37,12 +37,12 @@ export function Home() {
             days={days}
             today={today}
             dispatch={dispatch}
-            timelines={gridData.status === "ready" ? gridData.timelines : []}
+            timelines={gridData.status === "success" ? gridData.data.timelines : []}
             hiddenTimelines={hiddenTimelines}
             onHiddenTimelinesChange={setHiddenTimelines}
           />
           <TimelineGrid
-            data={gridData}
+            read={gridData}
             hiddenTimelines={hiddenTimelines}
             onShowAllTimelines={() => setHiddenTimelines(new Set())}
             days={visibleDays}
