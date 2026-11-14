@@ -37,9 +37,9 @@ let writes: Writes | undefined;
 
 function Page() {
   writes = {
-    types: useLogTypeWrites(db),
-    fields: useLogFieldWrites(db, "type-1"),
-    entries: useLogEntryWrites(db),
+    types: useLogTypeWrites(),
+    fields: useLogFieldWrites("type-1"),
+    entries: useLogEntryWrites(),
   };
   return null;
 }
@@ -55,7 +55,7 @@ const fields = queryKeys.logTypes.fields("type-1");
 beforeEach(async () => {
   queryClient = createQueryClient();
   for (const key of [day, types, fields]) queryClient.setQueryData(key, []);
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
   await root.renderAsync(<Page />);
 });
 

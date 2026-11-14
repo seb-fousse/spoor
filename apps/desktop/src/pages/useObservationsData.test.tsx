@@ -35,7 +35,7 @@ const unrelated = queryKeys.logs.day(day);
 let writes: ObservationWrites | undefined;
 
 function Probe() {
-  writes = useObservationWrites(db);
+  writes = useObservationWrites();
   return null;
 }
 
@@ -47,7 +47,7 @@ beforeEach(async () => {
   // Loaded data with no component reading it, as Home's is while this page is open.
   for (const key of [...Object.values(observationKeys), unrelated])
     queryClient.setQueryData(key, []);
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
   await root.renderAsync(<Probe />);
 });
 

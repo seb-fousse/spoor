@@ -1,10 +1,6 @@
 import { queryKeys } from "@lib/queryKeys";
-import {
-  countDayObservations,
-  type Database,
-  type DayObservationCount,
-  type LocalDate,
-} from "@spoor/core";
+import { useDatabase } from "@platform/DatabaseProvider";
+import { countDayObservations, type DayObservationCount, type LocalDate } from "@spoor/core";
 import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
 
 const NO_COUNTS: ReadonlyMap<LocalDate, DayObservationCount> = new Map();
@@ -18,9 +14,9 @@ const NO_COUNTS: ReadonlyMap<LocalDate, DayObservationCount> = new Map();
  * left showing old counts.
  */
 export function useObservationCounts(
-  db: Database,
   days: readonly LocalDate[],
 ): ReadonlyMap<LocalDate, DayObservationCount> {
+  const db = useDatabase();
   const first = days[0];
   const last = days.at(-1);
   const { data, error } = useQuery({

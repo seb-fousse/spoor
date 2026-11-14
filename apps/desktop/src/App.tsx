@@ -8,9 +8,10 @@ import { Observations } from "@pages/Observations";
 import { Settings } from "@pages/Settings";
 import { Things } from "@pages/Things";
 import { Timelines } from "@pages/Timelines";
+import { DatabaseProvider } from "@platform/DatabaseProvider";
 import { createTauriDatabase } from "@platform/database";
 import type { RouteId } from "@routes";
-import { type Database, migrate } from "@spoor/core";
+import { migrate } from "@spoor/core";
 import { useEffect, useState } from "react";
 
 const db = createTauriDatabase();
@@ -18,20 +19,20 @@ const db = createTauriDatabase();
 // twice, and two migration runs would interleave on the one shared connection.
 const migrated = migrate(db);
 
-function Page({ route, db }: { route: RouteId; db: Database }) {
+function Page({ route }: { route: RouteId }) {
   switch (route) {
     case "home":
-      return <Home db={db} />;
+      return <Home />;
     case "analytics":
       return <Analytics />;
     case "timelines":
-      return <Timelines db={db} />;
+      return <Timelines />;
     case "observations":
-      return <Observations db={db} />;
+      return <Observations />;
     case "logs":
-      return <Logs db={db} />;
+      return <Logs />;
     case "things":
-      return <Things db={db} />;
+      return <Things />;
     case "settings":
       return <Settings />;
   }
@@ -50,13 +51,15 @@ function App() {
     <AppShell footer={{ height: 44 }} padding={0}>
       <AppShell.Main>
         {status === "ready" ? (
-          // Above the routes, so Home's active day and window survive navigation.
-          <HomeStateProvider db={db}>
-            {/* Home fills the whole area edge to edge; other pages get padding. */}
-            <Box p={route === "home" ? 0 : "md"}>
-              <Page route={route} db={db} />
-            </Box>
-          </HomeStateProvider>
+          <DatabaseProvider db={db}>
+            {/* Above the routes, so Home's active day and window survive navigation. */}
+            <HomeStateProvider>
+              {/* Home fills the whole area edge to edge; other pages get padding. */}
+              <Box p={route === "home" ? 0 : "md"}>
+                <Page route={route} />
+              </Box>
+            </HomeStateProvider>
+          </DatabaseProvider>
         ) : status === "migrating" ? (
           <Center p="md">
             <Loader />

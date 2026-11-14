@@ -1,7 +1,6 @@
 import { FluidSplitter } from "@components/FluidSplitter";
 import { useShortcuts } from "@keyboard";
 import { Splitter } from "@mantine/core";
-import type { Database } from "@spoor/core";
 import { useMemo, useState } from "react";
 import { dayShortcuts } from "./dayShortcuts";
 import { type HiddenTimelines, TimelineGrid, useGridData } from "./grid";
@@ -18,7 +17,7 @@ import { RightHeader } from "./RightHeader";
  * the right (at least 30%), split evenly between the day's observations above
  * and its logs below, with a modal card to add one.
  */
-export function Home({ db }: { db: Database }) {
+export function Home() {
   // Held above the routes, so the user's place survives leaving Home.
   const { today, days, dispatch } = useHomeState();
   // A stable array while the window stays put, so the grid's layout isn't redone on every render.
@@ -26,7 +25,7 @@ export function Home({ db }: { db: Database }) {
   // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
   useShortcuts(dayShortcuts(dispatch));
   // Loaded here, not in the grid, because the header's filter lists the same timelines.
-  const gridData = useGridData(db, visibleDays);
+  const gridData = useGridData(visibleDays);
   // Kept in Home, so the filter resets when the user leaves the page.
   const [hiddenTimelines, setHiddenTimelines] = useState<HiddenTimelines>(() => new Set());
 
@@ -43,7 +42,6 @@ export function Home({ db }: { db: Database }) {
             onHiddenTimelinesChange={setHiddenTimelines}
           />
           <TimelineGrid
-            db={db}
             data={gridData}
             hiddenTimelines={hiddenTimelines}
             onShowAllTimelines={() => setHiddenTimelines(new Set())}
@@ -61,11 +59,11 @@ export function Home({ db }: { db: Database }) {
           <div className={classes.fill}>
             <FluidSplitter orientation="vertical" h="100%">
               <Splitter.Pane defaultSize={50}>
-                <ObservationRail db={db} day={days.activeDay} />
+                <ObservationRail day={days.activeDay} />
               </Splitter.Pane>
 
               <Splitter.Pane defaultSize={50}>
-                <LogRail db={db} day={days.activeDay} />
+                <LogRail day={days.activeDay} />
               </Splitter.Pane>
             </FluidSplitter>
           </div>

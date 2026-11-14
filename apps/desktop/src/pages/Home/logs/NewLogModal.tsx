@@ -11,9 +11,9 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   createLogEntry,
-  type Database,
   type LocalDate,
   type LogEntry,
   type LogType,
@@ -26,7 +26,6 @@ import { useState } from "react";
 import classes from "./NewLogModal.module.css";
 
 interface NewLogModalProps {
-  db: Database;
   opened: boolean;
   /** The active day, which the new entry is on. */
   day: LocalDate;
@@ -38,7 +37,8 @@ interface NewLogModalProps {
  * per log type; choosing one shows that type's form, with a back button in the
  * header to choose again. A type with child types then stays open to add them.
  */
-export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
+export function NewLogModal({ opened, day, onClose }: NewLogModalProps) {
+  const db = useDatabase();
   const queryClient = useQueryClient();
   const [typeId, setTypeId] = useState<string | null>(null);
   const [created, setCreated] = useState<LogEntry | null>(null);
@@ -135,7 +135,7 @@ export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
         )}
 
         {type && created === null && (
-          <TypeForm key={type.id} db={db} type={type} day={day} onCreate={createTopLevel} />
+          <TypeForm key={type.id} type={type} day={day} onCreate={createTopLevel} />
         )}
 
         {type && created !== null && (
@@ -146,7 +146,6 @@ export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
             {children.map((child) => (
               <ChildForm
                 key={child.id}
-                db={db}
                 type={child}
                 onCreate={(values) =>
                   create({ logTypeId: child.id, parentEntryId: created.id, values })
@@ -166,39 +165,26 @@ export function NewLogModal({ db, opened, day, onClose }: NewLogModalProps) {
 }
 
 function TypeForm({
-  db,
   type,
   day,
   onCreate,
 }: {
-  db: Database;
   type: LogType;
   day: LocalDate;
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }) {
-  const fields = useFields(db, type.id);
-  return (
-    <EntryForm
-      db={db}
-      fields={fields}
-      child={false}
-      layout="stacked"
-      day={day}
-      onCreate={onCreate}
-    />
-  );
+  const fields = useFields(type.id);
+  return <EntryForm fields={fields} child={false} layout="stacked" day={day} onCreate={onCreate} />;
 }
 
 function ChildForm({
-  db,
   type,
   onCreate,
 }: {
-  db: Database;
   type: LogType;
   onCreate: (values: Record<string, Value>) => Promise<unknown>;
 }) {
-  const fields = useFields(db, type.id);
+  const fields = useFields(type.id);
   const [added, setAdded] = useState(0);
   return (
     <Stack gap="xs">
@@ -207,7 +193,6 @@ function ChildForm({
         {added > 0 && ` (${added} added)`}
       </Text>
       <EntryForm
-        db={db}
         fields={fields}
         child
         layout="stacked"

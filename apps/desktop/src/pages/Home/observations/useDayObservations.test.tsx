@@ -54,7 +54,7 @@ function deferred<T>() {
 let seen: DayObservations | undefined;
 
 function Rail({ day }: { day: LocalDate }) {
-  seen = useDayObservations(db, day);
+  seen = useDayObservations(day);
   return null;
 }
 
@@ -104,7 +104,7 @@ beforeEach(() => {
   // Every day starts with sleep not yet observed.
   vi.mocked(listDayObservations).mockResolvedValue([{ metric: sleep, observation: null }]);
   queryClient = createQueryClient();
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
   seen = undefined;
 });
 

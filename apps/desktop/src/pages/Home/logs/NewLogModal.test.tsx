@@ -50,7 +50,7 @@ let railGroups: DayLogGroup[] | undefined;
 
 /** The rail's list, beside the modal, reading the same cache as the real rail. */
 function RailList() {
-  railGroups = useDayLogs(db, MONDAY).data;
+  railGroups = useDayLogs(MONDAY).data;
   return null;
 }
 
@@ -75,7 +75,7 @@ async function showModal(opened: boolean) {
   root.render(
     <>
       <RailList />
-      <NewLogModal db={db} opened={opened} day={MONDAY} onClose={onClose} />
+      <NewLogModal opened={opened} day={MONDAY} onClose={onClose} />
     </>,
   );
   await settle();
@@ -122,7 +122,7 @@ beforeEach(() => {
   vi.mocked(listDayLogEntries).mockResolvedValue([]);
   queryClient = createQueryClient();
   onClose = vi.fn<() => void>();
-  root = createTestRoot({ queryClient, mantine: true });
+  root = createTestRoot({ queryClient, db, mantine: true });
   railGroups = undefined;
 });
 

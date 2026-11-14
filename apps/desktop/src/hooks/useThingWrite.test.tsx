@@ -28,7 +28,7 @@ let titles: Map<string, string> | undefined;
 /** A log rail row showing a thing's title, beside the Things page writing. */
 function Screen() {
   write = useThingWrite();
-  titles = useRefTitles(db, [refField], entry);
+  titles = useRefTitles([refField], entry);
   return null;
 }
 
@@ -56,7 +56,7 @@ beforeEach(async () => {
   queryClient = createQueryClient();
   queryClient.setQueryData(logDay, []);
   queryClient.setQueryData(grid, []);
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
   await root.renderAsync(<Screen />);
   await settle();
 });

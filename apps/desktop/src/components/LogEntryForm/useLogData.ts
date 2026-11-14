@@ -1,6 +1,6 @@
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
-  type Database,
   type FieldDefinition,
   getLogTypeFields,
   getThingTitle,
@@ -19,7 +19,8 @@ const NO_FIELDS: LogField[] = [];
  * The fields of a log type, empty until they load. Cached per type, so every
  * row of one type shares one query; writes to log types invalidate them.
  */
-export function useFields(db: Database, typeId: string): LogField[] {
+export function useFields(typeId: string): LogField[] {
+  const db = useDatabase();
   const { data } = useQuery({
     queryKey: queryKeys.logTypes.fields(typeId),
     queryFn: () => getLogTypeFields(db, typeId),
@@ -28,7 +29,8 @@ export function useFields(db: Database, typeId: string): LogField[] {
 }
 
 /** Thing types a `ref` field can target: live and unarchived. */
-export function useThingTypes(db: Database): ThingType[] {
+export function useThingTypes(): ThingType[] {
+  const db = useDatabase();
   const { data } = useQuery({
     queryKey: queryKeys.things.types,
     queryFn: () => listThingTypes(db),
@@ -42,7 +44,8 @@ const NO_TYPES: ThingType[] = [];
 const unarchived = (types: ThingType[]) => types.filter((t) => t.archivedAt === null);
 
 /** The live things of a type, by title, to pick from. */
-export function useThings(db: Database, thingTypeId: string | null) {
+export function useThings(thingTypeId: string | null) {
+  const db = useDatabase();
   const { data } = useQuery({
     queryKey: queryKeys.things.options(thingTypeId ?? ""),
     queryFn: async () => {
@@ -63,10 +66,10 @@ const NO_THINGS: { id: string; title: string }[] = [];
  * without a title is left out, so callers show its id instead.
  */
 export function useRefTitles(
-  db: Database,
   fields: FieldDefinition[],
   record: { values: Record<string, Value> },
 ): Map<string, string> {
+  const db = useDatabase();
   const ids = fields
     .flatMap((f) => {
       const value = record.values[f.id];

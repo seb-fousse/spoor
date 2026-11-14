@@ -1,11 +1,5 @@
 import { Chip, Group, NumberInput, SegmentedControl, Text } from "@mantine/core";
-import {
-  type Database,
-  type LocalDate,
-  type MetricDay,
-  optionLabel,
-  type Value,
-} from "@spoor/core";
+import { type LocalDate, type MetricDay, optionLabel, type Value } from "@spoor/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { RailPanel } from "../rail/RailPanel";
 import classes from "./ObservationRail.module.css";
@@ -21,7 +15,6 @@ import {
 import { useDayObservations } from "./useDayObservations";
 
 interface ObservationRailProps {
-  db: Database;
   /** The day the cards show and record on. */
   day: LocalDate;
 }
@@ -31,8 +24,8 @@ interface ObservationRailProps {
  * that fits the metric's type. One click (or, for a typed number, Enter or
  * leaving the field) records the value; recording again revises it.
  */
-export function ObservationRail({ db, day }: ObservationRailProps) {
-  const data = useDayObservations(db, day);
+export function ObservationRail({ day }: ObservationRailProps) {
+  const data = useDayObservations(day);
   const { recorded, total } = countRecorded(data.items);
   // The previous day's cards stay until the new ones load, shown but not usable.
   // Most loads finish within a frame, so the stale styling only shows after a

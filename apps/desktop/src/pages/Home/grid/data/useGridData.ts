@@ -1,5 +1,6 @@
 import { useTimeZone } from "@hooks/useTimeZone";
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   type Database,
   type LocalDate,
@@ -51,8 +52,9 @@ async function loadGridMeta(db: Database): Promise<GridMeta> {
  * on the grid) invalidates `timelines.all`, which reloads them. The intervals reload whenever the window moves. Until the new ones
  * arrive, the previous ones stay on screen, so paging doesn't flash empty.
  */
-export function useGridData(db: Database, days: readonly LocalDate[]): GridData {
-  const timeZone = useTimeZone(db);
+export function useGridData(days: readonly LocalDate[]): GridData {
+  const db = useDatabase();
+  const timeZone = useTimeZone();
   const meta = useQuery({ queryKey: queryKeys.timelines.grid, queryFn: () => loadGridMeta(db) });
 
   const zone = timeZone.data;

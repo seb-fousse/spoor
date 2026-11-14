@@ -1,14 +1,17 @@
 import { queryKeys } from "@lib/queryKeys";
-import { type Database, listCategories, listIntervals, listTimelines } from "@spoor/core";
+import { useDatabase } from "@platform/DatabaseProvider";
+import { listCategories, listIntervals, listTimelines } from "@spoor/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 /** Every timeline by name, archived included. */
-export function useTimelineList(db: Database) {
+export function useTimelineList() {
+  const db = useDatabase();
   return useQuery({ queryKey: queryKeys.timelines.list, queryFn: () => listTimelines(db) });
 }
 
 /** A timeline's categories and intervals, archived categories included. */
-export function useTimelineDetail(db: Database, timelineId: string) {
+export function useTimelineDetail(timelineId: string) {
+  const db = useDatabase();
   const categories = useQuery({
     queryKey: queryKeys.timelines.categories(timelineId),
     queryFn: () => listCategories(db, timelineId),

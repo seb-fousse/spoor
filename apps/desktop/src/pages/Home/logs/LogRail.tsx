@@ -1,6 +1,6 @@
 import { describeValues, formatTime, useFields, useRefTitles } from "@components/LogEntryForm";
 import { Button, Text } from "@mantine/core";
-import type { Database, DayLogEntry, LocalDate } from "@spoor/core";
+import type { DayLogEntry, LocalDate } from "@spoor/core";
 import { useState } from "react";
 import { RailPanel } from "../rail/RailPanel";
 import classes from "./LogRail.module.css";
@@ -8,16 +8,15 @@ import { NewLogModal } from "./NewLogModal";
 import { useDayLogs } from "./useDayLogs";
 
 interface LogRailProps {
-  db: Database;
   /** The active day, whose logs are listed and which new entries start on. */
   day: LocalDate;
 }
 
 /** The day's logs by log type, with a modal card to add one. */
-export function LogRail({ db, day }: LogRailProps) {
+export function LogRail({ day }: LogRailProps) {
   const [modalOpen, setModalOpen] = useState(false);
   // `stale`: the previous day's list, while the active day's loads.
-  const { data, error, isPending: loading, isPlaceholderData: stale } = useDayLogs(db, day);
+  const { data, error, isPending: loading, isPlaceholderData: stale } = useDayLogs(day);
   const groups = data ?? [];
 
   const count = groups.reduce((n, g) => n + g.entries.length, 0);
@@ -55,7 +54,7 @@ export function LogRail({ db, day }: LogRailProps) {
             <ul className={classes.entries}>
               {entries.map((entry) => (
                 <li key={entry.id}>
-                  <EntryRow db={db} entry={entry} />
+                  <EntryRow entry={entry} />
                 </li>
               ))}
             </ul>
@@ -63,15 +62,15 @@ export function LogRail({ db, day }: LogRailProps) {
         ))}
       </RailPanel>
 
-      <NewLogModal db={db} opened={modalOpen} day={day} onClose={() => setModalOpen(false)} />
+      <NewLogModal opened={modalOpen} day={day} onClose={() => setModalOpen(false)} />
     </>
   );
 }
 
-function EntryRow({ db, entry }: { db: Database; entry: DayLogEntry }) {
+function EntryRow({ entry }: { entry: DayLogEntry }) {
   // Field definitions never change under the rail, so they load once per entry.
-  const fields = useFields(db, entry.logTypeId);
-  const titles = useRefTitles(db, fields, entry);
+  const fields = useFields(entry.logTypeId);
+  const titles = useRefTitles(fields, entry);
   const values = describeValues(fields, entry, titles);
   return (
     <div className={classes.entry}>
@@ -84,7 +83,7 @@ function EntryRow({ db, entry }: { db: Database; entry: DayLogEntry }) {
         <ul className={classes.children}>
           {entry.children.map((child) => (
             <li key={child.id}>
-              <ChildRow db={db} child={child} />
+              <ChildRow child={child} />
             </li>
           ))}
         </ul>
@@ -93,8 +92,8 @@ function EntryRow({ db, entry }: { db: Database; entry: DayLogEntry }) {
   );
 }
 
-function ChildRow({ db, child }: { db: Database; child: DayLogEntry["children"][number] }) {
-  const fields = useFields(db, child.logTypeId);
-  const titles = useRefTitles(db, fields, child);
+function ChildRow({ child }: { child: DayLogEntry["children"][number] }) {
+  const fields = useFields(child.logTypeId);
+  const titles = useRefTitles(fields, child);
   return <span className={classes.values}>{describeValues(fields, child, titles) || "·"}</span>;
 }

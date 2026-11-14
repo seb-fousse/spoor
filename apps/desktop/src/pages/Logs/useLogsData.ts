@@ -1,9 +1,9 @@
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   addLogField,
   createLogEntry,
   createLogType,
-  type Database,
   deleteLogEntry,
   deleteLogField,
   deleteLogType,
@@ -21,12 +21,14 @@ import {
 import { type QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 /** Every log type by name, archived included: the same list Home's new-log modal offers. */
-export function useLogTypes(db: Database) {
+export function useLogTypes() {
+  const db = useDatabase();
   return useQuery({ queryKey: queryKeys.logTypes.list, queryFn: () => listLogTypes(db) });
 }
 
 /** A log type's entries, latest first. */
-export function useLogEntries(db: Database, logTypeId: string) {
+export function useLogEntries(logTypeId: string) {
+  const db = useDatabase();
   return useQuery({
     queryKey: queryKeys.logs.type(logTypeId),
     queryFn: () => listLogEntries(db, logTypeId),
@@ -34,7 +36,8 @@ export function useLogEntries(db: Database, logTypeId: string) {
 }
 
 /** An entry's child entries, by position. */
-export function useChildEntries(db: Database, parentEntryId: string) {
+export function useChildEntries(parentEntryId: string) {
+  const db = useDatabase();
   return useQuery({
     queryKey: queryKeys.logs.children(parentEntryId),
     queryFn: () => listChildEntries(db, parentEntryId),
@@ -57,7 +60,8 @@ function useInvalidate() {
  * also invalidates the logs, since Home's day lists embed each type's record,
  * and deleting does, since it deletes the type's entries and its child types'.
  */
-export function useLogTypeWrites(db: Database) {
+export function useLogTypeWrites() {
+  const db = useDatabase();
   const invalidate = useInvalidate();
   return {
     create: useMutation({
@@ -80,7 +84,8 @@ export function useLogTypeWrites(db: Database) {
  * Writes to one log type's fields. Each invalidates the log types; deleting a
  * field also invalidates the logs, since it deletes the field's values.
  */
-export function useLogFieldWrites(db: Database, logTypeId: string) {
+export function useLogFieldWrites(logTypeId: string) {
+  const db = useDatabase();
   const invalidate = useInvalidate();
   return {
     add: useMutation({
@@ -107,7 +112,8 @@ export function useLogFieldWrites(db: Database, logTypeId: string) {
  * Writes to log entries. Each invalidates the logs: a type's entries, child
  * entries and Home's day lists all sit under `logs.all`.
  */
-export function useLogEntryWrites(db: Database) {
+export function useLogEntryWrites() {
+  const db = useDatabase();
   const invalidate = useInvalidate();
   return {
     create: useMutation({

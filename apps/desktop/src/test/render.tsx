@@ -1,4 +1,6 @@
 import { MantineProvider } from "@mantine/core";
+import { DatabaseProvider } from "@platform/DatabaseProvider";
+import type { Database } from "@spoor/core";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { theme } from "@theme";
 import { act, type ReactNode } from "react";
@@ -12,17 +14,20 @@ import { createRoot } from "react-dom/client";
 interface Providers {
   /** Wraps what is rendered in a `QueryClientProvider` for this cache. */
   queryClient?: QueryClient;
+  /** Gives what is rendered this database, for `useDatabase`. */
+  db?: Database;
   /** Wraps what is rendered in the app's Mantine theme, with reduced motion respected. */
   mantine?: boolean;
 }
 
-function withProviders(ui: ReactNode, { queryClient, mantine }: Providers): ReactNode {
+function withProviders(ui: ReactNode, { queryClient, db, mantine }: Providers): ReactNode {
   let tree = ui;
   if (mantine) {
     tree = (
       <MantineProvider theme={{ ...theme, respectReducedMotion: true }}>{tree}</MantineProvider>
     );
   }
+  if (db) tree = <DatabaseProvider db={db}>{tree}</DatabaseProvider>;
   if (queryClient) tree = <QueryClientProvider client={queryClient}>{tree}</QueryClientProvider>;
   return tree;
 }

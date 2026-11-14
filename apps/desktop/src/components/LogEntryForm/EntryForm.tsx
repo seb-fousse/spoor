@@ -1,6 +1,6 @@
 import { Button, Group, MultiSelect, NumberInput, Select, Stack, TextInput } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
-import { type Database, type LogField, optionLabel, type Precision, type Value } from "@spoor/core";
+import { type LogField, optionLabel, type Precision, type Value } from "@spoor/core";
 import { type FormEvent, useState } from "react";
 import { parseInput } from "./parseInput";
 import { useThings } from "./useLogData";
@@ -13,7 +13,6 @@ export interface EntryTimeInput {
 }
 
 interface EntryFormProps {
-  db: Database;
   fields: LogField[];
   /** A child entry takes its parent's time, so the form has no time inputs. */
   child: boolean;
@@ -28,7 +27,7 @@ interface EntryFormProps {
 }
 
 /** A new entry's time (unless it is a child entry) and a value per field. */
-export function EntryForm({ db, fields, child, day, layout = "inline", onCreate }: EntryFormProps) {
+export function EntryForm({ fields, child, day, layout = "inline", onCreate }: EntryFormProps) {
   const [picked, setPicked] = useState<string | null>(null);
   const entryDay = day ?? picked;
   const [inputs, setInputs] = useState<Record<string, string | string[]>>({});
@@ -73,7 +72,6 @@ export function EntryForm({ db, fields, child, day, layout = "inline", onCreate 
         {fields.map((field) => (
           <ValueInput
             key={field.id}
-            db={db}
             field={field}
             size={size}
             value={inputs[field.id] ?? (field.shape.valueType === "multi_ref" ? [] : "")}
@@ -90,13 +88,11 @@ export function EntryForm({ db, fields, child, day, layout = "inline", onCreate 
 }
 
 function ValueInput({
-  db,
   field,
   size,
   value,
   onChange,
 }: {
-  db: Database;
   field: LogField;
   size: "xs" | "sm";
   value: string | string[];
@@ -104,7 +100,6 @@ function ValueInput({
 }) {
   const { shape } = field;
   const things = useThings(
-    db,
     shape.valueType === "ref" || shape.valueType === "multi_ref"
       ? shape.constraints.thingTypeId
       : null,

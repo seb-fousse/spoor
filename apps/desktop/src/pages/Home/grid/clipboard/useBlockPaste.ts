@@ -1,11 +1,4 @@
-import type {
-  Database,
-  Instant,
-  LocalDate,
-  Timeline,
-  TimelineCategory,
-  TimelineInterval,
-} from "@spoor/core";
+import type { Instant, LocalDate, Timeline, TimelineCategory, TimelineInterval } from "@spoor/core";
 import { useRef } from "react";
 import { useCreateInterval } from "../data/useIntervalWrites";
 import { type DrawnRange, daysWindow } from "../layout/dragRange";
@@ -13,7 +6,6 @@ import { type BlockCopy, type PasteTarget, pasteTarget } from "./blockCopy";
 import type { PastePoint } from "./usePasteMenu";
 
 interface BlockPasteOptions {
-  db: Database;
   /** The copied block, or `null` until one is copied. */
   copied: BlockCopy | null;
   /** The timelines shown; a paste on a hidden one is refused. */
@@ -34,7 +26,6 @@ interface BlockPasteOptions {
  * them, so pasting again right away lands clear of them rather than on top.
  */
 export function useBlockPaste({
-  db,
   copied,
   timelines,
   intervals,
@@ -44,7 +35,7 @@ export function useBlockPaste({
   now,
   run,
 }: BlockPasteOptions) {
-  const write = useCreateInterval(db);
+  const write = useCreateInterval();
   const inFlight = useRef<TimelineInterval[]>([]);
   const count = useRef(0);
   const visible = daysWindow(days, timeZone);

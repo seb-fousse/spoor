@@ -15,8 +15,8 @@ import {
   useThingTypes,
 } from "@components/LogEntryForm";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
-  type Database,
   type LogEntry,
   type LogType,
   type NewLogField,
@@ -43,10 +43,11 @@ import {
 
 type Run = (action: () => Promise<unknown>) => void;
 
-export function Logs({ db }: { db: Database }) {
-  const typesQuery = useLogTypes(db);
+export function Logs() {
+  const db = useDatabase();
+  const typesQuery = useLogTypes();
   const types = typesQuery.data ?? [];
-  const typeWrites = useLogTypeWrites(db);
+  const typeWrites = useLogTypeWrites();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const error = writeError ?? typesQuery.error?.message ?? null;
@@ -83,7 +84,6 @@ export function Logs({ db }: { db: Database }) {
       {deleteDialog}
 
       <LogTypeForm
-        db={db}
         types={types}
         onCreate={(name, parentTypeId, fields) =>
           run(() => typeWrites.create({ name, parentTypeId, fields }))
@@ -123,7 +123,7 @@ export function Logs({ db }: { db: Database }) {
         ))}
       </Stack>
 
-      {selected && <LogTypeDetail db={db} type={selected} types={types} run={run} />}
+      {selected && <LogTypeDetail type={selected} types={types} run={run} />}
     </Stack>
   );
 }
@@ -132,11 +132,9 @@ export function Logs({ db }: { db: Database }) {
 // Types and fields
 
 function LogTypeForm({
-  db,
   types,
   onCreate,
 }: {
-  db: Database;
   types: LogType[];
   onCreate: (name: string, parentTypeId: string | null, fields: NewLogField[]) => void;
 }) {
@@ -172,7 +170,7 @@ function LogTypeForm({
             ]}
           />
         </Group>
-        <FieldsEditor db={db} rows={rows} setRows={setRows} />
+        <FieldsEditor rows={rows} setRows={setRows} />
         <Group gap="xs">
           <Button type="submit" size="xs">
             Add type
@@ -185,15 +183,13 @@ function LogTypeForm({
 
 /** The fields of a type being created, each removable before it is saved. */
 function FieldsEditor({
-  db,
   rows,
   setRows,
 }: {
-  db: Database;
   rows: NewFieldDraft[];
   setRows: (rows: NewFieldDraft[]) => void;
 }) {
-  const thingTypes = useThingTypes(db);
+  const thingTypes = useThingTypes();
   return (
     <Stack gap={4}>
       {rows.map((row, i) => (
@@ -223,22 +219,13 @@ function FieldsEditor({
   );
 }
 
-function LogTypeDetail({
-  db,
-  type,
-  types,
-  run,
-}: {
-  db: Database;
-  type: LogType;
-  types: LogType[];
-  run: Run;
-}) {
-  const fields = useFields(db, type.id);
-  const thingTypes = useThingTypes(db);
-  const entries = useLogEntries(db, type.id).data ?? [];
-  const fieldWrites = useLogFieldWrites(db, type.id);
-  const entryWrites = useLogEntryWrites(db);
+function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; run: Run }) {
+  const db = useDatabase();
+  const fields = useFields(type.id);
+  const thingTypes = useThingTypes();
+  const entries = useLogEntries(type.id).data ?? [];
+  const fieldWrites = useLogFieldWrites(type.id);
+  const entryWrites = useLogEntryWrites();
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
   const parent = types.find((t) => t.id === type.parentTypeId);
@@ -279,7 +266,6 @@ function LogTypeDetail({
       ) : (
         type.archivedAt === null && (
           <EntryForm
-            db={db}
             fields={fields}
             child={false}
             onCreate={(time, values) =>
@@ -290,7 +276,7 @@ function LogTypeDetail({
       )}
       <Stack gap={4}>
         {entries.map((entry) => (
-          <EntryItem key={entry.id} db={db} entry={entry} types={types} run={run} />
+          <EntryItem key={entry.id} entry={entry} types={types} run={run} />
         ))}
       </Stack>
     </Stack>
@@ -301,23 +287,22 @@ function LogTypeDetail({
 // Entries
 
 function EntryItem({
-  db,
   entry,
   types,
   place,
   run,
 }: {
-  db: Database;
   entry: LogEntry;
   types: LogType[];
   /** A child entry's place among its siblings, 1 first. */
   place?: { index: number; count: number };
   run: Run;
 }) {
-  const fields = useFields(db, entry.logTypeId);
-  const titles = useRefTitles(db, fields, entry);
-  const children = useChildEntries(db, entry.id).data ?? [];
-  const entryWrites = useLogEntryWrites(db);
+  const db = useDatabase();
+  const fields = useFields(entry.logTypeId);
+  const titles = useRefTitles(fields, entry);
+  const children = useChildEntries(entry.id).data ?? [];
+  const entryWrites = useLogEntryWrites();
   const childTypes = types.filter((t) => t.parentTypeId === entry.logTypeId);
   const [confirmDelete, deleteDialog] = useConfirmDelete(run);
 
@@ -384,7 +369,6 @@ function EntryItem({
           {children.map((child, i) => (
             <EntryItem
               key={child.id}
-              db={db}
               entry={child}
               types={types}
               place={{ index: i + 1, count: children.length }}
@@ -394,7 +378,7 @@ function EntryItem({
           {childTypes
             .filter((t) => t.archivedAt === null)
             .map((t) => (
-              <ChildEntryForm key={t.id} db={db} type={t} parentEntryId={entry.id} run={run} />
+              <ChildEntryForm key={t.id} type={t} parentEntryId={entry.id} run={run} />
             ))}
         </Stack>
       )}
@@ -403,23 +387,20 @@ function EntryItem({
 }
 
 function ChildEntryForm({
-  db,
   type,
   parentEntryId,
   run,
 }: {
-  db: Database;
   type: LogType;
   parentEntryId: string;
   run: Run;
 }) {
-  const fields = useFields(db, type.id);
-  const entryWrites = useLogEntryWrites(db);
+  const fields = useFields(type.id);
+  const entryWrites = useLogEntryWrites();
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>
       <EntryForm
-        db={db}
         fields={fields}
         child
         onCreate={(_, values) =>

@@ -3,7 +3,6 @@ import { shortcutHandler, shortcutLabel, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
 import { Alert, Button, Center, Loader, Stack, Text } from "@mantine/core";
 import {
-  type Database,
   type DayObservationCount,
   dayOf,
   dayRange,
@@ -71,7 +70,6 @@ const COPY_KEYS = shortcutLabel("copyBlock");
 const PASTE_KEYS = shortcutLabel("pasteBlock");
 
 interface TimelineGridProps {
-  db: Database;
   /** What to draw for `days`. Loaded by Home, which also feeds the header's timeline filter. */
   data: GridData;
   /** The timelines the header's filter has switched off. */
@@ -107,7 +105,6 @@ interface TimelineGridProps {
  * The blocks and ghosts themselves are drawn by `GridBlocks`.
  */
 export function TimelineGrid({
-  db,
   data,
   hiddenTimelines,
   onShowAllTimelines,
@@ -115,7 +112,7 @@ export function TimelineGrid({
   activeDay,
   dispatch,
 }: TimelineGridProps) {
-  const counts = useObservationCounts(db, days);
+  const counts = useObservationCounts(days);
   // Held here, so it survives paging the days and the timeline filter.
   const [copied, setCopied] = useState<BlockCopy | null>(null);
 
@@ -155,7 +152,6 @@ export function TimelineGrid({
   }
   return (
     <Grid
-      db={db}
       days={days}
       activeDay={activeDay}
       dispatch={dispatch}
@@ -171,7 +167,6 @@ export function TimelineGrid({
 }
 
 interface GridProps {
-  db: Database;
   days: LocalDate[];
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
@@ -187,7 +182,6 @@ interface GridProps {
 }
 
 function Grid({
-  db,
   days,
   activeDay,
   dispatch,
@@ -248,7 +242,7 @@ function Grid({
   };
 
   const drag = useDragToCreate(timeZone, days, timelines, intervals);
-  const create = useCreateInterval(db);
+  const create = useCreateInterval();
   const cancel = () => {
     drag.cancel();
     create.reset();
@@ -262,10 +256,10 @@ function Grid({
     action().catch((e: Error) => setError(e.message));
   };
 
-  const move = useUpdateInterval(db);
-  const recategorize = useUpdateInterval(db);
-  const remove = useDeleteInterval(db);
-  const split = useSplitInterval(db);
+  const move = useUpdateInterval();
+  const recategorize = useUpdateInterval();
+  const remove = useDeleteInterval();
+  const split = useSplitInterval();
   // Whether the split key's last split is still being saved.
   const splitting = useRef(false);
   // The split a right-button press on a block aims, and the menu its release opens.
@@ -303,7 +297,6 @@ function Grid({
   // Where the pointer is, for the keys that act there: paste and split.
   const gridPointer = useGridPointer(timeZone);
   const pasting = useBlockPaste({
-    db,
     copied,
     timelines,
     intervals,

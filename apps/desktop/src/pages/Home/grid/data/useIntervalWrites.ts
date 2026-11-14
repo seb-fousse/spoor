@@ -1,4 +1,5 @@
 import { queryKeys } from "@lib/queryKeys";
+import { useDatabase } from "@platform/DatabaseProvider";
 import {
   createCategory,
   createInterval,
@@ -49,7 +50,8 @@ function useGridWrite<Variables, Result>(write: (variables: Variables) => Promis
 }
 
 /** Records a drawn block, creating its category first when it is new. */
-export function useCreateInterval(db: Database) {
+export function useCreateInterval() {
+  const db = useDatabase();
   return useGridWrite(async (block: NewBlock) => {
     const categoryId = await categoryOf(db, block.timelineId, block);
     return createInterval(db, { categoryId, startAt: block.startAt, endAt: block.endAt });
@@ -57,7 +59,8 @@ export function useCreateInterval(db: Database) {
 }
 
 /** Moves, resizes or recategorizes a block, creating its new category first when it is new. */
-export function useUpdateInterval(db: Database) {
+export function useUpdateInterval() {
+  const db = useDatabase();
   return useGridWrite(async (change: BlockChange) => {
     if ("startAt" in change) {
       return updateInterval(db, change.id, { startAt: change.startAt, endAt: change.endAt });
@@ -68,11 +71,13 @@ export function useUpdateInterval(db: Database) {
 }
 
 /** Deletes a block, for good. */
-export function useDeleteInterval(db: Database) {
+export function useDeleteInterval() {
+  const db = useDatabase();
   return useGridWrite((id: string) => deleteInterval(db, id));
 }
 
 /** Cuts a block in two at `at`, both in its category. */
-export function useSplitInterval(db: Database) {
+export function useSplitInterval() {
+  const db = useDatabase();
   return useGridWrite(({ id, at }: { id: string; at: Instant }) => splitInterval(db, id, at));
 }

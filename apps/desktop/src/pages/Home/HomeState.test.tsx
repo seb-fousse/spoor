@@ -24,7 +24,7 @@ function Page() {
 
 /** The app: the provider always mounted, the page only while the user is on Home. */
 function App({ onHome }: { onHome: boolean }) {
-  return <HomeStateProvider db={db}>{onHome ? <Page /> : null}</HomeStateProvider>;
+  return <HomeStateProvider>{onHome ? <Page /> : null}</HomeStateProvider>;
 }
 
 let root: TestRoot;
@@ -64,7 +64,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   vi.setSystemTime(Date.UTC(2026, 10, 9, 12));
   queryClient = createQueryClient();
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
 });
 
 afterEach(() => {
