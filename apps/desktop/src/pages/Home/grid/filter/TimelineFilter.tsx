@@ -1,3 +1,4 @@
+import { Icon } from "@components/Icon";
 import { Checkbox, Popover, UnstyledButton } from "@mantine/core";
 import type { Timeline } from "@spoor/core";
 import { useId } from "react";
@@ -49,18 +50,9 @@ export function TimelineFilter({ timelines, hidden, onChange }: TimelineFilterPr
           aria-label={`Timelines, ${shown} of ${timelines.length} shown`}
         >
           {/* A funnel, 1em like the text. */}
-          <svg
-            aria-hidden="true"
-            className={classes.icon}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <Icon className={classes.icon}>
             <path d="M3 5h18l-7 8v6l-4 2v-8z" />
-          </svg>
+          </Icon>
           Timelines
           <span
             className={classes.count}

@@ -1,3 +1,4 @@
+import { Icon } from "@components/Icon";
 import { describeShortcut, type ShortcutId, shortcutLabel } from "@keyboard";
 import { Kbd, Menu } from "@mantine/core";
 import type { CSSProperties, ReactNode } from "react";
@@ -140,29 +141,13 @@ export function PasteMenu({ paste, onPaste, ...menu }: PasteMenuProps) {
   );
 }
 
-/** An inline icon, drawn like the app's others. */
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width={14}
-      height={14}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {children}
-    </svg>
-  );
-}
+/** The menu items' icons, 14px. */
+const ICON_SIZE = 14;
 
 /** A bin. */
 function TrashIcon() {
   return (
-    <Icon>
+    <Icon size={ICON_SIZE}>
       <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
     </Icon>
   );
@@ -171,7 +156,7 @@ function TrashIcon() {
 /** Open scissors. */
 function ScissorsIcon() {
   return (
-    <Icon>
+    <Icon size={ICON_SIZE}>
       <circle cx="6" cy="6" r="3" />
       <circle cx="6" cy="18" r="3" />
       <path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" />
@@ -182,7 +167,7 @@ function ScissorsIcon() {
 /** Two overlapping sheets. */
 function CopyIcon() {
   return (
-    <Icon>
+    <Icon size={ICON_SIZE}>
       <rect x="9" y="9" width="13" height="13" rx="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </Icon>
@@ -192,7 +177,7 @@ function CopyIcon() {
 /** A clipboard. */
 function ClipboardIcon() {
   return (
-    <Icon>
+    <Icon size={ICON_SIZE}>
       <rect x="8" y="2" width="8" height="4" rx="1" />
       <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
     </Icon>
