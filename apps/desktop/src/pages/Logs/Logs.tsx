@@ -6,14 +6,17 @@ import {
   newFieldDraft,
   toNewField,
 } from "@components/FieldList";
+import { describeValues, EntryForm, formatTime } from "@components/LogEntryForm";
 import {
-  describeValues,
-  EntryForm,
-  formatTime,
+  useChildEntries,
   useFields,
-  useRefTitles,
-  useThingTypes,
-} from "@components/LogEntryForm";
+  useLogEntries,
+  useLogEntryWrites,
+  useLogFieldWrites,
+  useLogTypes,
+  useLogTypeWrites,
+} from "@data/logs";
+import { useRefTitles, useThingTypes } from "@data/things";
 import { Alert, Button, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useDatabase } from "@platform/DatabaseProvider";
 import {
@@ -25,14 +28,6 @@ import {
   previewLogTypeDeletion,
 } from "@spoor/core";
 import { type FormEvent, useState } from "react";
-import {
-  useChildEntries,
-  useLogEntries,
-  useLogEntryWrites,
-  useLogFieldWrites,
-  useLogTypes,
-  useLogTypeWrites,
-} from "./useLogsData";
 
 /**
  * Proof-of-concept Logs screen: log types and their fields, entries with a

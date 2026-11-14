@@ -1,7 +1,7 @@
+import { queryKeys } from "@data/queryKeys";
 import type { QueryKey } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "./queryClient";
-import { queryKeys } from "./queryKeys";
 
 /** How many times `queryKey`'s read runs when fetched twice in a row. */
 async function readsWhenFetchedTwice(queryKey: QueryKey) {

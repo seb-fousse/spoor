@@ -1,6 +1,6 @@
+import { useCreateInterval } from "@data/timelines";
 import type { Instant, LocalDate, Timeline, TimelineCategory, TimelineInterval } from "@spoor/core";
 import { useRef } from "react";
-import { useCreateInterval } from "../data/useIntervalWrites";
 import { type DrawnRange, daysWindow } from "../layout/dragRange";
 import { type BlockCopy, type PasteTarget, pasteTarget } from "./blockCopy";
 import type { PastePoint } from "./usePasteMenu";

@@ -1,4 +1,4 @@
-import { useTimeZone } from "@hooks/useTimeZone";
+import { useTimeZone } from "@data/settings";
 import { useToday } from "@hooks/useToday";
 import type { LocalDate } from "@spoor/core";
 import {

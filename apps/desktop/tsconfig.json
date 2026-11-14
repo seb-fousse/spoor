@@ -8,6 +8,7 @@
     "resolveJsonModule": true,
     "paths": {
       "@components/*": ["./src/components/*"],
+      "@data/*": ["./src/data/*"],
       "@hooks/*": ["./src/hooks/*"],
       "@keyboard": ["./src/keyboard/index.ts"],
       "@lib/*": ["./src/lib/*"],

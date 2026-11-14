@@ -1,4 +1,5 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
+import { useTimelineDetail, useTimelineList, useTimelinesWrite } from "@data/timelines";
 import {
   Alert,
   Button,
@@ -31,7 +32,6 @@ import {
 } from "@spoor/core";
 import dayjs from "dayjs";
 import { type FormEvent, useState } from "react";
-import { useTimelineDetail, useTimelineList, useTimelinesWrite } from "./useTimelinesData";
 
 /**
  * Proof-of-concept Timelines screen: every core read and write, built from

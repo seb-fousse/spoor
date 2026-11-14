@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
-import { useRefTitles } from "@components/LogEntryForm";
 import { createQueryClient } from "@lib/queryClient";
-import { queryKeys } from "@lib/queryKeys";
 import type { Database, FieldDefinition } from "@spoor/core";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ThingWriteReach, useThingWrite } from "./useThingWrite";
+import { queryKeys } from "./queryKeys";
+import { type ThingWriteReach, useRefTitles, useThingWrite } from "./things";
 
 // The stored title of thing "t1", which a write below changes.
 let storedTitle = "Alex";
