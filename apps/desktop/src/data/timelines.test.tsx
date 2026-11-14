@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
+import type { Database } from "@spoor/core";
 import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { queryKeys } from "./queryKeys";
 import { useTimelinesWrite } from "./timelines";
+
+// Never touched: the writes under test close over no database.
+const db = {} as Database;
 
 /** The hook's result, captured on each render. */
 let write: ReturnType<typeof useTimelinesWrite> | undefined;
@@ -37,7 +41,7 @@ const invalidated = (key: readonly unknown[]) => queryClient.getQueryState(key)?
 beforeEach(async () => {
   queryClient = createQueryClient();
   for (const key of [list, grid, intervals, logs]) queryClient.setQueryData(key, []);
-  root = createTestRoot({ queryClient });
+  root = createTestRoot({ queryClient, db });
   await root.renderAsync(<Page />);
 });
 

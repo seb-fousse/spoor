@@ -5,7 +5,18 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useLogEntryWrites, useLogFieldWrites, useLogTypeWrites } from "./logs";
+import {
+  useAddLogField,
+  useCreateLogEntry,
+  useCreateLogType,
+  useDeleteLogEntry,
+  useDeleteLogField,
+  useDeleteLogType,
+  useMoveChildEntry,
+  useReorderLogFields,
+  useSetLogTypeArchived,
+  useUpdateLogField,
+} from "./logs";
 import { queryKeys } from "./queryKeys";
 
 // The writes succeed without a database; only what they invalidate is under test.
@@ -27,20 +38,28 @@ vi.mock("@spoor/core", () => {
 
 const db = {} as Database;
 
-type Writes = {
-  types: ReturnType<typeof useLogTypeWrites>;
-  fields: ReturnType<typeof useLogFieldWrites>;
-  entries: ReturnType<typeof useLogEntryWrites>;
-};
+/** The Logs page's writes, for type "type-1" where a write needs one. */
+function useWrites() {
+  return {
+    createType: useCreateLogType(),
+    setTypeArchived: useSetLogTypeArchived(),
+    deleteType: useDeleteLogType(),
+    addField: useAddLogField("type-1"),
+    updateField: useUpdateLogField(),
+    reorderFields: useReorderLogFields("type-1"),
+    deleteField: useDeleteLogField(),
+    createEntry: useCreateLogEntry(),
+    moveEntry: useMoveChildEntry(),
+    deleteEntry: useDeleteLogEntry(),
+  };
+}
+
+type Writes = ReturnType<typeof useWrites>;
 
 let writes: Writes | undefined;
 
 function Page() {
-  writes = {
-    types: useLogTypeWrites(),
-    fields: useLogFieldWrites("type-1"),
-    entries: useLogEntryWrites(),
-  };
+  writes = useWrites();
   return null;
 }
 
@@ -76,26 +95,29 @@ async function write(run: (w: Writes) => Promise<unknown>) {
 
 describe("the Logs page's writes", () => {
   it.each<[string, (w: Writes) => Promise<unknown>]>([
-    ["creating an entry", (w) => w.entries.create({ logTypeId: "type-1", values: {} })],
-    ["moving a child entry", (w) => w.entries.move({ id: "entry-1", position: 2 })],
-    ["deleting an entry", (w) => w.entries.remove("entry-1")],
+    ["creating an entry", (w) => w.createEntry.mutateAsync({ logTypeId: "type-1", values: {} })],
+    ["moving a child entry", (w) => w.moveEntry.mutateAsync({ id: "entry-1", position: 2 })],
+    ["deleting an entry", (w) => w.deleteEntry.mutateAsync("entry-1")],
   ])("invalidate Home's day logs, not the types, on %s", async (_, run) => {
     expect(await write(run)).toEqual({ day: true, types: false, fields: false });
   });
 
   it.each<[string, (w: Writes) => Promise<unknown>]>([
-    ["creating a type", (w) => w.types.create({ name: "Run", fields: [] })],
-    ["adding a field", (w) => w.fields.add({ name: "Distance", valueType: "number" })],
-    ["updating a field", (w) => w.fields.update({ fieldId: "field-1", patch: { name: "Km" } })],
-    ["reordering fields", (w) => w.fields.reorder(["field-2", "field-1"])],
+    ["creating a type", (w) => w.createType.mutateAsync({ name: "Run", fields: [] })],
+    ["adding a field", (w) => w.addField.mutateAsync({ name: "Distance", valueType: "number" })],
+    [
+      "updating a field",
+      (w) => w.updateField.mutateAsync({ fieldId: "field-1", patch: { name: "Km" } }),
+    ],
+    ["reordering fields", (w) => w.reorderFields.mutateAsync(["field-2", "field-1"])],
   ])("invalidate the types and fields, not the day logs, on %s", async (_, run) => {
     expect(await write(run)).toEqual({ day: false, types: true, fields: true });
   });
 
   it.each<[string, (w: Writes) => Promise<unknown>]>([
-    ["archiving a type", (w) => w.types.setArchived({ id: "type-1", archived: true })],
-    ["deleting a type", (w) => w.types.remove("type-1")],
-    ["deleting a field", (w) => w.fields.remove("field-1")],
+    ["archiving a type", (w) => w.setTypeArchived.mutateAsync({ id: "type-1", archived: true })],
+    ["deleting a type", (w) => w.deleteType.mutateAsync("type-1")],
+    ["deleting a field", (w) => w.deleteField.mutateAsync("field-1")],
   ])("invalidate the types, the fields and the day logs, on %s", async (_, run) => {
     expect(await write(run)).toEqual({ day: true, types: true, fields: true });
   });

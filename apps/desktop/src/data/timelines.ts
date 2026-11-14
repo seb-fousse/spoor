@@ -17,14 +17,9 @@ import {
   type TimelineCategory,
   updateInterval,
 } from "@spoor/core";
-import {
-  keepPreviousData,
-  skipToken,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "./queryKeys";
+import { useDbWrite } from "./useDbWrite";
 
 /** Every timeline by name, archived included. */
 export function useTimelineList() {
@@ -112,18 +107,18 @@ export function useGridIntervals(
  * invalidating after it only refetches what is on screen.
  */
 export function useTimelinesWrite() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (write: () => Promise<unknown>) => write(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.timelines.all }),
+  // The page's writes already hold the database.
+  return useDbWrite((_db, write: () => Promise<unknown>) => write(), {
+    invalidates: [queryKeys.timelines.all],
   });
 }
 
 /**
  * The grid's writes to intervals. Core rejects an overlap conflict, and
- * nothing is written then. Each success refetches the grid before the
- * mutation settles, so `isPending` lasts until the new blocks are drawn and
- * nothing flickers back to where it was.
+ * nothing is written then. Each success refetches the grid, under
+ * `timelines.all`, before the mutation settles, so `isPending` lasts until the
+ * new blocks are drawn and nothing flickers back to where it was. Each call of
+ * a hook is its own mutation, with its own pending and error state.
  */
 
 /** An existing category, or a new one in the timeline named `newCategory`. */
@@ -143,48 +138,41 @@ async function categoryOf(db: Database, timelineId: string, choice: CategoryChoi
   return (await createCategory(db, timelineId, { name: choice.newCategory })).id;
 }
 
-/**
- * A write to the grid's intervals, which refetches the grid once it succeeds.
- * Each call is its own mutation, with its own pending and error state.
- */
-function useGridWrite<Variables, Result>(write: (variables: Variables) => Promise<Result>) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: write,
-    // Returned, so the mutation settles only once the grid has refetched.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.timelines.all }),
-  });
-}
-
 /** Records a drawn block, creating its category first when it is new. */
 export function useCreateInterval() {
-  const db = useDatabase();
-  return useGridWrite(async (block: NewBlock) => {
-    const categoryId = await categoryOf(db, block.timelineId, block);
-    return createInterval(db, { categoryId, startAt: block.startAt, endAt: block.endAt });
-  });
+  return useDbWrite(
+    async (db, block: NewBlock) => {
+      const categoryId = await categoryOf(db, block.timelineId, block);
+      return createInterval(db, { categoryId, startAt: block.startAt, endAt: block.endAt });
+    },
+    { invalidates: [queryKeys.timelines.all] },
+  );
 }
 
 /** Moves, resizes or recategorizes a block, creating its new category first when it is new. */
 export function useUpdateInterval() {
-  const db = useDatabase();
-  return useGridWrite(async (change: BlockChange) => {
-    if ("startAt" in change) {
-      return updateInterval(db, change.id, { startAt: change.startAt, endAt: change.endAt });
-    }
-    const categoryId = await categoryOf(db, change.timelineId, change);
-    return updateInterval(db, change.id, { categoryId });
-  });
+  return useDbWrite(
+    async (db, change: BlockChange) => {
+      if ("startAt" in change) {
+        return updateInterval(db, change.id, { startAt: change.startAt, endAt: change.endAt });
+      }
+      const categoryId = await categoryOf(db, change.timelineId, change);
+      return updateInterval(db, change.id, { categoryId });
+    },
+    { invalidates: [queryKeys.timelines.all] },
+  );
 }
 
 /** Deletes a block, for good. */
 export function useDeleteInterval() {
-  const db = useDatabase();
-  return useGridWrite((id: string) => deleteInterval(db, id));
+  return useDbWrite((db, id: string) => deleteInterval(db, id), {
+    invalidates: [queryKeys.timelines.all],
+  });
 }
 
 /** Cuts a block in two at `at`, both in its category. */
 export function useSplitInterval() {
-  const db = useDatabase();
-  return useGridWrite(({ id, at }: { id: string; at: Instant }) => splitInterval(db, id, at));
+  return useDbWrite((db, { id, at }: { id: string; at: Instant }) => splitInterval(db, id, at), {
+    invalidates: [queryKeys.timelines.all],
+  });
 }

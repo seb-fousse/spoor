@@ -17,9 +17,13 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type DayObservations,
-  type ObservationWrites,
+  useCreateMetric,
   useDayObservations,
-  useObservationWrites,
+  useDeleteMetric,
+  useDeleteObservation,
+  useRecordObservation,
+  useSetMetricArchived,
+  useUpdateMetric,
 } from "./observations";
 import { queryKeys } from "./queryKeys";
 
@@ -47,10 +51,24 @@ let queryClient: QueryClient;
 
 const invalidated = (key: readonly unknown[]) => queryClient.getQueryState(key)?.isInvalidated;
 
+/** The Observations page's writes. */
+function useWrites() {
+  return {
+    createMetric: useCreateMetric(),
+    updateMetric: useUpdateMetric(),
+    setMetricArchived: useSetMetricArchived(),
+    deleteMetric: useDeleteMetric(),
+    recordObservation: useRecordObservation(),
+    deleteObservation: useDeleteObservation(),
+  };
+}
+
+type ObservationWrites = ReturnType<typeof useWrites>;
+
 let writes: ObservationWrites | undefined;
 
 function Probe() {
-  writes = useObservationWrites();
+  writes = useWrites();
   return null;
 }
 
@@ -62,7 +80,7 @@ function Rail({ day }: { day: LocalDate }) {
   return null;
 }
 
-describe("useObservationWrites", () => {
+describe("the Observations page's writes", () => {
   const day = "2026-11-09";
 
   /** What reads observations: Home's rail and day counts, and this page's lists. */
@@ -91,15 +109,15 @@ describe("useObservationWrites", () => {
 
   /** Each of the page's writes, called the way the page calls it. */
   const calls: [string, (w: ObservationWrites) => Promise<unknown>][] = [
-    ["creating a metric", (w) => w.createMetric({ name: "Mood", valueType: "number" })],
-    ["editing a metric", (w) => w.updateMetric({ id: "m1", patch: { name: "Sleep" } })],
-    ["archiving a metric", (w) => w.setMetricArchived({ id: "m1", archived: true })],
-    ["deleting a metric", (w) => w.deleteMetric("m1")],
+    ["creating a metric", (w) => w.createMetric.mutateAsync({ name: "Mood", valueType: "number" })],
+    ["editing a metric", (w) => w.updateMetric.mutateAsync({ id: "m1", patch: { name: "Sleep" } })],
+    ["archiving a metric", (w) => w.setMetricArchived.mutateAsync({ id: "m1", archived: true })],
+    ["deleting a metric", (w) => w.deleteMetric.mutateAsync("m1")],
     [
       "recording an observation",
-      (w) => w.recordObservation({ metricId: "m1", date: day, value: 7 }),
+      (w) => w.recordObservation.mutateAsync({ metricId: "m1", date: day, value: 7 }),
     ],
-    ["deleting an observation", (w) => w.deleteObservation("o1")],
+    ["deleting an observation", (w) => w.deleteObservation.mutateAsync("o1")],
   ];
 
   it.each(calls)("%s invalidates Home's rail and counts and the page's lists", async (_, call) => {
@@ -114,7 +132,7 @@ describe("useObservationWrites", () => {
     vi.mocked(core.updateMetric).mockRejectedValueOnce(new Error("name required"));
     await act(async () => {
       await expect(
-        (writes as ObservationWrites).updateMetric({ id: "m1", patch: { name: "" } }),
+        (writes as ObservationWrites).updateMetric.mutateAsync({ id: "m1", patch: { name: "" } }),
       ).rejects.toThrow("name required");
     });
     for (const key of Object.values(observationKeys)) expect(invalidated(key)).toBe(false);

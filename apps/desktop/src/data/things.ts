@@ -7,14 +7,9 @@ import {
   type ThingType,
   type Value,
 } from "@spoor/core";
-import {
-  keepPreviousData,
-  type QueryKey,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, type QueryKey, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "./queryKeys";
+import { useDbWrite } from "./useDbWrite";
 
 /** Thing types a `ref` field can target: live and unarchived. */
 export function useThingTypes(): ThingType[] {
@@ -109,15 +104,11 @@ const INVALIDATES: Record<ThingWriteReach, QueryKey[]> = {
  * differ only in what they invalidate.
  */
 export function useThingWrite() {
-  const queryClient = useQueryClient();
-  const { mutateAsync } = useMutation({
-    mutationFn: ({ action }: { action: () => Promise<unknown>; reach: ThingWriteReach }) =>
-      action(),
-    onSuccess: (_, { reach }) =>
-      Promise.all(
-        INVALIDATES[reach].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-      ),
-  });
+  // The page's actions already hold the database.
+  const { mutateAsync } = useDbWrite(
+    (_db, { action }: { action: () => Promise<unknown>; reach: ThingWriteReach }) => action(),
+    { invalidates: (_, { reach }) => INVALIDATES[reach] },
+  );
   return (action: () => Promise<unknown>, reach: ThingWriteReach = "things") =>
     mutateAsync({ action, reach });
 }
