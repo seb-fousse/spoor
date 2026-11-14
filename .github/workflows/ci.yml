@@ -40,6 +40,11 @@ jobs:
       - name: Lint and format check
         run: pnpm lint
 
+      # Lints the fixtures in tools/biome/fixtures, so a lint rule that stops
+      # matching fails the build instead of passing silently.
+      - name: Lint rules self-test
+        run: pnpm lint:selftest
+
       - name: Test
         run: pnpm test
 

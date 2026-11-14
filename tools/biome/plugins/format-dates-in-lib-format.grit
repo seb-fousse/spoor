@@ -1,0 +1,19 @@
+// Dates and times are formatted only in apps/desktop/src/lib/format.ts (#146, rule 4).
+// biome.jsonc scopes this plugin to the desktop app and lists the files it allows.
+//
+// Each call is spelled out: Biome 2.6.6 fails to compile the shorter form, a
+// `$method` metavariable narrowed with `or`, once it sits inside this `or`.
+language js
+
+or {
+  `$_.toLocaleString($...)`,
+  `$_.toLocaleDateString($...)`,
+  `$_.toLocaleTimeString($...)`,
+  `$_?.toLocaleString($...)`,
+  `$_?.toLocaleDateString($...)`,
+  `$_?.toLocaleTimeString($...)`,
+  `new Intl.DateTimeFormat($...)`,
+  `Intl.DateTimeFormat($...)`
+} as $call where {
+  register_diagnostic(span=$call, message="Dates and times are formatted only in lib/format. Use one of its helpers, or add a format there with dateFormat.", severity="error")
+}
