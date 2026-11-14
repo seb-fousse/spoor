@@ -22,6 +22,7 @@ import {
   getInterval,
   listIntervals,
   listIntervalsInRange,
+  splitInterval,
   startInterval,
   stopInterval,
   updateInterval,
@@ -374,6 +375,40 @@ describe("timelines", () => {
         await expect(
           updateInterval(db, created.id, { categoryId: other.categories[0].id }),
         ).rejects.toThrow(/another timeline/);
+      });
+    });
+
+    describe("split", () => {
+      it("cuts an interval in two, in the same category", async () => {
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[0].id, 1, 4);
+        const [earlier, later] = await splitInterval(db, created.id, 2 * H);
+        expect(earlier).toMatchObject({ id: created.id, startAt: H, endAt: 2 * H });
+        expect(later).toMatchObject({
+          categoryId: categories[0].id,
+          startAt: 2 * H,
+          endAt: 4 * H,
+          timeZone: TZ,
+        });
+        expect(later.id).not.toBe(created.id);
+        expect(await listIntervals(db, timeline.id)).toHaveLength(2);
+      });
+
+      it("keeps the later piece ongoing", async () => {
+        const { categories } = await setup();
+        const ongoing = await interval(categories[0].id, 1, null);
+        const [earlier, later] = await splitInterval(db, ongoing.id, 3 * H);
+        expect(earlier.endAt).toBe(3 * H);
+        expect(later).toMatchObject({ startAt: 3 * H, endAt: null });
+      });
+
+      it("rejects a point that isn't strictly inside, leaving the interval unchanged", async () => {
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[0].id, 1, 4);
+        for (const at of [0, H, 4 * H, 5 * H]) {
+          await expect(splitInterval(db, created.id, at)).rejects.toThrow(/not inside/);
+        }
+        expect(await listIntervals(db, timeline.id)).toEqual([created]);
       });
     });
   });

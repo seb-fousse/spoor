@@ -14,7 +14,7 @@ import {
  */
 
 /** Drawn blocks snap to this step. */
-const SNAP_MS = 15 * 60 * 1000;
+export const SNAP_MS = 15 * 60 * 1000;
 
 /** A drawn time range, half-open: `[startAt, endAt)`. */
 export interface DrawnRange {

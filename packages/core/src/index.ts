@@ -142,6 +142,7 @@ export {
   getInterval,
   listIntervals,
   listIntervalsInRange,
+  splitInterval,
   startInterval,
   stopInterval,
   type TimelineInterval,

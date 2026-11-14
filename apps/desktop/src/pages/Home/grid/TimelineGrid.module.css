@@ -243,6 +243,44 @@
   border-bottom: 2px dashed var(--block-accent);
 }
 
+/* Dragged somewhere else: faded where it was, until the move is saved. */
+.block[data-moving] {
+  opacity: 0.35;
+}
+
+/* Its popover is open. */
+.block[data-selected] {
+  outline: 2px solid var(--block-accent);
+  outline-offset: -1px;
+}
+
+/* Grab an edge where the interval really starts or ends to resize it. */
+.handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: min(5px, 30%);
+  cursor: ns-resize;
+}
+
+.handle[data-side="top"] {
+  top: 0;
+}
+
+.handle[data-side="bottom"] {
+  bottom: 0;
+}
+
+/* Where a clicked block's popover hangs from: the pressed segment, unseen. */
+.anchor {
+  position: absolute;
+  top: calc(var(--top) * 100%);
+  left: calc(var(--lane) * 100% / var(--lanes) + 1px);
+  width: calc(100% / var(--lanes) - 2px);
+  height: calc(var(--height) * 100%);
+  pointer-events: none;
+}
+
 .blockLabel {
   display: block;
   overflow: hidden;
@@ -305,4 +343,33 @@
   border-bottom: 0;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+}
+
+/* Where an edited block is going: in its category's colours. */
+.ghost[data-edit] {
+  border-color: var(--block-accent);
+  background: var(--block-bg);
+  color: var(--block-fg);
+}
+
+/* Where a split from the block's menu would cut it. */
+.cutLine {
+  position: absolute;
+  top: calc(var(--top) * 100%);
+  left: calc(var(--lane) * 100% / var(--lanes) + 1px);
+  z-index: 2;
+  width: calc(100% / var(--lanes) - 2px);
+  height: 0;
+  border-top: 2px dashed var(--block-accent);
+  pointer-events: none;
+}
+
+/* Where a block's menu opens from: the pointer, unseen. */
+.menuAnchor {
+  position: absolute;
+  top: calc(var(--top) * 100%);
+  left: var(--left);
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }

@@ -1,6 +1,7 @@
 import type { Instant, LocalDate, Timeline, TimelineInterval } from "@spoor/core";
 import { type PointerEvent, useState } from "react";
-import { type DrawnRange, daysWindow, dragRange, freeSpan, snapFraction } from "./dragRange";
+import { type DrawnRange, daysWindow, dragRange, freeSpan } from "./dragRange";
+import { DAY_ATTR, instantIn, pointerAt, TIMELINE_ATTR } from "./gridPointer";
 
 /** A block being drawn, or drawn and waiting for its category. It may span several days. */
 export interface Draft {
@@ -20,12 +21,6 @@ interface DragState extends Omit<Draft, "range"> {
   span: DrawnRange;
 }
 
-/** Marks the element holding every day column, and each day column. */
-export const DRAG_ROOT = "data-drag-root";
-export const DAY_COLUMN = "data-drag-day-column";
-const DAY_ATTR = "data-drag-day";
-const TIMELINE_ATTR = "data-drag-timeline";
-
 /** What `handlers` spreads on a sub-column. */
 export type SubColumnHandlers = ReturnType<ReturnType<typeof useDragToCreate>["handlers"]>;
 
@@ -39,7 +34,8 @@ export type SubColumnHandlers = ReturnType<ReturnType<typeof useDragToCreate>["h
  * nothing.
  *
  * `handlers(day, timelineId)` is spread on each sub-column, inside a day
- * column marked with `DAY_COLUMN`, inside an element marked with `DRAG_ROOT`.
+ * column marked with `DAY_COLUMN`, inside an element marked with `DRAG_ROOT`
+ * (see `gridPointer`).
  * A press on an existing block (anything matching `[data-block]`) is left
  * alone. `cancel` drops a released draft.
  */
@@ -51,33 +47,6 @@ export function useDragToCreate(
 ) {
   const [state, setState] = useState<DragState | null>(null);
 
-  /** The snapped instant at `clientY` in `column`, a sub-column of `day`. */
-  const instantIn = (column: HTMLElement, clientY: number, day: LocalDate) => {
-    const rect = column.getBoundingClientRect();
-    return snapFraction((clientY - rect.top) / rect.height, day, timeZone);
-  };
-
-  /**
-   * The day under the pointer, and the snapped instant at its height in that
-   * day's sub-column for the timeline. The day is the whole day column the
-   * pointer is over, so moving across other timelines' sub-columns stays on it.
-   */
-  const locate = (event: PointerEvent<HTMLElement>, timelineId: string) => {
-    const root = event.currentTarget.closest(`[${DRAG_ROOT}]`) ?? event.currentTarget;
-    const columns = [
-      ...root.querySelectorAll<HTMLElement>(`[${TIMELINE_ATTR}="${CSS.escape(timelineId)}"]`),
-    ];
-    // Left of the first day counts as the first, right of the last as the last.
-    const column =
-      columns.find(
-        (c) => event.clientX < (c.closest(`[${DAY_COLUMN}]`) ?? c).getBoundingClientRect().right,
-      ) ??
-      columns.at(-1) ??
-      event.currentTarget;
-    const day = column.getAttribute(DAY_ATTR) as LocalDate;
-    return { day, at: instantIn(column, event.clientY, day) };
-  };
-
   const handlers = (day: LocalDate, timelineId: string) => ({
     [DAY_ATTR]: day,
     [TIMELINE_ATTR]: timelineId,
@@ -87,7 +56,7 @@ export function useDragToCreate(
       // React passes events up from portals too, such as the category popover's.
       if (!event.currentTarget.contains(target) || target.closest("[data-block]")) return;
       const timeline = timelines.find((t) => t.id === timelineId);
-      const anchor = instantIn(event.currentTarget, event.clientY, day);
+      const anchor = instantIn(event.currentTarget, event.clientY, day, timeZone);
       const span = timeline && freeSpan(anchor, intervals, timeline, daysWindow(days, timeZone));
       if (!span) return;
       // No text selection or focus change while drawing.
@@ -98,7 +67,7 @@ export function useDragToCreate(
     onPointerMove: (event: PointerEvent<HTMLElement>) => {
       // Captured, so the pressed sub-column gets every move, wherever the pointer is.
       if (state?.phase !== "drawing" || state.timelineId !== timelineId) return;
-      const { day: pointerDay, at } = locate(event, timelineId);
+      const { day: pointerDay, at } = pointerAt(event, timelineId, timeZone);
       setState({ ...state, pointerDay, range: dragRange(state.anchor, at, state.span) });
     },
     onPointerUp: () => {
