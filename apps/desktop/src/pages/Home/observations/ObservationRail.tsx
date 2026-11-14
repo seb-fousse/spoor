@@ -13,6 +13,7 @@ import {
   atMaximum,
   countRecorded,
   meetsMinimum,
+  type NumberConstraints,
   normalizeNumber,
   stepNumber,
   toggleOption,
@@ -184,8 +185,6 @@ function ObservationCard({
     </div>
   );
 }
-
-type NumberConstraints = Extract<MetricDay["metric"], { valueType: "number" }>["constraints"];
 
 /**
  * A number field with Mantine's chevrons. A chevron click (or ↑/↓ in the

@@ -5,7 +5,8 @@ import type { MetricDay, ObservationMetric } from "@spoor/core";
  * never sends core a value it would refuse.
  */
 
-type NumberConstraints = Extract<ObservationMetric, { valueType: "number" }>["constraints"];
+/** A number metric's constraints: its range, precision and unit. */
+export type NumberConstraints = Extract<ObservationMetric, { valueType: "number" }>["constraints"];
 type MultiEnumConstraints = Extract<ObservationMetric, { valueType: "multi_enum" }>["constraints"];
 
 /** How many of the day's metrics have a value. */
