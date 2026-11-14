@@ -24,6 +24,11 @@ describe("hotkey", () => {
     expect(hotkey("earlierDays", false)).toBe("ctrl+ArrowLeft");
   });
 
+  it("resolves mod to ⌘ on macOS and Ctrl elsewhere, never both", () => {
+    expect(hotkey("copyBlock", true)).toBe("meta+C");
+    expect(hotkey("copyBlock", false)).toBe("ctrl+C");
+  });
+
   it("leaves other keys as they are", () => {
     expect(hotkey("previousDay", true)).toBe("ArrowLeft");
     expect(hotkey("previousDay", false)).toBe("ArrowLeft");

@@ -18,12 +18,18 @@ export interface EditedRange {
 }
 
 /**
+ * A block to keep clear of the others: an interval, or one not recorded yet
+ * (such as a paste), which has no `id`.
+ */
+export type BlockKey = Pick<TimelineInterval, "timelineId" | "categoryId"> & { id?: string };
+
+/**
  * The intervals `interval` must not overlap, as core checks: the timeline's
  * others, or on a non-exclusive timeline only those in `categoryId` (default:
  * its own).
  */
 function rivals(
-  interval: TimelineInterval,
+  interval: BlockKey,
   intervals: readonly TimelineInterval[],
   exclusive: boolean,
   categoryId = interval.categoryId,
@@ -72,13 +78,13 @@ export function canMove(interval: TimelineInterval, window: DrawnRange): boolean
 }
 
 /**
- * Where `interval` may land when it is moved: every gap inside `window`
- * between the intervals it must not overlap, oldest first. One of them is
- * the gap it is in now. An ongoing interval never ends, so nothing is free
- * after its start.
+ * Where `interval` may land when it is moved or pasted: every gap inside
+ * `window` between the intervals it must not overlap, oldest first. For a
+ * recorded interval, one of them is the gap it is in now. An ongoing interval
+ * never ends, so nothing is free after its start.
  */
 export function freeGaps(
-  interval: TimelineInterval,
+  interval: BlockKey,
   intervals: readonly TimelineInterval[],
   timeline: { exclusive: boolean },
   window: DrawnRange,

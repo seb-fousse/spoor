@@ -1,6 +1,6 @@
 import { useConfirmDelete } from "@components/ConfirmDelete";
 import { useNow } from "@hooks/useNow";
-import { shortcutHandler } from "@keyboard";
+import { describeShortcut, shortcutHandler, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
 import { Alert, Button, Center, Loader, Stack, Text, VisuallyHidden } from "@mantine/core";
 import {
@@ -31,12 +31,13 @@ import {
 } from "react";
 import { dayShortcuts } from "../dayShortcuts";
 import type { HomeDaysAction } from "../homeDays";
-import { BlockMenu } from "./BlockMenu";
+import { BlockMenu, PasteMenu } from "./BlockMenu";
+import { type BlockCopy, copyOf, pasteTarget } from "./blockCopy";
 import { conflictingCategories } from "./blockEdit";
 import { blockKeyHandler } from "./blockShortcuts";
 import { CategoryPicker } from "./CategoryPicker";
 import { completeness, completenessLabel } from "./completeness";
-import { type DrawnRange, rangePieces } from "./dragRange";
+import { type DrawnRange, daysWindow, rangePieces } from "./dragRange";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import {
   type BlockSegment,
@@ -61,6 +62,7 @@ import {
   useUpdateInterval,
 } from "./useIntervalWrites";
 import { useObservationCounts } from "./useObservationCounts";
+import { type PastePoint, usePasteMenu } from "./usePasteMenu";
 import { useSplitAim } from "./useSplitAim";
 
 /** Height of one hour, in pixels. */
@@ -68,6 +70,10 @@ const HOUR_HEIGHT = 48;
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 /** The earliest hour the grid opens scrolled to. */
 const MORNING = 7;
+/** How long a notice, such as why a paste was refused, stays up. */
+const NOTICE_MS = 4000;
+const COPY_KEYS = describeShortcut("copyBlock").keys.join("+");
+const PASTE_KEYS = describeShortcut("pasteBlock").keys.join("+");
 
 interface TimelineGridProps {
   db: Database;
@@ -94,8 +100,11 @@ interface TimelineGridProps {
  * another day, skipping over blocks in the way, and dragging its top or
  * bottom edge resizes it. Neither drag ever overlaps another block that
  * conflicts. Clicking a block selects it: ⌫ or Delete then asks to delete it,
- * and Enter or a second click opens a popover to change its category. Its
- * right-click menu splits or deletes it.
+ * ⌘C copies it, and Enter or a second click opens a popover to change its
+ * category. Its right-click menu splits, copies or deletes it. A copy (its
+ * category and length) pastes any number of times on its timeline, from the
+ * right-click menu of an empty stretch or with ⌘V at the pointer, landing
+ * like a move would: never over a block it conflicts with.
  * Clicking a day's header or column makes it the active day. Each day's
  * header has a badge with how many of its observations are recorded.
  */
@@ -109,6 +118,8 @@ export function TimelineGrid({
   dispatch,
 }: TimelineGridProps) {
   const counts = useObservationCounts(db, days);
+  // Held here, so it survives paging the days and the timeline filter.
+  const [copied, setCopied] = useState<BlockCopy | null>(null);
 
   if (data.status === "loading") {
     return (
@@ -155,6 +166,8 @@ export function TimelineGrid({
       timelines={shown}
       categories={data.categories}
       intervals={data.intervals}
+      copied={copied}
+      onCopy={setCopied}
     />
   );
 }
@@ -170,6 +183,9 @@ interface GridProps {
   timelines: Timeline[];
   categories: Map<string, TimelineCategory>;
   intervals: TimelineInterval[];
+  /** The copied block, to paste; `null` until one is copied. */
+  copied: BlockCopy | null;
+  onCopy: (copy: BlockCopy) => void;
 }
 
 function Grid({
@@ -182,6 +198,8 @@ function Grid({
   timelines,
   categories,
   intervals,
+  copied,
+  onCopy,
 }: GridProps) {
   const now = useNow();
   const today = dayOf(now, timeZone);
@@ -276,6 +294,85 @@ function Grid({
       focusDay(activeDay);
     });
   };
+
+  // Copy and paste. A copy of an ongoing block can't be made: it has no length yet.
+  const copy = (interval: TimelineInterval) => {
+    const c = copyOf(interval);
+    if (c) onCopy(c);
+  };
+  const pasteMenu = usePasteMenu(timeZone);
+  const pasteWrite = useCreateInterval(db);
+  const visible = daysWindow(days, timeZone);
+  // Pastes still being saved. Each one counts as a block until the grid has
+  // refetched with it, so pasting again right away lands clear of it.
+  const inFlight = useRef<TimelineInterval[]>([]);
+  const pasteCount = useRef(0);
+  /** Where pasting the copy at `point` lands, or why it can't. */
+  const pasteTargetAt = (point: PastePoint) => {
+    const timeline = timelines.find((t) => t.id === point.timelineId);
+    if (!timeline) return { reason: "This timeline is hidden" };
+    return pasteTarget(copied, point.timelineId, point.at, {
+      intervals: [...intervals, ...inFlight.current],
+      timeline,
+      category: copied ? categories.get(copied.categoryId) : undefined,
+      window: visible,
+    });
+  };
+  // Failures show above the grid.
+  const paste = (range: DrawnRange) => {
+    if (!copied) return;
+    const { timelineId, categoryId } = copied;
+    pasteCount.current += 1;
+    const pending: TimelineInterval = {
+      id: `paste-${pasteCount.current}`,
+      timelineId,
+      categoryId,
+      ...range,
+      timeZone,
+      createdAt: now,
+      updatedAt: now,
+    };
+    inFlight.current = [...inFlight.current, pending];
+    run(() =>
+      pasteWrite.mutateAsync({ ...range, timelineId, categoryId }).finally(() => {
+        inFlight.current = inFlight.current.filter((i) => i !== pending);
+      }),
+    );
+  };
+
+  // A short message over the grid, such as why the paste key did nothing.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const say = (text: string) => {
+    clearTimeout(noticeTimer.current);
+    setNotice(text);
+    noticeTimer.current = setTimeout(() => setNotice(null), NOTICE_MS);
+  };
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+
+  // ⌘V pastes at the pointer. It never fails silently: it says why it can't,
+  // and where the paste went when a block in the way moved it.
+  useShortcuts([
+    [
+      "pasteBlock",
+      () => {
+        if (!copied) return say(`Nothing copied. Select a block and press ${COPY_KEYS} first.`);
+        const point = pasteMenu.atPointer();
+        if (!point) return say(`Point where the block should go, then press ${PASTE_KEYS}.`);
+        const target = pasteTargetAt(point);
+        if ("reason" in target) return say(`Can't paste here. ${target.reason}.`);
+        paste(target.range);
+        if (target.range.startAt !== point.at) {
+          const { startAt } = target.range;
+          const when = formatClockTime(startAt, timeZone);
+          const day = dayOf(startAt, timeZone);
+          say(
+            `Pasted at ${day === point.day ? when : `${formatShortDay(day)} ${when}`}, the nearest free spot.`,
+          );
+        }
+      },
+    ],
+  ]);
 
   /** The timeline's unarchived categories, by name, to pick from. */
   const choicesFor = (timelineId: string) =>
@@ -372,6 +469,14 @@ function Grid({
               splitAim.close();
               run(() => split.mutateAsync({ id: interval.id, at }));
             }}
+            onCopy={
+              interval.endAt === null
+                ? null
+                : () => {
+                    splitAim.close();
+                    copy(interval);
+                  }
+            }
             onDelete={() => {
               splitAim.close();
               askDelete(interval);
@@ -380,6 +485,48 @@ function Grid({
         ),
       });
     }
+  }
+
+  // The paste menu, and a ghost of where the paste would land.
+  const pasteAt = pasteMenu.menu;
+  if (pasteAt) {
+    const target = pasteTargetAt(pasteAt);
+    let item: { label: string } | { reason: string } = {
+      reason: "reason" in target ? target.reason : "Nothing copied",
+    };
+    if (copied && "range" in target) {
+      // The day too, when a block in the way pushed it onto another one.
+      const { startAt } = target.range;
+      const startDay = dayOf(startAt, timeZone);
+      const when = formatClockTime(startAt, timeZone);
+      item = {
+        label: `Paste at ${startDay === pasteAt.day ? when : `${formatShortDay(startDay)} ${when}`}`,
+      };
+      const look = {
+        colors: blockColors(copied.categoryId),
+        name: categories.get(copied.categoryId)?.name ?? "Unknown category",
+        ongoing: false,
+      };
+      for (const { day, node } of ghostPieces(target.range, days, timeZone, look)) {
+        addExtra(day, { key: "paste", timelineId: pasteAt.timelineId, node });
+      }
+    }
+    addExtra(pasteAt.day, {
+      key: "paste-menu",
+      timelineId: pasteAt.timelineId,
+      node: (
+        <PasteMenu
+          top={pasteAt.top}
+          left={pasteAt.left}
+          paste={item}
+          onClose={pasteMenu.close}
+          onPaste={() => {
+            pasteMenu.close();
+            if ("range" in target) paste(target.range);
+          }}
+        />
+      ),
+    });
   }
 
   if (edit?.phase === "editing") {
@@ -431,6 +578,7 @@ function Grid({
       // button drags the block.
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
         cancel();
+        pasteMenu.close();
         if (blockDrag.edit?.phase !== "saving" && aim.onPointerDown(event)) {
           closeEdit();
           return;
@@ -456,14 +604,16 @@ function Grid({
       onKeyDown: selected
         ? blockKeyHandler({
             onDelete: () => askDelete(block.interval),
+            onCopy: () => copy(block.interval),
             onOpen: blockDrag.open,
             onDeselect: closeEdit,
           })
         : undefined,
     };
   };
-  const subColumnHandlers = (day: LocalDate, timelineId: string) => {
+  const subColumnHandlers = (day: LocalDate, timelineId: string): ColumnHandlers => {
     const handlers = drag.handlers(day, timelineId);
+    const pasting = pasteMenu.handlers(day, timelineId);
     return {
       ...handlers,
       onPointerDown: (event: PointerEvent<HTMLElement>) => {
@@ -471,9 +621,17 @@ function Grid({
         const target = event.target as HTMLElement;
         if (event.currentTarget.contains(target)) {
           closeEdit();
+          pasteMenu.close();
           if (!target.closest("[data-block]")) splitAim.close();
         }
         handlers.onPointerDown(event);
+      },
+      // A right click in an empty stretch opens the paste menu, in place of any other.
+      onContextMenu: (event: MouseEvent<HTMLElement>) => {
+        if (!pasting.onContextMenu(event)) return;
+        cancel();
+        closeEdit();
+        splitAim.close();
       },
     };
   };
@@ -487,6 +645,10 @@ function Grid({
   return (
     <div className={classes.grid} style={style}>
       {deleteDialog}
+      {/* Over the grid, so it doesn't push the hours down. */}
+      <div className={classes.notice} role="status">
+        {notice && <span className={classes.noticeText}>{notice}</span>}
+      </div>
       {error && (
         <Alert
           color="red"
@@ -580,6 +742,11 @@ function Grid({
 type BlockHandlers = SegmentHandlers & {
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onKeyDown: ((event: KeyboardEvent<HTMLElement>) => void) | undefined;
+};
+
+/** What a sub-column spreads: the drawing handlers, and the paste menu's. */
+type ColumnHandlers = SubColumnHandlers & {
+  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
 };
 
 /** Something drawn in one of a day's sub-columns, over its blocks. */
@@ -739,8 +906,8 @@ interface DayColumnProps {
   blocks: Map<string, GridBlock[]> | undefined;
   /** What the day's sub-columns draw over their blocks, such as the block being drawn. */
   extras: readonly Extra[];
-  /** The drawing handlers for one of the day's sub-columns. */
-  handlers: (timelineId: string) => SubColumnHandlers;
+  /** The drawing and paste handlers for one of the day's sub-columns. */
+  handlers: (timelineId: string) => ColumnHandlers;
   /** The editing handlers for one of a block's segments. */
   blockHandlers: (block: GridBlock, segment: BlockSegment) => BlockHandlers;
   /** The block being dragged, saved or edited, if any. */
