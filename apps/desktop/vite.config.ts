@@ -16,6 +16,7 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@components": src("components"),
+      "@data": src("data"),
       "@hooks": src("hooks"),
       "@keyboard": src("keyboard"),
       "@lib": src("lib"),

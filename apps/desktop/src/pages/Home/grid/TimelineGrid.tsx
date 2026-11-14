@@ -1,3 +1,10 @@
+import { useObservationCounts } from "@data/observations";
+import {
+  useCreateInterval,
+  useDeleteInterval,
+  useSplitInterval,
+  useUpdateInterval,
+} from "@data/timelines";
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler, shortcutLabel, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
@@ -39,14 +46,6 @@ import {
 import { type BlockCopy, copyOf, landingLabel } from "./clipboard/blockCopy";
 import { useBlockPaste } from "./clipboard/useBlockPaste";
 import { usePasteMenu } from "./clipboard/usePasteMenu";
-import type { GridData } from "./data/useGridData";
-import {
-  useCreateInterval,
-  useDeleteInterval,
-  useSplitInterval,
-  useUpdateInterval,
-} from "./data/useIntervalWrites";
-import { useObservationCounts } from "./data/useObservationCounts";
 import { conflictingCategories, splitPoint } from "./edit/blockEdit";
 import { blockKeyHandler } from "./edit/blockShortcuts";
 import { useBlockDrag } from "./edit/useBlockDrag";
@@ -59,6 +58,7 @@ import { useGridPointer } from "./layout/useGridPointer";
 import { BlockMenu, PasteMenu } from "./menus/BlockMenu";
 import { CategoryPicker } from "./menus/CategoryPicker";
 import classes from "./TimelineGrid.module.css";
+import type { GridData } from "./useGridData";
 import { useNotice } from "./useNotice";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);

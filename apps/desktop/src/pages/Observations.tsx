@@ -1,5 +1,6 @@
 import { effect, useConfirmDelete } from "@components/ConfirmDelete";
-import { useTimeZone } from "@hooks/useTimeZone";
+import { useMetricObservations, useMetrics, useObservationWrites } from "@data/observations";
+import { useTimeZone } from "@data/settings";
 import {
   Alert,
   Button,
@@ -27,7 +28,6 @@ import {
   type Value,
 } from "@spoor/core";
 import { type FormEvent, useState } from "react";
-import { useMetricObservations, useMetrics, useObservationWrites } from "./useObservationsData";
 
 type Run = (action: () => Promise<unknown>) => void;
 

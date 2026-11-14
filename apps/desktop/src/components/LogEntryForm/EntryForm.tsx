@@ -1,9 +1,9 @@
+import { useThings } from "@data/things";
 import { Button, Group, MultiSelect, NumberInput, Select, Stack, TextInput } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { type LogField, optionLabel, type Precision, type Value } from "@spoor/core";
 import { type FormEvent, useState } from "react";
 import { parseInput } from "./parseInput";
-import { useThings } from "./useLogData";
 import { dayToTime } from "./when";
 
 export interface EntryTimeInput {

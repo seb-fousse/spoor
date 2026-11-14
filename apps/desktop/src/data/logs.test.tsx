@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
-import { queryKeys } from "@lib/queryKeys";
 import type { Database } from "@spoor/core";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useLogEntryWrites, useLogFieldWrites, useLogTypeWrites } from "./useLogsData";
+import { useLogEntryWrites, useLogFieldWrites, useLogTypeWrites } from "./logs";
+import { queryKeys } from "./queryKeys";
 
 // The writes succeed without a database; only what they invalidate is under test.
 vi.mock("@spoor/core", () => {

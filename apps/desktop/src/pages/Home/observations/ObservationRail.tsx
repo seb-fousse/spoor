@@ -1,3 +1,4 @@
+import { useDayObservations } from "@data/observations";
 import { Chip, Group, NumberInput, SegmentedControl, Text } from "@mantine/core";
 import { type LocalDate, type MetricDay, optionLabel, type Value } from "@spoor/core";
 import { type ReactNode, useEffect, useState } from "react";
@@ -12,7 +13,6 @@ import {
   stepNumber,
   toggleOption,
 } from "./observationValues";
-import { useDayObservations } from "./useDayObservations";
 
 interface ObservationRailProps {
   /** The day the cards show and record on. */

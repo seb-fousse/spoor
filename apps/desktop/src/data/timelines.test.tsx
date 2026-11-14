@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { createQueryClient } from "@lib/queryClient";
-import { queryKeys } from "@lib/queryKeys";
 import { createTestRoot, type TestRoot } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useTimelinesWrite } from "./useTimelinesData";
+import { queryKeys } from "./queryKeys";
+import { useTimelinesWrite } from "./timelines";
 
 /** The hook's result, captured on each render. */
 let write: ReturnType<typeof useTimelinesWrite> | undefined;

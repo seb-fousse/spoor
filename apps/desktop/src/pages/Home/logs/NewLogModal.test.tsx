@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
+import { useDayLogs } from "@data/logs";
+import { queryKeys } from "@data/queryKeys";
 import { createQueryClient } from "@lib/queryClient";
-import { queryKeys } from "@lib/queryKeys";
 import {
   createLogEntry,
   type Database,
@@ -17,7 +19,6 @@ import { createTestRoot, type TestRoot, tick } from "@test/render";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NewLogModal } from "./NewLogModal";
-import { useDayLogs } from "./useDayLogs";
 
 // The modal's job is what it does with the cache and its own steps around
 // core's reads and writes, not the SQL behind them (core's own tests cover

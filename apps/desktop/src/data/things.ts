@@ -1,32 +1,20 @@
-import { queryKeys } from "@lib/queryKeys";
 import { useDatabase } from "@platform/DatabaseProvider";
 import {
   type FieldDefinition,
-  getLogTypeFields,
   getThingTitle,
-  type LogField,
   listThings,
   listThingTypes,
   type ThingType,
   type Value,
 } from "@spoor/core";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-
-// One empty list for every caller: a new [] each render would re-run effects that depend on it.
-const NO_FIELDS: LogField[] = [];
-
-/**
- * The fields of a log type, empty until they load. Cached per type, so every
- * row of one type shares one query; writes to log types invalidate them.
- */
-export function useFields(typeId: string): LogField[] {
-  const db = useDatabase();
-  const { data } = useQuery({
-    queryKey: queryKeys.logTypes.fields(typeId),
-    queryFn: () => getLogTypeFields(db, typeId),
-  });
-  return data ?? NO_FIELDS;
-}
+import {
+  keepPreviousData,
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { queryKeys } from "./queryKeys";
 
 /** Thing types a `ref` field can target: live and unarchived. */
 export function useThingTypes(): ThingType[] {
@@ -39,6 +27,8 @@ export function useThingTypes(): ThingType[] {
   return data ?? NO_TYPES;
 }
 
+// One empty value per read, for every caller: a new one each render would re-run
+// effects that depend on it.
 const NO_TYPES: ThingType[] = [];
 // Module-level, so the selection is only redone when the types change.
 const unarchived = (types: ThingType[]) => types.filter((t) => t.archivedAt === null);
@@ -93,3 +83,41 @@ export function useRefTitles(
 }
 
 const NO_TITLES = new Map<string, string>();
+
+/**
+ * What a write to thing data changes beyond it, so the screens showing that
+ * refresh too:
+ *
+ * - `"things"`: only thing data: types, fields, things and their titles.
+ * - `"titles"`: also timeline categories, which core renames to follow their
+ *   thing's title (`updateThingValues`).
+ * - `"references"`: also every log entry and timeline category referring to
+ *   the things. Deleting a thing removes refs to it from log entries and
+ *   unlinks its categories; merging repoints both and moves intervals.
+ */
+export type ThingWriteReach = "things" | "titles" | "references";
+
+const INVALIDATES: Record<ThingWriteReach, QueryKey[]> = {
+  things: [queryKeys.things.all],
+  titles: [queryKeys.things.all, queryKeys.timelines.all],
+  references: [queryKeys.things.all, queryKeys.logs.all, queryKeys.timelines.all],
+};
+
+/**
+ * Runs a write to thing data, then invalidates what it changed, per `reach`.
+ * Resolves or rejects with the write. One mutation serves every write: they
+ * differ only in what they invalidate.
+ */
+export function useThingWrite() {
+  const queryClient = useQueryClient();
+  const { mutateAsync } = useMutation({
+    mutationFn: ({ action }: { action: () => Promise<unknown>; reach: ThingWriteReach }) =>
+      action(),
+    onSuccess: (_, { reach }) =>
+      Promise.all(
+        INVALIDATES[reach].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      ),
+  });
+  return (action: () => Promise<unknown>, reach: ThingWriteReach = "things") =>
+    mutateAsync({ action, reach });
+}

@@ -1,4 +1,3 @@
-import { queryKeys } from "@lib/queryKeys";
 import { useDatabase } from "@platform/DatabaseProvider";
 import {
   addLogField,
@@ -8,7 +7,11 @@ import {
   deleteLogField,
   deleteLogType,
   type FieldPatch,
+  getLogTypeFields,
+  type LocalDate,
+  type LogField,
   listChildEntries,
+  listDayLogEntries,
   listLogEntries,
   listLogTypes,
   moveChildEntry,
@@ -18,12 +21,35 @@ import {
   setLogTypeArchived,
   updateLogField,
 } from "@spoor/core";
-import { type QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { queryKeys } from "./queryKeys";
 
 /** Every log type by name, archived included: the same list Home's new-log modal offers. */
 export function useLogTypes() {
   const db = useDatabase();
   return useQuery({ queryKey: queryKeys.logTypes.list, queryFn: () => listLogTypes(db) });
+}
+
+// One empty list for every caller: a new [] each render would re-run effects that depend on it.
+const NO_FIELDS: LogField[] = [];
+
+/**
+ * The fields of a log type, empty until they load. Cached per type, so every
+ * row of one type shares one query; writes to log types invalidate them.
+ */
+export function useFields(typeId: string): LogField[] {
+  const db = useDatabase();
+  const { data } = useQuery({
+    queryKey: queryKeys.logTypes.fields(typeId),
+    queryFn: () => getLogTypeFields(db, typeId),
+  });
+  return data ?? NO_FIELDS;
 }
 
 /** A log type's entries, latest first. */
@@ -41,6 +67,20 @@ export function useChildEntries(parentEntryId: string) {
   return useQuery({
     queryKey: queryKeys.logs.children(parentEntryId),
     queryFn: () => listChildEntries(db, parentEntryId),
+  });
+}
+
+/**
+ * The rail's logs for `day`: its top-level entries by log type, with child
+ * entries nested. While another day loads, the previous day's stay
+ * (`isPlaceholderData` is then true). Creating an entry invalidates them.
+ */
+export function useDayLogs(day: LocalDate) {
+  const db = useDatabase();
+  return useQuery({
+    queryKey: queryKeys.logs.day(day),
+    queryFn: () => listDayLogEntries(db, day),
+    placeholderData: keepPreviousData,
   });
 }
 
