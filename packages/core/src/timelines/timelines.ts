@@ -7,6 +7,7 @@ import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
 import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
+import { requireThingType } from "../things/thing-types";
 import { findOverlap } from "./overlap";
 
 /**
@@ -39,25 +40,38 @@ type TimelineRow = Selectable<DB["timelines"]>;
 // ---------------------------------------------------------------------------
 // Timelines
 
+/**
+ * Creates a timeline. `defaultThingTypeId`, the thing type whose things the app
+ * offers first for a new category, must be an unarchived thing type.
+ */
 export async function createTimeline(
   db: Database,
-  input: { name: string; description?: string | null; exclusive?: boolean },
+  input: {
+    name: string;
+    description?: string | null;
+    exclusive?: boolean;
+    defaultThingTypeId?: string | null;
+  },
 ): Promise<Timeline> {
   const id = newId();
+  const name = requireName(`Timeline ${id}`, input.name, { entity: "timeline", id });
+  const defaultThingTypeId = input.defaultThingTypeId ?? null;
   const t = now();
-  await transaction(db, () =>
-    queryBuilder(db)
+  await transaction(db, async () => {
+    if (defaultThingTypeId !== null) await requireOfferableThingType(db, defaultThingTypeId);
+    await queryBuilder(db)
       .insertInto("timelines")
       .values({
         id,
-        name: requireName(`Timeline ${id}`, input.name, { entity: "timeline", id }),
+        name,
         description: optionalText(input.description),
         exclusive: Number(input.exclusive ?? true),
+        default_thing_type_id: defaultThingTypeId,
         created_at: t,
         updated_at: t,
       })
-      .execute(),
-  );
+      .execute();
+  });
   return (await getTimeline(db, id)) as Timeline;
 }
 
@@ -83,17 +97,31 @@ export async function listTimelines(db: Database): Promise<Timeline[]> {
 }
 
 /**
- * Renames, redescribes, or changes `exclusive`. A timeline can become exclusive
- * only if none of its intervals overlap.
+ * Renames, redescribes, or changes `exclusive` or `defaultThingTypeId`. A
+ * timeline can become exclusive only if none of its intervals overlap. A new
+ * default thing type must be unarchived; `null` clears it, and the one already
+ * set is kept even if it has been archived since.
  */
 export async function updateTimeline(
   db: Database,
   id: string,
-  patch: { name?: string; description?: string | null; exclusive?: boolean },
+  patch: {
+    name?: string;
+    description?: string | null;
+    exclusive?: boolean;
+    defaultThingTypeId?: string | null;
+  },
 ): Promise<Timeline> {
   await transaction(db, async () => {
     const q = queryBuilder(db);
     const timeline = await requireTimeline(db, id);
+    const defaultThingTypeId =
+      patch.defaultThingTypeId === undefined
+        ? timeline.defaultThingTypeId
+        : patch.defaultThingTypeId;
+    if (defaultThingTypeId !== null && defaultThingTypeId !== timeline.defaultThingTypeId) {
+      await requireOfferableThingType(db, defaultThingTypeId);
+    }
     if (patch.exclusive && !timeline.exclusive) {
       const overlap = await findOverlap(db, { timelineId: id, assumeExclusive: true });
       if (overlap) {
@@ -114,6 +142,7 @@ export async function updateTimeline(
         description:
           patch.description === undefined ? timeline.description : optionalText(patch.description),
         exclusive: Number(patch.exclusive ?? timeline.exclusive),
+        default_thing_type_id: defaultThingTypeId,
         updated_at: now(),
       })
       .where("id", "=", id)
@@ -170,6 +199,14 @@ export async function requireTimeline(db: Database, id: string): Promise<Timelin
     throw new SpoorError("not_found", `Timeline ${id}: not found`, { entity: "timeline", id });
   }
   return timeline;
+}
+
+/** A thing type a timeline can newly offer first: one that exists and is not archived. */
+async function requireOfferableThingType(db: Database, id: string): Promise<void> {
+  const type = await requireThingType(db, id);
+  if (type.archivedAt !== null) {
+    throw new SpoorError("archived", `Thing type ${id}: archived`, { entity: "thing_type", id });
+  }
 }
 
 function toTimeline(row: TimelineRow): Timeline {
