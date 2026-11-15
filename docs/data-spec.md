@@ -420,6 +420,10 @@ The same columns as a [log field](#log-field), with `thing_type_id` in place of
 Example: a Movie type with text fields for title and IMDb ID, a number for
 year, and a `ref` to a Person for director.
 
+A `ref` or `multi_ref` field can refer to its own type, such as a Person's
+parent or friends, including when the type is created with it: core gives the
+new type its id before writing its fields.
+
 ### Thing
 
 | Field                      | Meaning                |

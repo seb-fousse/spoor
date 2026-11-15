@@ -75,6 +75,19 @@ describe("importData", () => {
     expect(await dumpAll(db)).toEqual(await dumpAll(source));
   });
 
+  it("imports fields that refer to their own type, or to a type later in the file", async () => {
+    // Person's Parent refers to Person, Movie's Director to Person: list Person last.
+    const fields = rows(doc, "thingFields");
+    const own = (f: Record<string, unknown>) =>
+      (f.constraints as { thingTypeId?: string }).thingTypeId === f.thingTypeId;
+    expect(fields.some((f) => f.valueType === "ref" && own(f))).toBe(true);
+    doc.thingTypes = [...rows(doc, "thingTypes")].reverse();
+    doc.thingFields = [...fields].reverse();
+    doc.things = [...rows(doc, "things")].reverse();
+    await importData(db, doc);
+    expect(await dumpAll(db)).toEqual(await dumpAll(source));
+  });
+
   it("refuses a newer format version", async () => {
     doc.schemaVersion = 2;
     await refused({ version: 2, supported: 1 }, "newer_version");

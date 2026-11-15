@@ -56,9 +56,19 @@ type ThingTypeRow = Selectable<DB["thing_types"]>;
 // Thing types
 
 /**
+ * Stands for the type being created in a `ref` or `multi_ref` field's
+ * `thingTypeId`, which `createThingType` replaces with the new type's id: a
+ * Person's `{ name: "Parent", valueType: "ref", constraints: { thingTypeId:
+ * SELF_THING_TYPE } }`. It is never stored, and is refused anywhere else, as a
+ * `thingTypeId` that is not a UUID: a type that exists is referred to by its id.
+ */
+export const SELF_THING_TYPE = "self";
+
+/**
  * Creates a type with `fields`, positioned in order. The field at
  * `titleFieldIndex` (default: the first) is the title field, so it must be a
- * required `text` field.
+ * required `text` field. A `ref` or `multi_ref` field refers to the new type
+ * itself with `SELF_THING_TYPE`.
  */
 export async function createThingType(
   db: Database,
@@ -73,7 +83,10 @@ export async function createThingType(
   const label = `Thing type ${id}`;
   const subject = { entity: "thing_type", id } as const;
   const name = requireName(label, input.name, subject);
-  const drafts = draftFields(THING_TABLES, input.fields);
+  const drafts = draftFields(
+    THING_TABLES,
+    input.fields.map((field) => resolveSelf(field, id)),
+  );
   const title = drafts[input.titleFieldIndex ?? 0];
   if (title === undefined) {
     throw new SpoorError("invalid", `${label}: needs a title field`, {
@@ -298,6 +311,15 @@ export async function deleteThingType(db: Database, id: string): Promise<void> {
 }
 
 // Internals
+
+/** `field`, with a `thingTypeId` of `SELF_THING_TYPE` replaced by the new type's `id`. */
+function resolveSelf(field: NewField, id: string): NewField {
+  const { constraints } = field;
+  if (field.valueType !== "ref" && field.valueType !== "multi_ref") return field;
+  if (typeof constraints !== "object" || constraints === null) return field;
+  if ((constraints as { thingTypeId?: unknown }).thingTypeId !== SELF_THING_TYPE) return field;
+  return { ...field, constraints: { ...constraints, thingTypeId: id } };
+}
 
 function assertTitleShape(typeId: string, fieldId: string, valueType: string, required: boolean) {
   if (valueType !== "text" || !required) {
