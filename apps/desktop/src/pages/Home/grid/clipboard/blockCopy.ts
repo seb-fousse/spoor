@@ -40,7 +40,7 @@ export type PasteTarget = { range: DrawnRange } | { reason: string };
 
 /**
  * Where pasting `copy` at `at`, on timeline `timelineId`, lands: starting at
- * `at`, or moved to the nearest spot inside `window` (the visible days, see
+ * `at`, or moved to the nearest spot inside `window` (the rendered days, see
  * `daysWindow`) where it overlaps no block it conflicts with. Refused when
  * nothing is copied, on another timeline, when the copy's category is no
  * longer offered (archived or gone), or when it fits nowhere.

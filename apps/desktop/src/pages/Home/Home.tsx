@@ -6,7 +6,7 @@ import { dayShortcuts } from "./dayShortcuts";
 import { type HiddenTimelines, TimelineGrid, useGridData } from "./grid";
 import classes from "./Home.module.css";
 import { useHomeState } from "./HomeState";
-import { windowDays } from "./homeDays";
+import { bufferDays, rangeLength } from "./homeDays";
 import { LeftHeader } from "./LeftHeader";
 import { LogRail } from "./logs/LogRail";
 import { ObservationRail } from "./observations/ObservationRail";
@@ -20,12 +20,15 @@ import { RightHeader } from "./RightHeader";
 export function Home() {
   // Held above the routes, so the user's place survives leaving Home.
   const { today, days, dispatch } = useHomeState();
-  // A stable array while the window stays put, so the grid's layout isn't redone on every render.
-  const visibleDays = useMemo(() => windowDays(days), [days]);
+  const { windowEnd, range } = days;
+  // The window and a window either side, which the grid scrolls through. A
+  // stable array while the window stays put, so the grid's layout isn't redone
+  // on every render, such as when only the active day changes.
+  const gridDays = useMemo(() => bufferDays({ windowEnd, range }), [windowEnd, range]);
   // Left/Right move the active day; with Alt (macOS) or Ctrl they page the window.
   useShortcuts(dayShortcuts(dispatch));
   // Loaded here, not in the grid, because the header's filter lists the same timelines.
-  const gridData = useGridData(visibleDays);
+  const gridData = useGridData(gridDays);
   // Kept in Home, so the filter resets when the user leaves the page.
   const [hiddenTimelines, setHiddenTimelines] = useState<HiddenTimelines>(() => new Set());
 
@@ -45,7 +48,8 @@ export function Home() {
             read={gridData}
             hiddenTimelines={hiddenTimelines}
             onShowAllTimelines={() => setHiddenTimelines(new Set())}
-            days={visibleDays}
+            days={gridDays}
+            visible={rangeLength(range)}
             activeDay={days.activeDay}
             dispatch={dispatch}
           />

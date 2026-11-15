@@ -44,7 +44,7 @@ export function daysWindow(days: readonly LocalDate[], timeZone: string): DrawnR
 
 /**
  * The stretch a block drawn from `anchor` may cover: the whole `window` (the
- * visible days, see `daysWindow`), or on an exclusive timeline the gap between
+ * rendered days, see `daysWindow`), or on an exclusive timeline the gap between
  * the blocks around the anchor, so a drag stops at the next block instead of
  * overlapping it, on whichever day that is. `null` when the anchor has no
  * room, such as below an ongoing interval's start (it never ends).

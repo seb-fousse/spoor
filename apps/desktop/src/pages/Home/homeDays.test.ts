@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bufferDays,
   formatWindow,
   type HomeDays,
   type HomeDaysAction,
@@ -189,5 +190,56 @@ describe("rollover", () => {
     const before = run(initialHomeDays(TODAY), { type: "stepActive", by: -2 });
     const after = run(before, { type: "rollover", from: TODAY, to: TOMORROW });
     expect(after).toBe(before);
+  });
+});
+
+describe("bufferDays", () => {
+  it("is the window with a window's worth either side", () => {
+    const days = bufferDays(initialHomeDays(TODAY));
+    expect(days).toHaveLength(15);
+    expect(days[0]).toBe("2026-10-31");
+    expect(days.slice(5, 10)).toEqual(windowDays(initialHomeDays(TODAY)));
+    expect(days.at(-1)).toBe("2026-11-14");
+  });
+
+  it("is three days around a one-day window", () => {
+    const state = run(initialHomeDays(TODAY), { type: "setRange", range: "day" });
+    expect(bufferDays(state)).toEqual(["2026-11-08", TODAY, "2026-11-10"]);
+  });
+});
+
+describe("scroll", () => {
+  it("moves the window to start on the day at the left edge", () => {
+    const state = run(initialHomeDays(TODAY), { type: "scroll", start: "2026-11-03" });
+    expect(windowDays(state)).toEqual([
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+      "2026-11-07",
+    ]);
+  });
+
+  it("leaves the active day alone while it stays in view", () => {
+    const state = run(initialHomeDays(TODAY), { type: "scroll", start: "2026-11-07" });
+    expect(state.activeDay).toBe(TODAY);
+    expect(state.windowEnd).toBe("2026-11-11");
+  });
+
+  it("keeps the active day's column once it scrolls out of view", () => {
+    // Active in the last column; two days earlier pushes it off the right.
+    const state = run(initialHomeDays(TODAY), { type: "scroll", start: "2026-11-03" });
+    expect(state.activeDay).toBe("2026-11-07");
+  });
+
+  it("matches paging when it scrolls a whole window", () => {
+    const start = run(initialHomeDays(TODAY), { type: "stepActive", by: -2 });
+    const scrolled = run(start, { type: "scroll", start: "2026-10-31" });
+    expect(scrolled).toEqual(run(start, { type: "pageWindow", by: -1 }));
+  });
+
+  it("returns the same state when it settles where it is", () => {
+    const state = initialHomeDays(TODAY);
+    expect(run(state, { type: "scroll", start: "2026-11-05" })).toBe(state);
   });
 });

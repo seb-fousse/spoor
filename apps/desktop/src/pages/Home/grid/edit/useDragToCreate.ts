@@ -25,7 +25,10 @@ interface DragState extends Omit<Draft, "range"> {
   /** `null` until the pointer has moved off the step it was pressed on. */
   range: DrawnRange | null;
   anchor: Instant;
-  /** Where the drag may reach: the visible days, or on an exclusive timeline the gap it started in. */
+  /**
+   * Where the drag may reach: the rendered days, or on an exclusive timeline
+   * the gap it started in.
+   */
   span: DrawnRange;
 }
 
@@ -46,7 +49,8 @@ export type SubColumnHandlers = ReturnType<ReturnType<typeof useDragToCreate>["h
  * column marked with `DAY_COLUMN`, inside an element marked with `DRAG_ROOT`
  * (see `gridPointer`).
  * A press on an existing block (anything marked with `BLOCK_ATTR`) is left
- * alone. `cancel` drops a released draft.
+ * alone. `cancel` drops a released draft. `drawing` is true while the
+ * pointer is down, from the press on.
  */
 export function useDragToCreate(
   timeZone: string,
@@ -92,5 +96,5 @@ export function useDragToCreate(
   const cancel = () => setState((s) => (s?.phase === "choosing" ? null : s));
 
   const draft: Draft | null = state?.range ? { ...state, range: state.range } : null;
-  return { draft, handlers, cancel };
+  return { draft, drawing: state?.phase === "drawing", handlers, cancel };
 }

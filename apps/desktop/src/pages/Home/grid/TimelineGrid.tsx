@@ -52,10 +52,12 @@ import { conflictingCategories, splitPoint } from "./edit/blockEdit";
 import { blockKeyHandler } from "./edit/blockShortcuts";
 import { useBlockDrag } from "./edit/useBlockDrag";
 import { useDragToCreate } from "./edit/useDragToCreate";
+import { useEdgeAutoScroll } from "./edit/useEdgeAutoScroll";
 import { useSplitAim } from "./edit/useSplitAim";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import { type BlockSegment, type GridBlock, layoutGrid, nowFraction } from "./layout/gridLayout";
 import { DRAG_ROOT, isOnBlock, ownsEvent } from "./layout/gridPointer";
+import { useDayScroll } from "./layout/useDayScroll";
 import { useGridPointer } from "./layout/useGridPointer";
 import { BlockMenu, PasteMenu } from "./menus/BlockMenu";
 import { CategoryPicker } from "./menus/CategoryPicker";
@@ -78,22 +80,33 @@ interface TimelineGridProps {
   hiddenTimelines: HiddenTimelines;
   /** Switches every timeline back on, from the empty state shown when all are off. */
   onShowAllTimelines: () => void;
-  /** The visible days, oldest first. */
+  /**
+   * The days to render, oldest first: the window, with `visible` days either
+   * side of it to scroll to (see `bufferDays`).
+   */
   days: LocalDate[];
-  /** The day the rail shows, highlighted in its header. Always one of `days`. */
+  /** How many days fit the grid's width: the window's length. */
+  visible: number;
+  /** The day the rail shows, highlighted in its header. Always in the window. */
   activeDay: LocalDate;
-  /** Changes the active day: picked from a header or column, or moved with the day keys. */
+  /**
+   * Changes the active day, picked from a header or column or moved with the
+   * day keys, and moves the window to where a scroll settled.
+   */
   dispatch: Dispatch<HomeDaysAction>;
 }
 
 /**
  * Home's timeline grid. Each day is a column, each timeline a sub-column, and
  * there is one hour axis down the left. The two-tier header (days, then
- * timeline names) stays at the top while the hours scroll. Dragging in an
- * empty stretch of a sub-column draws a new block, possibly across days, which
- * asks for its category on release. Dragging a block moves it, possibly to
- * another day, skipping over blocks in the way, and dragging its top or
- * bottom edge resizes it. Neither drag ever overlaps another block that
+ * timeline names) stays at the top while the hours scroll, and the hour axis
+ * stays at the left while the days scroll sideways, settling on a day (see
+ * `useDayScroll`). A change to the window animates the days to it.
+ *
+ * Dragging in an empty stretch of a sub-column draws a new block, possibly
+ * across days, which asks for its category on release. Dragging a block moves
+ * it, possibly to another day, skipping over blocks in the way, and dragging
+ * its top or bottom edge resizes it. Neither drag ever overlaps another block that
  * conflicts. Clicking a block selects it: ⌫ or Delete then deletes it, ⌘C
  * copies it, C splits it at the mark nearest the pointer, and Enter or a
  * second click opens a popover to change its category. Its right-click menu
@@ -102,7 +115,8 @@ interface TimelineGridProps {
  * right-click menu of an empty stretch or with ⌘V at the pointer, landing
  * like a move would: never over a block it conflicts with.
  * Clicking a day's header or column makes it the active day. Each day's
- * header has a badge with how many of its observations are recorded.
+ * header has a badge with how many of its observations are recorded. While
+ * a block is drawn or dragged near an edge, the grid scrolls that way.
  *
  * The blocks and ghosts themselves are drawn by `GridBlocks`.
  */
@@ -111,6 +125,7 @@ export function TimelineGrid({
   hiddenTimelines,
   onShowAllTimelines,
   days,
+  visible,
   activeDay,
   dispatch,
 }: TimelineGridProps) {
@@ -152,6 +167,7 @@ export function TimelineGrid({
   return (
     <Grid
       days={days}
+      visible={visible}
       activeDay={activeDay}
       dispatch={dispatch}
       // Hidden if loading them fails, rather than left showing old counts.
@@ -168,6 +184,7 @@ export function TimelineGrid({
 
 interface GridProps {
   days: LocalDate[];
+  visible: number;
   activeDay: LocalDate;
   dispatch: Dispatch<HomeDaysAction>;
   /**
@@ -186,6 +203,7 @@ interface GridProps {
 
 function Grid({
   days,
+  visible,
   activeDay,
   dispatch,
   counts,
@@ -202,16 +220,6 @@ function Grid({
     () => layoutGrid(intervals, timelines, days, timeZone, now),
     [intervals, timelines, days, timeZone, now],
   );
-
-  // Open on the morning, or a little before now if that is later. Only on the
-  // first render: after that the user's scroll position wins.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const initialTop = useRef(
-    Math.max(MORNING, (nowFraction(now, today, timeZone) ?? 0) * 24 - 2) * HOUR_HEIGHT,
-  );
-  useLayoutEffect(() => {
-    scrollRef.current?.scrollTo({ top: initialTop.current });
-  }, []);
 
   // The day headers are one tab stop: only the active day's button is
   // tabbable, and focus moves with the active day. A day key can push the
@@ -279,6 +287,21 @@ function Grid({
     blockDrag.cancel();
     recategorize.reset();
   };
+
+  // The days scroll sideways, with the header, and settle on a day. While a
+  // block is drawn or dragged, the pointer near an edge scrolls the grid.
+  const dragging = drag.drawing || blockDrag.edit?.phase === "dragging";
+  const { scrollRef, gutterRef, width, onScroll } = useDayScroll(days, visible, dragging, dispatch);
+  useEdgeAutoScroll({ scroller: scrollRef, header: headerRef, gutter: gutterRef }, dragging);
+
+  // Open on the morning, or a little before now if that is later. Only on the
+  // first render: after that the user's scroll position wins.
+  const initialTop = useRef(
+    Math.max(MORNING, (nowFraction(now, today, timeZone) ?? 0) * 24 - 2) * HOUR_HEIGHT,
+  );
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = initialTop.current;
+  }, [scrollRef]);
 
   // At once, without asking: a block takes nothing else with it. Once it is
   // gone, nothing is selected and focus goes to the active day's header, the
@@ -607,6 +630,7 @@ function Grid({
 
   const style = {
     "--days": days.length,
+    "--day-width": `${width}px`,
     "--timelines": timelines.length,
     "--hour-height": `${HOUR_HEIGHT}px`,
   } as CSSProperties;
@@ -628,43 +652,51 @@ function Grid({
         />
       )}
 
-      {/* Outside the scroller, so only the hours scroll. */}
-      <div ref={headerRef} className={classes.header}>
-        <div className={classes.corner} />
-        {days.map((day) => (
-          <div
-            key={day}
-            className={classes.dayHead}
-            data-today={day === today || undefined}
-            data-active={day === activeDay || undefined}
-          >
-            {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
-            <button
-              type="button"
-              className={classes.dayLabel}
-              data-day={day}
-              tabIndex={day === activeDay ? 0 : -1}
-              aria-current={day === activeDay ? "date" : undefined}
-              onClick={() => select(day)}
-              onKeyDown={onHeaderKeyDown}
+      {/*
+        One scroller for both ways: the header sticks to its top and the gutter
+        to its left, so neither drifts out of line with the days.
+      */}
+      <div
+        ref={scrollRef}
+        className={classes.scroller}
+        data-dragging={dragging || undefined}
+        onScroll={onScroll}
+      >
+        <div ref={headerRef} className={classes.header}>
+          <div className={classes.corner} />
+          {days.map((day) => (
+            <div
+              key={day}
+              className={classes.dayHead}
+              data-today={day === today || undefined}
+              data-active={day === activeDay || undefined}
             >
-              {formatShortDay(day)}
-              <DayBadge count={counts?.get(day)} />
-            </button>
-            <div className={classes.timelineNames}>
-              {timelines.map((t) => (
-                <div key={t.id} className={classes.timelineName} title={t.name}>
-                  {t.name}
-                </div>
-              ))}
+              {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
+              <button
+                type="button"
+                className={classes.dayLabel}
+                data-day={day}
+                tabIndex={day === activeDay ? 0 : -1}
+                aria-current={day === activeDay ? "date" : undefined}
+                onClick={() => select(day)}
+                onKeyDown={onHeaderKeyDown}
+              >
+                {formatShortDay(day)}
+                <DayBadge count={counts?.get(day)} />
+              </button>
+              <div className={classes.timelineNames}>
+                {timelines.map((t) => (
+                  <div key={t.id} className={classes.timelineName} title={t.name}>
+                    {t.name}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      <div ref={scrollRef} className={classes.scroller}>
         <div className={classes.body} {...{ [DRAG_ROOT]: "" }}>
-          <div className={classes.gutter} aria-hidden="true">
+          <div ref={gutterRef} className={classes.gutter} aria-hidden="true">
             {HOURS.map((h) => (
               <div key={h} className={classes.hour}>
                 {h > 0 && <span>{`${String(h).padStart(2, "0")}:00`}</span>}
