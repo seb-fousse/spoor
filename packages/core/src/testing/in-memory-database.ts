@@ -4,8 +4,8 @@ import type { Database } from "../db/platform";
 /**
  * A tiny, TEST-ONLY implementation of the `Database` seam backed by in-memory
  * SQLite. This is not product code and ships with no runtime dependency on
- * `better-sqlite3` (it is a devDependency); it is excluded from the build and
- * not exported from the barrel.
+ * `better-sqlite3` (it is a devDependency). It is exported to tests only, from
+ * `@spoor/core/testing` (`./index.ts`), not from the package's main barrel.
  *
  * The point it proves: core logic can be written against the `Database`
  * interface and exercised in plain Node, in milliseconds, with no app running.
