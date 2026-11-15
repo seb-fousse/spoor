@@ -36,26 +36,64 @@
     }
   },
   "overrides": [
-    // The desktop app's conventions (#146), outside the data hooks, the tests and
-    // the POC pages. The POC pages are slated for replacement (#149) and still
-    // use the database, TanStack Query and their own date formats directly. They
-    // are listed here once, as exclusions, and nowhere else.
-    //
-    // Each rule is scoped by where it applies, never turned off where it's
-    // allowed, because in Biome 2.6.6 a later override can't undo part of this one:
+    // The desktop app's conventions (#146). Each rule is scoped by where it
+    // applies, never turned off where it's allowed, because in Biome 2.6.6 a later
+    // override can't undo part of an earlier one:
     // - `plugins` only adds: a later override can't remove a plugin.
-    // - A later override's `noRestrictedImports` options replace this one's whole,
-    //   `paths` and all; they are not merged. So a rule that also applies to some
-    //   of these files (rules 3 and 6) has to be added to the `paths` below as
-    //   well as to its own override, or its override wipes out rules 1 and 2.
+    // - A later override's `noRestrictedImports` options replace an earlier one's
+    //   whole, `paths` and `patterns` alike; they are not merged. So the last
+    //   override that sets `noRestrictedImports` for a file must list every
+    //   import rule that applies to it. Rule 6's patterns are repeated in each
+    //   such override, and rules 1 to 3's paths in the grid's, for that reason.
+    //
+    // Rule 6: nothing imports a module's internals past its barrel (#145): a
+    // shared component through @components/<Name>, a page through @pages/<Name>,
+    // and Home's grid through ./grid. It applies to every file in the app,
+    // tests and POC pages too. Biome matches the specifier as written, so a
+    // module's own files, which import their siblings by relative paths such as
+    // ./FieldList or ../layout/gridLayout, never match. The grid's files are
+    // still exempt from the grid pattern, below, so a sibling import that names
+    // the folder can't trip it.
+    {
+      "includes": ["apps/desktop/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["**/grid/**", "!@pages/**"],
+                    "message": "Import Home's grid through its barrel, ./grid, not a file inside it. Only grid/ imports its own files."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    // Rules 1, 2 and 4 (and rule 6, repeated), outside the data hooks, the tests
+    // and the POC pages. The POC pages are slated for replacement (#149) and
+    // still use the database, TanStack Query and their own date formats
+    // directly. They are listed here once, as exclusions, and nowhere else.
     {
       "includes": [
         "apps/desktop/src/**",
         "!apps/desktop/src/data/**",
         "!**/*.test.{ts,tsx}",
         "!apps/desktop/src/test/**",
-        "!apps/desktop/src/pages/Things.tsx",
-        "!apps/desktop/src/pages/Observations.tsx",
+        "!apps/desktop/src/pages/Things/**",
+        "!apps/desktop/src/pages/Observations/**",
         "!apps/desktop/src/pages/Logs/**",
         "!apps/desktop/src/pages/Timelines/**"
       ],
@@ -89,9 +127,24 @@
                     "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
                   },
                   // Rule 3: core's test helpers are for tests. Keep in sync with the
-                  // same entry in the next block.
+                  // same entry in the other blocks that set these options.
                   "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
-                }
+                },
+                // Rule 6, as in the first override.
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["**/grid/**", "!@pages/**"],
+                    "message": "Import Home's grid through its barrel, ./grid, not a file inside it. Only grid/ imports its own files."
+                  }
+                ]
               }
             }
           }
@@ -104,15 +157,16 @@
       "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
       "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
     },
-    // Rule 3 in the files the first block leaves out but tests don't: the data
-    // hooks, which may use the database and query keys (rules 1 and 2), and the
-    // POC pages, exempt from rules 1, 2 and 4 but not this one. These files
-    // aren't in the first block, so these options replace nothing there.
+    // Rule 3 (and rule 6, repeated) in the files the second block leaves out
+    // but tests don't: the data hooks, which may use the database and query keys
+    // (rules 1 and 2), and the POC pages, exempt from rules 1, 2 and 4 but not
+    // these. These options replace the first block's for these files, so they
+    // list rule 6's patterns too.
     {
       "includes": [
         "apps/desktop/src/data/**",
-        "apps/desktop/src/pages/Things.tsx",
-        "apps/desktop/src/pages/Observations.tsx",
+        "apps/desktop/src/pages/Things/**",
+        "apps/desktop/src/pages/Observations/**",
         "apps/desktop/src/pages/Logs/**",
         "apps/desktop/src/pages/Timelines/**",
         "!**/*.test.{ts,tsx}"
@@ -125,10 +179,131 @@
               "options": {
                 "paths": {
                   // Rule 3: core's test helpers are for tests. Keep in sync with the
-                  // same entry in the first block.
+                  // same entry in the other blocks that set these options.
                   "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
-                }
+                },
+                // Rule 6, as in the first override.
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["**/grid/**", "!@pages/**"],
+                    "message": "Import Home's grid through its barrel, ./grid, not a file inside it. Only grid/ imports its own files."
+                  }
+                ]
               }
+            }
+          }
+        }
+      }
+    },
+    // Rule 6 inside Home's grid: its files import each other, so the grid pattern
+    // is left out. Rules 1, 2 and 3 are repeated from the second override for the
+    // grid's files (not its tests), which that override covers.
+    {
+      "includes": ["apps/desktop/src/pages/Home/grid/**", "!**/*.test.{ts,tsx}"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                // Rules 1, 2 and 3, as in the second override.
+                "paths": {
+                  "@platform/DatabaseProvider": {
+                    "importNames": ["useDatabase"],
+                    "message": "Only the data hooks in src/data/ use the database. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  },
+                  "@data/queryKeys": "Only the data hooks in src/data/ use query keys. Read and write through them; a write hook lists what it invalidates in its useDbWrite call.",
+                  "@tanstack/react-query": {
+                    "importNames": ["useQuery", "useMutation", "useQueryClient"],
+                    "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
+                  },
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the other blocks that set these options.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
+                },
+                // Rule 6, without the grid pattern.
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    // The same for the grid's tests, which rules 1 and 2 leave out.
+    {
+      "includes": ["apps/desktop/src/pages/Home/grid/**/*.test.{ts,tsx}"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                // Rule 6, without the grid pattern.
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    // Rule 7: file names follow #145. Components (and the theme's per-component
+    // overrides) are PascalCase; hooks (useThing) and other modules are
+    // camelCase. Biome checks the part before the first dot, so Name.test.tsx
+    // and name.test.ts follow their file. It checks script files only, not CSS
+    // modules. Core keeps its kebab-case names, so this is the desktop app's only.
+    {
+      "includes": ["apps/desktop/src/**", "!apps/desktop/src/vite-env.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": { "filenameCases": ["camelCase", "PascalCase"], "requireAscii": true }
+            }
+          }
+        }
+      }
+    },
+    // A .ts file holds no component, so it's camelCase, except the theme's
+    // per-component overrides, which are named after the Mantine component.
+    {
+      "includes": [
+        "apps/desktop/src/**/*.ts",
+        "!apps/desktop/src/theme/components/**",
+        "!apps/desktop/src/vite-env.d.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": { "filenameCases": ["camelCase"], "requireAscii": true }
             }
           }
         }
