@@ -4,6 +4,7 @@ import { migrate } from "../db/schema/migrate";
 import { TABLE_COLUMNS } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { newId } from "../lib/ids";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import {
   addField,
@@ -141,28 +142,41 @@ describe("definitions", () => {
     });
 
     it.each([
-      ["a blank name", { name: " ", valueType: "text" }, /Thing field .*: name is required/],
-      ["a metric-only type", { name: "x", valueType: "multi_enum" }, /value type must be one of/],
-      ["bad constraints", { name: "x", valueType: "number", constraints: { min: "1" } }, /min/],
-      ["bad labels", { name: "x", valueType: "text", optionLabels: { a: "" } }, /label/],
-    ])("refuses a field with %s, naming it", (_, field, message) => {
-      expect(() => draftFields(T, [field as NewField])).toThrow(message);
+      ["a blank name", { name: " ", valueType: "text" }, "name"],
+      ["a metric-only type", { name: "x", valueType: "multi_enum" }, "valueType"],
+      [
+        "bad constraints",
+        { name: "x", valueType: "number", constraints: { min: "1" } },
+        "constraints",
+      ],
+      ["bad labels", { name: "x", valueType: "text", optionLabels: { a: "" } }, "optionLabels"],
+    ])("refuses a field with %s, naming it", async (_, field, property) => {
+      const error = await expectSpoorError(() => draftFields(T, [field as NewField]), "invalid", {
+        entity: "thing_field",
+        field: property,
+      });
+      expect(error.details.id).toBeTypeOf("string");
     });
 
-    it("refuses two fields with the same name", () => {
-      expect(() =>
-        draftFields(T, [
-          { name: "Title", valueType: "text" },
-          { name: " TITLE", valueType: "number" },
-        ]),
-      ).toThrow(/Thing field .*: name "TITLE" is already used by field/);
+    it("refuses two fields with the same name", async () => {
+      await expectSpoorError(
+        () =>
+          draftFields(T, [
+            { name: "Title", valueType: "text" },
+            { name: " TITLE", valueType: "number" },
+          ]),
+        "conflict",
+        { entity: "thing_field", field: "name" },
+      );
     });
 
     it("refuses a reference to a thing type that does not exist", async () => {
       const missing = newId();
-      await expect(
+      await expectSpoorError(
         createType([{ name: "Friend", valueType: "ref", constraints: { thingTypeId: missing } }]),
-      ).rejects.toThrow(new RegExp(`Thing field .*: thing type ${missing} not found`));
+        "not_found",
+        { entity: "thing_type", id: missing },
+      );
     });
 
     it("allows a type to reference itself", async () => {
@@ -205,9 +219,11 @@ describe("definitions", () => {
 
     it("requires unique names, ignoring case and surrounding spaces", async () => {
       const { id, fieldIds } = await createType(fields);
-      await expect(
+      await expectSpoorError(
         addField(db, T, id, { name: " name ", valueType: "text" }, 2_000),
-      ).rejects.toThrow(new RegExp(`name "name" is already used by field ${fieldIds[0]}`));
+        "conflict",
+        { entity: "thing_field", field: "name" },
+      );
       // A deleted field's name is free again.
       await deleteField(db, T, fieldIds[1]);
       await addField(db, T, id, { name: "Rating", valueType: "text" }, 2_000);
@@ -222,21 +238,34 @@ describe("definitions", () => {
         valueType: "ref" as const,
         constraints: { thingTypeId },
       });
-      await expect(addField(db, T, id, ref(gone.id), 2_000)).rejects.toThrow(
-        /thing type .* not found/,
-      );
+      await expectSpoorError(addField(db, T, id, ref(gone.id), 2_000), "not_found", {
+        entity: "thing_type",
+        id: gone.id,
+      });
       const target = await createType(fields, "Target");
       await db.execute("UPDATE thing_types SET archived_at = 1 WHERE id = ?", [target.id]);
-      await expect(addField(db, T, id, ref(target.id), 2_000)).rejects.toThrow(
-        new RegExp(`thing type ${target.id} is archived`),
-      );
-      await expect(createType([ref(target.id)], "New")).rejects.toThrow(/is archived/);
+      const archived = { entity: "thing_type", id: target.id } as const;
+      await expectSpoorError(addField(db, T, id, ref(target.id), 2_000), "archived", archived);
+      await expectSpoorError(createType([ref(target.id)], "New"), "archived", archived);
     });
 
     it("refuses an unknown type", async () => {
-      await expect(addField(db, T, newId(), fields[0], 2_000)).rejects.toThrow(
-        /Thing type .*: not found/,
-      );
+      const typeId = newId();
+      await expectSpoorError(addField(db, T, typeId, fields[0], 2_000), "not_found", {
+        entity: "thing_type",
+        id: typeId,
+      });
+    });
+
+    it("reports a corrupt stored definition as a bug, not as invalid input", async () => {
+      const { id, fieldIds } = await createType([{ name: "Name", valueType: "text" }]);
+      await db.execute(`UPDATE thing_fields SET constraints = '{"bogus":1}' WHERE id = ?`, [
+        fieldIds[0],
+      ]);
+      await expectSpoorError(getFields(db, T, id), "internal", {
+        entity: "thing_field",
+        id: fieldIds[0],
+      });
     });
   });
 
@@ -249,12 +278,16 @@ describe("definitions", () => {
         optionLabels: { a: "A" },
         updatedAt: 2_000,
       });
-      await expect(updateField(db, T, fieldIds[0], { name: "" }, 2_000)).rejects.toThrow(
-        /name is required/,
-      );
-      await expect(updateField(db, T, newId(), {}, 2_000)).rejects.toThrow(
-        /Thing field .*: not found/,
-      );
+      await expectSpoorError(updateField(db, T, fieldIds[0], { name: "" }, 2_000), "invalid", {
+        entity: "thing_field",
+        id: fieldIds[0],
+        field: "name",
+      });
+      const missing = newId();
+      await expectSpoorError(updateField(db, T, missing, {}, 2_000), "not_found", {
+        entity: "thing_field",
+        id: missing,
+      });
     });
 
     it("keeps option labels a patch leaves out, and clears them with {}", async () => {
@@ -282,12 +315,16 @@ describe("definitions", () => {
         required: true,
         shape: { valueType: "number", constraints: { max: 10 } },
       });
-      await expect(
+      await expectSpoorError(
         updateField(db, T, fieldIds[0], { constraints: { options: [] } }, 2_000),
-      ).rejects.toThrow(/options/);
-      await expect(
+        "invalid",
+        { entity: "thing_field", id: fieldIds[0], field: "constraints", constraint: "options" },
+      );
+      await expectSpoorError(
         updateField(db, T, fieldIds[0], { required: "yes" as never }, 2_000),
-      ).rejects.toThrow(/required must be true or false/);
+        "invalid",
+        { entity: "thing_field", id: fieldIds[0], field: "required" },
+      );
     });
 
     it("keeps the thing type a reference field refers to", async () => {
@@ -297,9 +334,11 @@ describe("definitions", () => {
         [{ name: "Friend", valueType: "ref", constraints: { thingTypeId: person.id } }],
         "Group",
       );
-      await expect(
+      await expectSpoorError(
         updateField(db, T, fieldIds[0], { constraints: { thingTypeId: other.id } }, 2_000),
-      ).rejects.toThrow(`Thing field ${fieldIds[0]}: cannot change the thing type it refers to`);
+        "invalid",
+        { entity: "thing_field", id: fieldIds[0], field: "constraints" },
+      );
       await updateField(db, T, fieldIds[0], { constraints: { thingTypeId: person.id } }, 2_000);
     });
 
@@ -308,8 +347,14 @@ describe("definitions", () => {
         { name: "Title", valueType: "text" },
         { name: "Year", valueType: "number" },
       ]);
-      await expect(updateField(db, T, fieldIds[1], { name: "title " }, 2_000)).rejects.toThrow(
-        /already used/,
+      await expectSpoorError(
+        updateField(db, T, fieldIds[1], { name: "title " }, 2_000),
+        "conflict",
+        {
+          entity: "thing_field",
+          id: fieldIds[1],
+          field: "name",
+        },
       );
       await updateField(db, T, fieldIds[0], { name: "TITLE" }, 2_000);
     });
@@ -323,12 +368,9 @@ describe("definitions", () => {
       const [a, b, c] = fieldIds;
       await reorderFields(db, T, id, [c, a, b], 2_000);
       expect((await getFields(db, T, id)).map((f) => f.name)).toEqual(["C", "A", "B"]);
-      await expect(reorderFields(db, T, id, [c, a], 2_000)).rejects.toThrow(
-        /each of its fields once/,
-      );
-      await expect(reorderFields(db, T, id, [c, a, a], 2_000)).rejects.toThrow(
-        /each of its fields once/,
-      );
+      const fieldIdsOf = { entity: "thing_type", id, field: "fieldIds" } as const;
+      await expectSpoorError(reorderFields(db, T, id, [c, a], 2_000), "invalid", fieldIdsOf);
+      await expectSpoorError(reorderFields(db, T, id, [c, a, a], 2_000), "invalid", fieldIdsOf);
     });
 
     it("counts, then deletes a field's values with it", async () => {
@@ -360,8 +402,9 @@ describe("definitions", () => {
       expect(
         await db.query("SELECT id FROM thing_field_values WHERE field_id = ?", [cast]),
       ).toEqual([]);
-      await expect(deleteField(db, T, cast)).rejects.toThrow(/not found/);
-      await expect(countFieldValues(db, T, cast)).rejects.toThrow(/not found/);
+      const gone = { entity: "thing_field", id: cast } as const;
+      await expectSpoorError(deleteField(db, T, cast), "not_found", gone);
+      await expectSpoorError(countFieldValues(db, T, cast), "not_found", gone);
     });
   });
 
@@ -496,31 +539,42 @@ describe("definitions", () => {
       const { movie, person } = await setup();
       const thing = await createThing(movie.id);
       const foreign = person.fieldIds[0];
-      await expect(validateValues(db, T, thing, { [foreign]: "x" })).rejects.toThrow(
-        `Thing ${thing.id}, field ${foreign}: not a field of thing type ${movie.id}`,
-      );
+      await expectSpoorError(validateValues(db, T, thing, { [foreign]: "x" }), "not_found", {
+        entity: "thing_field",
+        id: foreign,
+      });
     });
 
     it("refuses an invalid value, naming the record and field", async () => {
       const { movie, f } = await setup();
       const thing = await createThing(movie.id);
-      await expect(
+      await expectSpoorError(
         validateValues(db, T, thing, { [f.title]: "Alien", [f.year]: "1979" }),
-      ).rejects.toThrow(`Thing ${thing.id}, field ${f.year}: must be a number`);
+        "invalid",
+        { entity: "thing", id: thing.id, field: "values", fieldId: f.year, rule: "type" },
+      );
     });
 
     it("requires required fields, counting an empty multi_ref as missing", async () => {
       const { person, movie, f } = await setup();
       const thing = await createThing(movie.id);
-      await expect(validateValues(db, T, thing, { [f.year]: 1 })).rejects.toThrow(
-        `Thing ${thing.id}, field ${f.title}: is required`,
-      );
+      const required = {
+        entity: "thing",
+        id: thing.id,
+        field: "values",
+        rule: "required",
+      } as const;
+      await expectSpoorError(validateValues(db, T, thing, { [f.year]: 1 }), "invalid", {
+        ...required,
+        fieldId: f.title,
+      });
       await setValues(db, T, thing, { [f.title]: "Alien" }, manual());
       // Once stored, a patch need not repeat it, but cannot clear it.
       await expect(validateValues(db, T, thing, { [f.year]: 1 })).resolves.toHaveLength(1);
-      await expect(validateValues(db, T, thing, { [f.title]: null })).rejects.toThrow(
-        /is required/,
-      );
+      await expectSpoorError(validateValues(db, T, thing, { [f.title]: null }), "invalid", {
+        ...required,
+        fieldId: f.title,
+      });
 
       const group = await createType(
         [
@@ -534,24 +588,29 @@ describe("definitions", () => {
         "Group",
       );
       const g = await createThing(group.id);
-      await expect(validateValues(db, T, g, { [group.fieldIds[0]]: [] })).rejects.toThrow(
-        /is required/,
-      );
+      await expectSpoorError(validateValues(db, T, g, { [group.fieldIds[0]]: [] }), "invalid", {
+        fieldId: group.fieldIds[0],
+        rule: "required",
+      });
     });
 
     it("refuses references to missing things and things of another type", async () => {
       const { movie, f } = await setup();
       const thing = await createThing(movie.id);
       const missing = newId();
-      await expect(
+      await expectSpoorError(
         validateValues(db, T, thing, { [f.title]: "Alien", [f.director]: missing }),
-      ).rejects.toThrow(`Thing ${thing.id}, field ${f.director}: thing ${missing} not found`);
+        "not_found",
+        { entity: "thing", id: missing, fieldId: f.director },
+      );
 
       const other = await createThing(movie.id);
       await setValues(db, T, other, { [f.title]: "Other" }, manual());
-      await expect(
+      await expectSpoorError(
         validateValues(db, T, thing, { [f.title]: "Alien", [f.withPeople]: [other.id] }),
-      ).rejects.toThrow(`thing ${other.id} is not of thing type`);
+        "invalid",
+        { entity: "thing", id: thing.id, fieldId: f.withPeople, rule: "type" },
+      );
     });
 
     it("drops stored references to a deleted thing, and refuses new ones", async () => {
@@ -567,9 +626,11 @@ describe("definitions", () => {
       await db.execute("DELETE FROM things WHERE id = ?", [people[0]]);
 
       expect(await readValues(db, T, thing)).toEqual({ [f.title]: "Alien" });
-      await expect(
+      await expectSpoorError(
         validateValues(db, T, thing, { [f.withPeople]: [people[0], people[1]] }),
-      ).rejects.toThrow(`Thing ${thing.id}, field ${f.withPeople}: thing ${people[0]} not found`);
+        "not_found",
+        { entity: "thing", id: people[0], fieldId: f.withPeople },
+      );
     });
 
     it("lets the user always win over automated writers", async () => {
@@ -600,9 +661,11 @@ describe("definitions", () => {
       const { movie, f } = await setup();
       const thing = await createThing(movie.id);
       const values = await validateValues(db, T, thing, { [f.title]: "Alien" });
-      await expect(
+      await expectSpoorError(
         writeValues(db, T, thing.id, values, { writtenBy: " ", writtenAt: 1 }),
-      ).rejects.toThrow(/a writer is required/);
+        "invalid",
+        { entity: "thing", id: thing.id, field: "writtenBy" },
+      );
     });
 
     it("reads values against the type's fields, as they are now", async () => {

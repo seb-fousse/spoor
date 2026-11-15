@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { MANUAL, repointRefs } from "../definitions/engine";
 import { REFERENCING_TABLES } from "../definitions/tables";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import { getThingTitle } from "./things";
 
@@ -43,17 +44,24 @@ export async function mergeThings(
   await transaction(db, async () => {
     const q = queryBuilder(db);
     if (survivorId === duplicateId) {
-      throw new Error(`Thing ${duplicateId}: cannot be merged into itself`);
+      throw new SpoorError("invalid", `Thing ${duplicateId}: cannot be merged into itself`, {
+        entity: "thing",
+        id: duplicateId,
+      });
     }
     const thing = (id: string) =>
       q.selectFrom("things").selectAll().where("id", "=", id).executeTakeFirst();
     const survivor = await thing(survivorId);
     const duplicate = await thing(duplicateId);
-    if (!survivor) throw new Error(`Thing ${survivorId}: not found`);
-    if (!duplicate) throw new Error(`Thing ${duplicateId}: not found`);
+    const missing = (id: string) =>
+      new SpoorError("not_found", `Thing ${id}: not found`, { entity: "thing", id });
+    if (!survivor) throw missing(survivorId);
+    if (!duplicate) throw missing(duplicateId);
     if (duplicate.thing_type_id !== survivor.thing_type_id) {
-      throw new Error(
+      throw new SpoorError(
+        "invalid",
         `Thing ${duplicateId}: of another type than thing ${survivorId}, cannot be merged into it`,
+        { entity: "thing", id: duplicateId },
       );
     }
 

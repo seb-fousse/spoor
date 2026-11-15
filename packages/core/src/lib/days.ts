@@ -10,6 +10,7 @@
  * `Intl.DateTimeFormat` is used: `Temporal` is not available everywhere we run.
  */
 
+import { SpoorError } from "./spoor-error";
 import { addDays, type Instant, type LocalDate } from "./time";
 
 /** How much of a log entry's `occurred_at` is known. */
@@ -106,7 +107,9 @@ export function dayRange(date: LocalDate, timeZone: string): [start: Instant, en
  */
 export function daysSpanned(startAt: Instant, endAt: Instant, timeZone: string): LocalDate[] {
   if (endAt < startAt) {
-    throw new Error(`Interval ends before it starts: [${startAt}, ${endAt})`);
+    throw new SpoorError("invalid", `Interval ends before it starts: [${startAt}, ${endAt})`, {
+      field: "endAt",
+    });
   }
   const last = dayOf(endAt > startAt ? endAt - 1 : endAt, timeZone);
   const days: LocalDate[] = [];
@@ -135,7 +138,9 @@ export function truncateToPrecision(
     case "year":
       return startOfDay(`${day.slice(0, 4)}-01-01`, timeZone);
     default:
-      throw new Error(`Unknown precision: ${String(precision)}`);
+      throw new SpoorError("invalid", `Unknown precision: ${String(precision)}`, {
+        field: "precision",
+      });
   }
 }
 
@@ -152,13 +157,19 @@ export function dayOfEntry(
 /** The cached wall-clock formatter for `timeZone`; throws if the zone is invalid. */
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
   const format = isTimeZone(timeZone) && formatters.get(timeZone);
-  if (!format) throw new Error(`Invalid time zone: ${JSON.stringify(timeZone)}`);
+  if (!format) {
+    throw new SpoorError("invalid", `Invalid time zone: ${JSON.stringify(timeZone)}`, {
+      field: "timeZone",
+    });
+  }
   return format;
 }
 
 /** Local `[year, month, day, hour, minute, second]` of `instant` in `timeZone`. */
 function wallClock(instant: number, timeZone: string): number[] {
-  if (Number.isNaN(new Date(instant).getTime())) throw new Error(`Invalid instant: ${instant}`);
+  if (Number.isNaN(new Date(instant).getTime())) {
+    throw new SpoorError("invalid", `Invalid instant: ${instant}`, { field: "instant" });
+  }
   const parts = formatterFor(timeZone).formatToParts(instant);
   const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return [part("year"), part("month"), part("day"), part("hour"), part("minute"), part("second")];
@@ -195,7 +206,9 @@ function parseDate(date: string): [year: number, month: number, day: number] {
     Number(match?.[3]),
   ];
   if (!match || parts[0] < 1 || formatDate(...civilDate(utcFromParts(...parts))) !== date) {
-    throw new Error(`Invalid date (expected YYYY-MM-DD): ${JSON.stringify(date)}`);
+    throw new SpoorError("invalid", `Invalid date (expected YYYY-MM-DD): ${JSON.stringify(date)}`, {
+      field: "date",
+    });
   }
   return parts;
 }

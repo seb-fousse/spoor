@@ -6,6 +6,8 @@
  * exact ISO 8601 form, and import accepts only that form, so a round trip is lossless.
  */
 
+import { SpoorError } from "./spoor-error";
+
 /** Milliseconds since 1970-01-01T00:00:00.000Z. */
 export type Instant = number;
 
@@ -35,7 +37,9 @@ export function isInstant(value: unknown): value is Instant {
  */
 export function instantToIso(instant: Instant): string {
   if (!isInstant(instant) || instant < MIN_INSTANT || instant > MAX_INSTANT) {
-    throw new Error(`Not a representable instant: ${instant}`);
+    throw new SpoorError("invalid", `Not a representable instant: ${instant}`, {
+      field: "instant",
+    });
   }
   return new Date(instant).toISOString();
 }
@@ -48,8 +52,10 @@ export function isoToInstant(iso: string): Instant {
   const ms = ISO_PATTERN.test(iso) ? Date.parse(iso) : Number.NaN;
   // The round trip rejects anything `Date.parse` normalises, such as 24:00 or Feb 30.
   if (Number.isNaN(ms) || instantToIso(ms) !== iso) {
-    throw new Error(
+    throw new SpoorError(
+      "invalid",
       `Not an ISO 8601 UTC instant (YYYY-MM-DDTHH:mm:ss.sssZ): ${JSON.stringify(iso)}`,
+      { field: "iso" },
     );
   }
   return ms;
@@ -65,8 +71,14 @@ export function isLocalDate(value: unknown): value is LocalDate {
 
 /** The date `days` calendar days after `date` (before it, if negative). */
 export function addDays(date: LocalDate, days: number): LocalDate {
-  if (!isLocalDate(date)) throw new Error(`Not a YYYY-MM-DD date: ${JSON.stringify(date)}`);
-  if (!Number.isSafeInteger(days)) throw new Error(`Not a whole number of days: ${days}`);
+  if (!isLocalDate(date)) {
+    throw new SpoorError("invalid", `Not a YYYY-MM-DD date: ${JSON.stringify(date)}`, {
+      field: "date",
+    });
+  }
+  if (!Number.isSafeInteger(days)) {
+    throw new SpoorError("invalid", `Not a whole number of days: ${days}`, { field: "days" });
+  }
   // UTC has no DST, so every day is exactly DAY_MS long.
   return instantToIso(Date.parse(date) + days * DAY_MS).slice(0, 10);
 }

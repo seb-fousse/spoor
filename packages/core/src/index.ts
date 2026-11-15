@@ -24,6 +24,14 @@ export {
 } from "./lib/days";
 export { isUuid, newId } from "./lib/ids";
 export {
+  isSpoorError,
+  type SpoorEntity,
+  SpoorError,
+  type SpoorErrorCode,
+  type SpoorErrorDetails,
+  type SpoorValueRule,
+} from "./lib/spoor-error";
+export {
   addDays,
   compareLocalDates,
   type Instant,

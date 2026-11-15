@@ -3,6 +3,7 @@ import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
 import { newId } from "../lib/ids";
 import { setTimeZone } from "../settings/settings";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { mergeThings } from "../things/merge";
 import { createThingType } from "../things/thing-types";
@@ -176,21 +177,27 @@ describe("logs", () => {
     });
 
     it("requires a name and valid fields, creating nothing otherwise", async () => {
-      await expect(createLogType(db, { name: " ", fields: [] })).rejects.toThrow(
-        /Log type .*: name is required/,
-      );
-      await expect(
+      await expectSpoorError(createLogType(db, { name: " ", fields: [] }), "invalid", {
+        entity: "log_type",
+        field: "name",
+      });
+      await expectSpoorError(
         createLogType(db, {
           name: "x",
           fields: [{ name: "Mood", valueType: "multi_enum" as "enum" }],
         }),
-      ).rejects.toThrow(/Log field .*: value type must be one of/);
-      await expect(
+        "invalid",
+        { entity: "log_field", field: "valueType" },
+      );
+      const thingTypeId = newId();
+      await expectSpoorError(
         createLogType(db, {
           name: "x",
-          fields: [{ name: "Who", valueType: "ref", constraints: { thingTypeId: newId() } }],
+          fields: [{ name: "Who", valueType: "ref", constraints: { thingTypeId } }],
         }),
-      ).rejects.toThrow(/Log field .*: thing type .* not found/);
+        "not_found",
+        { entity: "thing_type", id: thingTypeId },
+      );
       expect(await listLogTypes(db)).toEqual([]);
       expect(await rows("log_fields")).toEqual([]);
     });
@@ -212,7 +219,11 @@ describe("logs", () => {
       expect(
         await updateLogType(db, id, { name: "Journal", description: " Daily " }),
       ).toMatchObject({ name: "Journal", description: "Daily", updatedAt: 2_000 });
-      await expect(updateLogType(db, id, { name: "" })).rejects.toThrow(/name is required/);
+      await expectSpoorError(updateLogType(db, id, { name: "" }), "invalid", {
+        entity: "log_type",
+        id,
+        field: "name",
+      });
     });
 
     it("archives and unarchives; an archived type takes no new entries", async () => {
@@ -220,8 +231,13 @@ describe("logs", () => {
       const entry = await createLogEntry(db, { logTypeId: type.id, occurredAt: T0 });
       await setLogTypeArchived(db, type.id, true);
       expect((await getLogType(db, type.id))?.archivedAt).toEqual(expect.any(Number));
-      await expect(createLogEntry(db, { logTypeId: type.id, occurredAt: T0 })).rejects.toThrow(
-        `Log type ${type.id}: archived`,
+      await expectSpoorError(
+        createLogEntry(db, { logTypeId: type.id, occurredAt: T0 }),
+        "archived",
+        {
+          entity: "log_type",
+          id: type.id,
+        },
       );
       // Existing entries stay valid and editable.
       await updateLogEntry(db, entry.id, { values: { [await firstField(type)]: "edited" } });
@@ -231,14 +247,18 @@ describe("logs", () => {
 
     it("needs an existing parent type, fixed at creation", async () => {
       const missing = newId();
-      await expect(
+      await expectSpoorError(
         createLogType(db, { name: "Set", parentTypeId: missing, fields: [] }),
-      ).rejects.toThrow(`Log type ${missing}: not found`);
+        "not_found",
+        { entity: "log_type", id: missing },
+      );
       const gone = await simpleType("Gone");
       await deleteLogType(db, gone.id);
-      await expect(
+      await expectSpoorError(
         createLogType(db, { name: "Set", parentTypeId: gone.id, fields: [] }),
-      ).rejects.toThrow(`Log type ${gone.id}: not found`);
+        "not_found",
+        { entity: "log_type", id: gone.id },
+      );
 
       const { workout, set } = await setupWorkouts();
       expect(set.parentTypeId).toBe(workout.id);
@@ -253,19 +273,22 @@ describe("logs", () => {
       const type = await simpleType();
       const [field] = await getLogTypeFields(db, type.id);
       await deleteLogType(db, type.id);
-      const notFound = `Log type ${type.id}: not found`;
-      await expect(updateLogType(db, type.id, { name: "x" })).rejects.toThrow(notFound);
-      await expect(setLogTypeArchived(db, type.id, true)).rejects.toThrow(notFound);
-      await expect(addLogField(db, type.id, { name: "x", valueType: "text" })).rejects.toThrow(
+      const notFound = { entity: "log_type", id: type.id } as const;
+      await expectSpoorError(updateLogType(db, type.id, { name: "x" }), "not_found", notFound);
+      await expectSpoorError(setLogTypeArchived(db, type.id, true), "not_found", notFound);
+      await expectSpoorError(
+        addLogField(db, type.id, { name: "x", valueType: "text" }),
+        "not_found",
         notFound,
       );
-      await expect(reorderLogFields(db, type.id, [field.id])).rejects.toThrow(notFound);
-      await expect(updateLogField(db, field.id, { name: "x" })).rejects.toThrow(
-        `Log field ${field.id}: not found`,
-      );
-      await expect(previewLogTypeDeletion(db, type.id)).rejects.toThrow(notFound);
-      await expect(deleteLogType(db, type.id)).rejects.toThrow(notFound);
-      await expect(getLogTypeFields(db, type.id)).rejects.toThrow(notFound);
+      await expectSpoorError(reorderLogFields(db, type.id, [field.id]), "not_found", notFound);
+      await expectSpoorError(updateLogField(db, field.id, { name: "x" }), "not_found", {
+        entity: "log_field",
+        id: field.id,
+      });
+      await expectSpoorError(previewLogTypeDeletion(db, type.id), "not_found", notFound);
+      await expectSpoorError(deleteLogType(db, type.id), "not_found", notFound);
+      await expectSpoorError(getLogTypeFields(db, type.id), "not_found", notFound);
     });
   });
 
@@ -284,10 +307,16 @@ describe("logs", () => {
         ["Feeling", { ok: "Fine" }],
         ["Text", {}],
       ]);
-      await expect(updateLogField(db, text, { name: "feeling" })).rejects.toThrow(/already used/);
-      await expect(updateLogField(db, newId(), { name: "x" })).rejects.toThrow(
-        /Log field .*: not found/,
-      );
+      await expectSpoorError(updateLogField(db, text, { name: "feeling" }), "conflict", {
+        entity: "log_field",
+        id: text,
+        field: "name",
+      });
+      const missing = newId();
+      await expectSpoorError(updateLogField(db, missing, { name: "x" }), "not_found", {
+        entity: "log_field",
+        id: missing,
+      });
     });
 
     it("changes constraints and the required flag in place, checked on the next write", async () => {
@@ -310,22 +339,34 @@ describe("logs", () => {
       // Stored values are not re-validated, but a new write is.
       expect((await getLogEntry(db, old.id))?.values).toEqual({ [distance]: -1 });
       await updateLogEntry(db, old.id, { values: { [notes]: "hard" } });
-      await expect(updateLogEntry(db, old.id, { values: { [distance]: -2 } })).rejects.toThrow(
-        /must be at least 0/,
+      await expectSpoorError(
+        updateLogEntry(db, old.id, { values: { [distance]: -2 } }),
+        "invalid",
+        { entity: "log_entry", id: old.id, fieldId: distance, rule: "min", limit: 0 },
       );
-      await expect(createLogEntry(db, { logTypeId: type.id, occurredAt: T0 })).rejects.toThrow(
-        new RegExp(`field ${distance}: is required`),
+      await expectSpoorError(
+        createLogEntry(db, { logTypeId: type.id, occurredAt: T0 }),
+        "invalid",
+        {
+          entity: "log_entry",
+          fieldId: distance,
+          rule: "required",
+        },
       );
     });
 
     it("keeps a field's value type and the thing type it refers to", async () => {
       const { movie, person, f } = await setupMovies();
-      await expect(updateLogField(db, f.rating, { constraints: { maxLength: 3 } })).rejects.toThrow(
-        /maxLength/,
+      await expectSpoorError(
+        updateLogField(db, f.rating, { constraints: { maxLength: 3 } }),
+        "invalid",
+        { entity: "log_field", id: f.rating, field: "constraints", constraint: "maxLength" },
       );
-      await expect(
+      await expectSpoorError(
         updateLogField(db, f.film, { constraints: { thingTypeId: person.id } }),
-      ).rejects.toThrow(`Log field ${f.film}: cannot change the thing type it refers to`);
+        "invalid",
+        { entity: "log_field", id: f.film, field: "constraints" },
+      );
       await updateLogField(db, f.film, { constraints: { thingTypeId: movie.id } });
     });
 
@@ -344,10 +385,13 @@ describe("logs", () => {
       expect(await previewLogFieldDeletion(db, distance)).toEqual({ values: 1 });
       await deleteLogField(db, distance);
       expect((await getLogEntry(db, old.id))?.values).toEqual({ [feel]: true });
-      await expect(updateLogEntry(db, old.id, { values: { [distance]: 1 } })).rejects.toThrow(
-        `Log entry ${old.id}, field ${distance}: not a field of log type ${type.id}`,
+      const gone = { entity: "log_field", id: distance } as const;
+      await expectSpoorError(
+        updateLogEntry(db, old.id, { values: { [distance]: 1 } }),
+        "not_found",
+        gone,
       );
-      await expect(deleteLogField(db, distance)).rejects.toThrow(/not found/);
+      await expectSpoorError(deleteLogField(db, distance), "not_found", gone);
     });
   });
 
@@ -438,9 +482,10 @@ describe("logs", () => {
         source: "import",
         externalId: "1",
       };
-      await expect(createLogEntry(db, again)).rejects.toThrow(
-        `log entry ${first.id} already has external id "1" from import`,
-      );
+      await expectSpoorError(createLogEntry(db, again), "conflict", {
+        entity: "log_entry",
+        field: "externalId",
+      });
       // A deleted entry leaves nothing behind, so a re-run import adds it again.
       await deleteLogEntry(db, first.id);
       await createLogEntry(db, again);
@@ -450,38 +495,32 @@ describe("logs", () => {
         source: "healthkit",
         externalId: "1",
       });
-      await expect(
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: type.id, occurredAt: T0, externalId: " " }),
-      ).rejects.toThrow(/external id must be a non-empty string/);
-      await expect(
+        "invalid",
+        { entity: "log_entry", field: "externalId" },
+      );
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: type.id, occurredAt: T0, source: "" }),
-      ).rejects.toThrow(/a source is required/);
+        "invalid",
+        { entity: "log_entry", field: "source" },
+      );
     });
 
     it.each([
-      ["has no time", {}, /occurredAt is required/],
-      ["has a position", { occurredAt: T0, position: 1 }, /only a child entry has a position/],
-      [
-        "ends before it occurs",
-        { occurredAt: T0, endedAt: T0 - 1 },
-        /must not end before it occurs/,
-      ],
-      ["has a fractional time", { occurredAt: 0.5 }, /invalid occurredAt/],
-      [
-        "has an unknown precision",
-        { occurredAt: T0, precision: "week" },
-        /precision must be one of/,
-      ],
-      [
-        "has an invalid time zone",
-        { occurredAt: T0, timeZone: "Mars/Olympus" },
-        /invalid time zone/,
-      ],
-    ])("refuses a top-level entry that %s, naming it", async (_, input, message) => {
+      ["has no time", {}, "occurredAt"],
+      ["has a position", { occurredAt: T0, position: 1 }, "position"],
+      ["ends before it occurs", { occurredAt: T0, endedAt: T0 - 1 }, "endedAt"],
+      ["has a fractional time", { occurredAt: 0.5 }, "occurredAt"],
+      ["has an unknown precision", { occurredAt: T0, precision: "week" }, "precision"],
+      ["has an invalid time zone", { occurredAt: T0, timeZone: "Mars/Olympus" }, "timeZone"],
+    ])("refuses a top-level entry that %s, naming the field", async (_, input, field) => {
       const type = await simpleType();
-      await expect(
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: type.id, ...(input as object) }),
-      ).rejects.toThrow(new RegExp(`Log entry [0-9a-f-]+: ${message.source}`));
+        "invalid",
+        { entity: "log_entry", field },
+      );
       expect(await rows("log_entries")).toEqual([]);
     });
 
@@ -493,49 +532,65 @@ describe("logs", () => {
 
     it("refuses an unknown or deleted type", async () => {
       const missing = newId();
-      await expect(createLogEntry(db, { logTypeId: missing, occurredAt: T0 })).rejects.toThrow(
-        `Log type ${missing}: not found`,
+      await expectSpoorError(
+        createLogEntry(db, { logTypeId: missing, occurredAt: T0 }),
+        "not_found",
+        {
+          entity: "log_type",
+          id: missing,
+        },
       );
       const type = await simpleType();
       await deleteLogType(db, type.id);
-      await expect(createLogEntry(db, { logTypeId: type.id, occurredAt: T0 })).rejects.toThrow(
-        `Log type ${type.id}: not found`,
+      await expectSpoorError(
+        createLogEntry(db, { logTypeId: type.id, occurredAt: T0 }),
+        "not_found",
+        {
+          entity: "log_type",
+          id: type.id,
+        },
       );
     });
 
     describe("validation names the entry and field, and writes nothing", () => {
       it("refuses an invalid value", async () => {
         const { type, alien, f } = await setupMovies();
-        const error = await createLogEntry(db, {
-          logTypeId: type.id,
-          occurredAt: T0,
-          values: { [f.film]: alien, [f.rating]: 9 },
-        }).catch((e: Error) => e.message);
-        expect(error).toMatch(
-          new RegExp(`^Log entry [0-9a-f-]+, field ${f.rating}: must be at most 5$`),
+        const error = await expectSpoorError(
+          createLogEntry(db, {
+            logTypeId: type.id,
+            occurredAt: T0,
+            values: { [f.film]: alien, [f.rating]: 9 },
+          }),
+          "invalid",
+          { entity: "log_entry", field: "values", fieldId: f.rating, rule: "max", limit: 5 },
         );
+        expect(error.details.id).toBeTypeOf("string");
         expect(await rows("log_entries")).toEqual([]);
         expect(await rows("log_field_values")).toEqual([]);
       });
 
       it("refuses a missing required value", async () => {
         const { type, f } = await setupMovies();
-        await expect(
+        await expectSpoorError(
           createLogEntry(db, { logTypeId: type.id, occurredAt: T0, values: { [f.rating]: 3 } }),
-        ).rejects.toThrow(new RegExp(`Log entry [0-9a-f-]+, field ${f.film}: is required`));
+          "invalid",
+          { entity: "log_entry", field: "values", fieldId: f.film, rule: "required" },
+        );
       });
 
       it("refuses a field of another type", async () => {
         const { type, alien, f } = await setupMovies();
         const other = await simpleType();
         const foreign = await firstField(other);
-        await expect(
+        await expectSpoorError(
           createLogEntry(db, {
             logTypeId: type.id,
             occurredAt: T0,
             values: { [f.film]: alien, [foreign]: "x" },
           }),
-        ).rejects.toThrow(new RegExp(`field ${foreign}: not a field of log type ${type.id}$`));
+          "not_found",
+          { entity: "log_field", id: foreign },
+        );
       });
 
       it("refuses references to missing, deleted or mistyped things", async () => {
@@ -547,16 +602,22 @@ describe("logs", () => {
             occurredAt: T0,
             values: { [f.film]: alien, ...values } as Record<string, string>,
           });
-        await expect(create({ [f.film]: missing })).rejects.toThrow(
-          new RegExp(`field ${f.film}: thing ${missing} not found`),
-        );
-        await expect(create({ [f.withPeople]: [people[0], alien] })).rejects.toThrow(
-          new RegExp(`field ${f.withPeople}: thing ${alien} is not of thing type`),
-        );
+        await expectSpoorError(create({ [f.film]: missing }), "not_found", {
+          entity: "thing",
+          id: missing,
+          fieldId: f.film,
+        });
+        await expectSpoorError(create({ [f.withPeople]: [people[0], alien] }), "invalid", {
+          entity: "log_entry",
+          fieldId: f.withPeople,
+          rule: "type",
+        });
         await deleteThing(db, people[1]);
-        await expect(create({ [f.withPeople]: [people[1]] })).rejects.toThrow(
-          new RegExp(`field ${f.withPeople}: thing ${people[1]} not found`),
-        );
+        await expectSpoorError(create({ [f.withPeople]: [people[1]] }), "not_found", {
+          entity: "thing",
+          id: people[1],
+          fieldId: f.withPeople,
+        });
         expect(await rows("log_entries")).toEqual([]);
       });
 
@@ -573,8 +634,15 @@ describe("logs", () => {
           [f.rating]: 3,
           [f.withPeople]: [people[1]],
         });
-        await expect(updateLogEntry(db, entry.id, { values: { [f.rating]: 4 } })).rejects.toThrow(
-          new RegExp(`field ${f.film}: is required`),
+        await expectSpoorError(
+          updateLogEntry(db, entry.id, { values: { [f.rating]: 4 } }),
+          "invalid",
+          {
+            entity: "log_entry",
+            id: entry.id,
+            fieldId: f.film,
+            rule: "required",
+          },
         );
         const heat = await thing(movie, "Heat");
         await updateLogEntry(db, entry.id, { values: { [f.film]: heat, [f.rating]: 4 } });
@@ -660,9 +728,11 @@ describe("logs", () => {
         endedAt: T0 + H,
       });
       expect(finer).toMatchObject({ occurredAt: T0, endedAt: T0 + H, precision: "instant" });
-      await expect(updateLogEntry(db, entry.id, { endedAt: T0 - H })).rejects.toThrow(
-        /must not end before it occurs/,
-      );
+      await expectSpoorError(updateLogEntry(db, entry.id, { endedAt: T0 - H }), "invalid", {
+        entity: "log_entry",
+        id: entry.id,
+        field: "endedAt",
+      });
       expect((await updateLogEntry(db, entry.id, { endedAt: null })).entry.endedAt).toBeNull();
     });
   });
@@ -761,60 +831,76 @@ describe("logs", () => {
       await moveChildEntry(db, sets[2].id, 1);
       expect(await order()).toEqual([sets[2].id, sets[0].id, sets[1].id, warmUp.id]);
 
-      await expect(moveChildEntry(db, warmUp.id, 5)).rejects.toThrow(
-        /position must be between 1 and 4/,
-      );
-      await expect(moveChildEntry(db, entry.id, 1)).rejects.toThrow(/not a child entry/);
-      await expect(
+      await expectSpoorError(moveChildEntry(db, warmUp.id, 5), "invalid", {
+        entity: "log_entry",
+        id: warmUp.id,
+        field: "position",
+      });
+      await expectSpoorError(moveChildEntry(db, entry.id, 1), "invalid", {
+        entity: "log_entry",
+        id: entry.id,
+      });
+      await expectSpoorError(
         createLogEntry(db, {
           logTypeId: set.id,
           parentEntryId: entry.id,
           position: 1.5,
           values: { [f.reps]: 1 },
         }),
-      ).rejects.toThrow(/position must be an integer/);
+        "invalid",
+        { entity: "log_entry", field: "position" },
+      );
     });
 
     it("refuses a time of its own", async () => {
       const { entry, set, sets, f } = await workoutWithSets([5]);
       for (const time of [{ occurredAt: T0 }, { precision: "day" as const }, { timeZone: TZ }]) {
-        await expect(
+        await expectSpoorError(
           createLogEntry(db, {
             logTypeId: set.id,
             parentEntryId: entry.id,
             values: { [f.reps]: 1 },
             ...time,
           }),
-        ).rejects.toThrow(/a child entry inherits its time from its parent entry/);
+          "invalid",
+          { entity: "log_entry", field: "occurredAt" },
+        );
       }
-      await expect(updateLogEntry(db, sets[0].id, { occurredAt: T0 })).rejects.toThrow(
-        `Log entry ${sets[0].id}: a child entry inherits its time from its parent entry`,
-      );
+      await expectSpoorError(updateLogEntry(db, sets[0].id, { occurredAt: T0 }), "invalid", {
+        entity: "log_entry",
+        id: sets[0].id,
+        field: "occurredAt",
+      });
     });
 
     it("must match its parent's type", async () => {
-      const { workout, set, entry, f } = await workoutWithSets([]);
+      const { set, entry, f } = await workoutWithSets([]);
       const diary = await simpleType();
       const note = await createLogEntry(db, { logTypeId: diary.id, occurredAt: T0 });
 
-      await expect(
+      const parent = { entity: "log_entry", field: "parentEntryId" } as const;
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: set.id, occurredAt: T0, values: { [f.reps]: 1 } }),
-      ).rejects.toThrow(
-        new RegExp(
-          `log type ${set.id} is for child entries of log type ${workout.id}, so a parent entry is required`,
-        ),
+        "invalid",
+        parent,
       );
-      await expect(
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: diary.id, parentEntryId: entry.id }),
-      ).rejects.toThrow(new RegExp(`log type ${diary.id} has no parent type`));
-      await expect(
+        "invalid",
+        parent,
+      );
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: set.id, parentEntryId: note.id, values: { [f.reps]: 1 } }),
-      ).rejects.toThrow(new RegExp(`but parent entry ${note.id} is of log type ${diary.id}`));
+        "invalid",
+        parent,
+      );
 
       await deleteLogEntry(db, entry.id);
-      await expect(
+      await expectSpoorError(
         createLogEntry(db, { logTypeId: set.id, parentEntryId: entry.id, values: { [f.reps]: 1 } }),
-      ).rejects.toThrow(new RegExp(`parent entry ${entry.id} not found`));
+        "not_found",
+        { entity: "log_entry", id: entry.id },
+      );
     });
 
     it("nests at any depth, every level on the top entry's day", async () => {
@@ -960,7 +1046,10 @@ describe("logs", () => {
 
       expect(await rows("log_entries")).toEqual([]);
       expect(await rows("log_field_values")).toEqual([]);
-      await expect(deleteLogEntry(db, entry.id)).rejects.toThrow(/not found/);
+      await expectSpoorError(deleteLogEntry(db, entry.id), "not_found", {
+        entity: "log_entry",
+        id: entry.id,
+      });
     });
 
     it("deletes a child alone", async () => {

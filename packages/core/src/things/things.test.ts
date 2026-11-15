@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
 import type { NewField } from "../definitions/engine";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { createCategory, getCategory } from "../timelines/categories";
 import { createTimeline, getTimeline } from "../timelines/timelines";
@@ -94,14 +95,39 @@ describe("things", () => {
     });
 
     it.each([
-      ["no fields", { fields: [] }, /needs a title field/],
-      ["an index past the fields", { fields: [NAME], titleFieldIndex: 1 }, /needs a title field/],
-      ["a non-text title", { fields: [BORN] }, /must be a required text field/],
-      ["an optional title", { fields: [{ ...NAME, required: false }] }, /required text field/],
-      ["a blank name", { name: " ", fields: [NAME] }, /name is required/],
-      ["duplicate field names", { fields: [NAME, { ...BORN, name: "name" }] }, /already used/],
-    ])("refuses %s, writing nothing", async (_, input, message) => {
-      await expect(createThingType(db, { name: "Person", ...input })).rejects.toThrow(message);
+      ["no fields", { fields: [] }, "invalid", { entity: "thing_type", field: "titleFieldIndex" }],
+      [
+        "an index past the fields",
+        { fields: [NAME], titleFieldIndex: 1 },
+        "invalid",
+        { entity: "thing_type", field: "titleFieldIndex" },
+      ],
+      [
+        "a non-text title",
+        { fields: [BORN] },
+        "invalid",
+        { entity: "thing_type", field: "titleFieldIndex" },
+      ],
+      [
+        "an optional title",
+        { fields: [{ ...NAME, required: false }] },
+        "invalid",
+        { entity: "thing_type", field: "titleFieldIndex" },
+      ],
+      [
+        "a blank name",
+        { name: " ", fields: [NAME] },
+        "invalid",
+        { entity: "thing_type", field: "name" },
+      ],
+      [
+        "duplicate field names",
+        { fields: [NAME, { ...BORN, name: "name" }] },
+        "conflict",
+        { entity: "thing_field", field: "name" },
+      ],
+    ] as const)("refuses %s, writing nothing", async (_, input, code, details) => {
+      await expectSpoorError(createThingType(db, { name: "Person", ...input }), code, details);
       expect(await count("thing_types")).toBe(0);
       expect(await count("thing_fields")).toBe(0);
     });
@@ -140,12 +166,20 @@ describe("things", () => {
 
     it("refuses a title field that is not one of its required text fields", async () => {
       const { type, born } = await person();
-      await expect(updateThingType(db, type.id, { titleFieldId: born })).rejects.toThrow(
-        /must be a required text field/,
-      );
+      await expectSpoorError(updateThingType(db, type.id, { titleFieldId: born }), "invalid", {
+        entity: "thing_type",
+        id: type.id,
+        field: "titleFieldId",
+        fieldId: born,
+      });
       const other = await person();
-      await expect(updateThingType(db, type.id, { titleFieldId: other.name })).rejects.toThrow(
-        /is not one of its fields/,
+      await expectSpoorError(
+        updateThingType(db, type.id, { titleFieldId: other.name }),
+        "not_found",
+        {
+          entity: "thing_field",
+          id: other.name,
+        },
       );
     });
 
@@ -164,12 +198,16 @@ describe("things", () => {
           ["City", 2],
         ]);
         expect((await getThing(db, alex.id))?.values).toEqual({ [name]: "Alex" });
-        await expect(
+        await expectSpoorError(
           createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } }),
-        ).rejects.toThrow(new RegExp(`field ${city}: is required`));
-        await expect(
+          "invalid",
+          { entity: "thing", fieldId: city, rule: "required" },
+        );
+        await expectSpoorError(
           addThingField(db, type.id, { name: "city", valueType: "text" }),
-        ).rejects.toThrow(/already used/);
+          "conflict",
+          { entity: "thing_field", field: "name" },
+        );
       });
 
       it("renames, relabels, requires and reorders fields", async () => {
@@ -181,8 +219,13 @@ describe("things", () => {
           ["Name", true],
         ]);
         const other = await person();
-        await expect(updateThingField(db, type.id, other.born, { name: "x" })).rejects.toThrow(
-          /not a field of thing type/,
+        await expectSpoorError(
+          updateThingField(db, type.id, other.born, { name: "x" }),
+          "not_found",
+          {
+            entity: "thing_field",
+            id: other.born,
+          },
         );
       });
 
@@ -201,9 +244,20 @@ describe("things", () => {
 
       it("keeps the title field, required", async () => {
         const { type, name } = await person();
-        await expect(deleteThingField(db, type.id, name)).rejects.toThrow(/cannot be deleted/);
-        await expect(updateThingField(db, type.id, name, { required: false })).rejects.toThrow(
-          /must stay required/,
+        await expectSpoorError(deleteThingField(db, type.id, name), "invalid", {
+          entity: "thing_type",
+          id: type.id,
+          fieldId: name,
+        });
+        await expectSpoorError(
+          updateThingField(db, type.id, name, { required: false }),
+          "invalid",
+          {
+            entity: "thing_type",
+            id: type.id,
+            field: "required",
+            fieldId: name,
+          },
         );
         await updateThingField(db, type.id, name, { constraints: { maxLength: 10 } });
       });
@@ -212,9 +266,11 @@ describe("things", () => {
     it("is not offered for new things once archived", async () => {
       const { type, name } = await person();
       await setThingTypeArchived(db, type.id, true);
-      await expect(
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } }),
-      ).rejects.toThrow(/archived/);
+        "archived",
+        { entity: "thing_type", id: type.id },
+      );
       await setThingTypeArchived(db, type.id, false);
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
     });
@@ -251,7 +307,10 @@ describe("things", () => {
       expect((await getThing(db, alien.id))?.values).toEqual({ [title]: "Alien" });
       expect(await getCategory(db, category.id)).toMatchObject({ name: "Alex", thingId: null });
       expect((await getTimeline(db, people.id))?.defaultThingTypeId).toBeNull();
-      await expect(updateThingType(db, type.id, { name: "x" })).rejects.toThrow(/not found/);
+      await expectSpoorError(updateThingType(db, type.id, { name: "x" }), "not_found", {
+        entity: "thing_type",
+        id: type.id,
+      });
     });
   });
 
@@ -279,12 +338,16 @@ describe("things", () => {
 
     it("refuses invalid values, writing nothing", async () => {
       const { type, name, born } = await person();
-      await expect(
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, values: { [born]: "1990-04-01" } }),
-      ).rejects.toThrow(new RegExp(`Thing .*, field ${name}: is required`));
-      await expect(
+        "invalid",
+        { entity: "thing", field: "values", fieldId: name, rule: "required" },
+      );
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, values: { [name]: "Alex", [born]: "April" } }),
-      ).rejects.toThrow(new RegExp(`field ${born}: must be a YYYY-MM-DD date`));
+        "invalid",
+        { entity: "thing", field: "values", fieldId: born, rule: "type" },
+      );
       expect(await count("things")).toBe(0);
       expect(await count("thing_field_values")).toBe(0);
     });
@@ -292,9 +355,11 @@ describe("things", () => {
     it("refuses a deleted type", async () => {
       const { type, name } = await person();
       await deleteThingType(db, type.id);
-      await expect(
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } }),
-      ).rejects.toThrow(/Thing type .*: not found/);
+        "not_found",
+        { entity: "thing_type", id: type.id },
+      );
     });
 
     it("records its source and external id, unique together", async () => {
@@ -308,16 +373,25 @@ describe("things", () => {
       );
       expect(row.written_by).toBe("import");
 
-      await expect(createThing(db, { ...imported, values: { [name]: "Sam" } })).rejects.toThrow(
-        new RegExp(`thing ${alex.id} already has external id "42" from import`),
+      await expectSpoorError(
+        createThing(db, { ...imported, values: { [name]: "Sam" } }),
+        "conflict",
+        {
+          entity: "thing",
+          field: "externalId",
+        },
       );
       await createThing(db, { ...imported, source: "plugin:x", values: { [name]: "Sam" } });
-      await expect(
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, externalId: "", values: { [name]: "Kim" } }),
-      ).rejects.toThrow(/external id must be a non-empty string/);
-      await expect(
+        "invalid",
+        { entity: "thing", field: "externalId" },
+      );
+      await expectSpoorError(
         createThing(db, { thingTypeId: type.id, source: " ", values: { [name]: "Kim" } }),
-      ).rejects.toThrow(/source is required/);
+        "invalid",
+        { entity: "thing", field: "source" },
+      );
     });
 
     it("lists things by title", async () => {
@@ -345,7 +419,12 @@ describe("things", () => {
       });
       expect(skipped).toEqual([]);
       expect(thing).toMatchObject({ values: { [name]: "Alex Smith" }, updatedAt: 2_000 });
-      await expect(updateThingValues(db, alex.id, { [name]: null })).rejects.toThrow(/is required/);
+      await expectSpoorError(updateThingValues(db, alex.id, { [name]: null }), "invalid", {
+        entity: "thing",
+        id: alex.id,
+        fieldId: name,
+        rule: "required",
+      });
     });
 
     it("lets the user always win over automated writers", async () => {
@@ -373,8 +452,9 @@ describe("things", () => {
       expect(await getThing(db, alex.id)).toBeUndefined();
       expect(await getThingTitle(db, alex.id)).toBeUndefined();
       expect(await count("thing_field_values")).toBe(0);
-      await expect(updateThingValues(db, alex.id, { [name]: "x" })).rejects.toThrow(/not found/);
-      await expect(deleteThing(db, alex.id)).rejects.toThrow(/not found/);
+      const gone = { entity: "thing", id: alex.id } as const;
+      await expectSpoorError(updateThingValues(db, alex.id, { [name]: "x" }), "not_found", gone);
+      await expectSpoorError(deleteThing(db, alex.id), "not_found", gone);
     });
 
     it("refers to other things, losing the reference when one is deleted", async () => {
@@ -395,12 +475,14 @@ describe("things", () => {
       expect(await previewThingDeletion(db, alex.id)).toMatchObject({ references: 1 });
       await deleteThing(db, alex.id);
       expect((await getThing(db, alien.id))?.values).toEqual({ [title]: "Alien" });
-      await expect(
+      await expectSpoorError(
         createThing(db, {
           thingTypeId: movie.id,
           values: { [title]: "Heat", [director]: alex.id },
         }),
-      ).rejects.toThrow(new RegExp(`thing ${alex.id} not found`));
+        "not_found",
+        { entity: "thing", id: alex.id, fieldId: director },
+      );
     });
   });
 });

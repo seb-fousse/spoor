@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import {
   createMetric,
@@ -91,15 +92,29 @@ describe("observations", () => {
     });
 
     it.each([
-      ["a blank name", { name: " ", valueType: "boolean" }, /name is required/],
-      ["a field-only type", { name: "x", valueType: "text" }, /value type must be one of/],
-      ["an enum without options", { name: "x", valueType: "enum" }, /options must be/],
-      ["unknown constraints", { name: "x", valueType: "number", constraints: { step: 1 } }, /step/],
-      ["a blank label", { name: "x", valueType: "boolean", optionLabels: { a: "" } }, /label/],
-    ])("refuses %s, naming the metric and writing nothing", async (_, input, message) => {
-      await expect(createMetric(db, input as never)).rejects.toThrow(
-        new RegExp(`^Observation metric [0-9a-f-]{36}: .*${message.source}`),
-      );
+      ["a blank name", { name: " ", valueType: "boolean" }, { field: "name" }],
+      ["a field-only type", { name: "x", valueType: "text" }, { field: "valueType" }],
+      [
+        "an enum without options",
+        { name: "x", valueType: "enum" },
+        { field: "constraints", constraint: "options" },
+      ],
+      [
+        "unknown constraints",
+        { name: "x", valueType: "number", constraints: { step: 1 } },
+        { field: "constraints", constraint: "step" },
+      ],
+      [
+        "a blank label",
+        { name: "x", valueType: "boolean", optionLabels: { a: "" } },
+        { field: "optionLabels" },
+      ],
+    ])("refuses %s, naming the metric and writing nothing", async (_, input, details) => {
+      const error = await expectSpoorError(createMetric(db, input as never), "invalid", {
+        entity: "observation_metric",
+        ...details,
+      });
+      expect(error.details.id).toBeTypeOf("string");
       expect(await rows("SELECT * FROM observation_metrics")).toEqual([]);
     });
 
@@ -129,9 +144,11 @@ describe("observations", () => {
         optionLabels: { ok: "Fine" },
         updatedAt: 2_000,
       });
-      await expect(updateMetric(db, id, { optionLabels: { ok: " " } })).rejects.toThrow(
-        `Observation metric ${id}: label for option "ok" must be a non-empty string`,
-      );
+      await expectSpoorError(updateMetric(db, id, { optionLabels: { ok: " " } }), "invalid", {
+        entity: "observation_metric",
+        id,
+        field: "optionLabels",
+      });
     });
 
     it("archives and unarchives", async () => {
@@ -145,9 +162,10 @@ describe("observations", () => {
     it("refuses changes to a deleted metric", async () => {
       const { id } = await water();
       await deleteMetric(db, id);
-      await expect(updateMetric(db, id, { name: "x" })).rejects.toThrow(/not found/);
-      await expect(setMetricArchived(db, id, true)).rejects.toThrow(/not found/);
-      await expect(deleteMetric(db, id)).rejects.toThrow(/not found/);
+      const gone = { entity: "observation_metric", id } as const;
+      await expectSpoorError(updateMetric(db, id, { name: "x" }), "not_found", gone);
+      await expectSpoorError(setMetricArchived(db, id, true), "not_found", gone);
+      await expectSpoorError(deleteMetric(db, id), "not_found", gone);
     });
   });
 
@@ -165,19 +183,32 @@ describe("observations", () => {
         updatedAt: 2_000,
       });
       expect(await getObservation(db, old.id)).toEqual(old);
-      await expect(record(metric, "2026-10-20", 3)).rejects.toThrow(/must be at least 5/);
-      await expect(record(metric, "2026-10-19", 3)).rejects.toThrow(
-        `Observation ${old.id}: must be at least 5`,
-      );
+      const atLeast5 = { field: "value", rule: "min", limit: 5 } as const;
+      await expectSpoorError(record(metric, "2026-10-20", 3), "invalid", atLeast5);
+      await expectSpoorError(record(metric, "2026-10-19", 3), "invalid", {
+        entity: "observation",
+        id: old.id,
+        ...atLeast5,
+      });
       expect((await record(metric, "2026-10-19", 6)).id).toBe(old.id);
     });
 
     it("are parsed for the metric's value type, which never changes", async () => {
       const metric = await water();
-      await expect(
+      const constraints = {
+        entity: "observation_metric",
+        id: metric.id,
+        field: "constraints",
+      } as const;
+      await expectSpoorError(
         updateMetric(db, metric.id, { constraints: { min: 2, max: 1 } }),
-      ).rejects.toThrow(`Observation metric ${metric.id}: min must not be greater than max`);
-      await expect(updateMetric(db, metric.id, { constraints: MOOD })).rejects.toThrow(/options/);
+        "invalid",
+        { ...constraints, constraint: "min" },
+      );
+      await expectSpoorError(updateMetric(db, metric.id, { constraints: MOOD }), "invalid", {
+        ...constraints,
+        constraint: "options",
+      });
       expect(await getMetric(db, metric.id)).toEqual(metric);
     });
 
@@ -265,55 +296,73 @@ describe("observations", () => {
     });
 
     it.each([
-      ["a value out of bounds", "number", 21, /must be at most 20/],
-      ["a value of the wrong type", "number", "3", /must be a number/],
-      ["an unknown option", "multi_enum", ["rash"], /"rash" is not an option/],
+      ["a value out of bounds", "number", 21, { rule: "max", limit: 20 }],
+      ["a value of the wrong type", "number", "3", { rule: "type" }],
+      ["an unknown option", "multi_enum", ["rash"], { rule: "option" }],
       [
         "too many selections",
         "multi_enum",
         ["fever", "cough", "headache"],
-        /must select at most 2/,
+        { rule: "maxSelected", limit: 2 },
       ],
-      ["a repeated selection", "multi_enum", ["fever", "fever"], /must not repeat/],
-    ] as const)("refuses %s, naming the observation", async (_, type, value, message) => {
+      ["a repeated selection", "multi_enum", ["fever", "fever"], { rule: "unique" }],
+    ] as const)("refuses %s, naming the observation", async (_, type, value, rule) => {
       const metric = type === "number" ? await water() : await symptoms();
-      await expect(record(metric, "2026-10-19", value as never)).rejects.toThrow(
-        new RegExp(`^Observation [0-9a-f-]{36}: ${message.source}`),
+      const error = await expectSpoorError(
+        record(metric, "2026-10-19", value as never),
+        "invalid",
+        {
+          entity: "observation",
+          field: "value",
+          ...rule,
+        },
       );
+      expect(error.details.id).toBeTypeOf("string");
       expect(await rows("SELECT * FROM observations")).toEqual([]);
     });
 
     it("names the existing observation when a revision is invalid, changing nothing", async () => {
       const metric = await water();
       const first = await record(metric, "2026-10-19", 3);
-      await expect(record(metric, "2026-10-19", -1)).rejects.toThrow(
-        `Observation ${first.id}: must be at least 0`,
-      );
+      await expectSpoorError(record(metric, "2026-10-19", -1), "invalid", {
+        entity: "observation",
+        id: first.id,
+        rule: "min",
+      });
       expect(await getObservation(db, first.id)).toEqual(first);
     });
 
     it.each([
-      ["an invalid date", "2026-02-30", {}, /invalid date "2026-02-30"/],
-      ["a blank writer", "2026-10-19", { writtenBy: " " }, /invalid writer/],
-      ["a padded source", "2026-10-19", { source: " import" }, /invalid source/],
-      ["a blank external id", "2026-10-19", { externalId: "" }, /invalid external id/],
-    ])("refuses %s", async (_, date, options, message) => {
+      ["an invalid date", "2026-02-30", {}, "date"],
+      ["a blank writer", "2026-10-19", { writtenBy: " " }, "writtenBy"],
+      ["a padded source", "2026-10-19", { source: " import" }, "source"],
+      ["a blank external id", "2026-10-19", { externalId: "" }, "externalId"],
+    ])("refuses %s", async (_, date, options, field) => {
       const metric = await water();
-      await expect(record(metric, date, 1, options)).rejects.toThrow(
-        new RegExp(`^Observation metric ${metric.id}: ${message.source}`),
-      );
+      await expectSpoorError(record(metric, date, 1, options), "invalid", {
+        entity: "observation_metric",
+        id: metric.id,
+        field,
+      });
     });
 
     it("refuses an archived or deleted metric", async () => {
       const archived = await water();
       await setMetricArchived(db, archived.id, true);
-      await expect(record(archived, "2026-10-19", 1)).rejects.toThrow(
-        `Observation metric ${archived.id}: archived`,
-      );
+      await expectSpoorError(record(archived, "2026-10-19", 1), "archived", {
+        entity: "observation_metric",
+        id: archived.id,
+      });
       const deleted = await water();
       await deleteMetric(db, deleted.id);
-      await expect(record(deleted, "2026-10-19", 1)).rejects.toThrow(/not found/);
-      await expect(recordObservation(db, "nope", "2026-10-19", 1)).rejects.toThrow(/not found/);
+      await expectSpoorError(record(deleted, "2026-10-19", 1), "not_found", {
+        entity: "observation_metric",
+        id: deleted.id,
+      });
+      await expectSpoorError(recordObservation(db, "nope", "2026-10-19", 1), "not_found", {
+        entity: "observation_metric",
+        id: "nope",
+      });
     });
 
     it("lists latest day first, between inclusive bounds", async () => {
@@ -332,9 +381,11 @@ describe("observations", () => {
       expect(await values({ from: "2026-10-20" })).toEqual([3, 2]);
       expect(await values({ from: "2026-10-20", to: "2026-10-20" })).toEqual([2]);
       expect(await values({ to: "2026-10-19" })).toEqual([1]);
-      await expect(listObservations(db, metric.id, { from: "20/10/2026" })).rejects.toThrow(
-        /invalid from date/,
-      );
+      await expectSpoorError(listObservations(db, metric.id, { from: "20/10/2026" }), "invalid", {
+        entity: "observation_metric",
+        id: metric.id,
+        field: "from",
+      });
     });
 
     it("has no default: an unrecorded day has no observation", async () => {
@@ -386,7 +437,10 @@ describe("observations", () => {
     it("still refuses an invalid value it would skip", async () => {
       const metric = await water();
       await record(metric, "2026-10-19", 3);
-      await expect(record(metric, "2026-10-19", -4, healthkit)).rejects.toThrow(/at least 0/);
+      await expectSpoorError(record(metric, "2026-10-19", -4, healthkit), "invalid", {
+        rule: "min",
+        limit: 0,
+      });
     });
 
     it("lets the user overwrite any value, keeping source and external id", async () => {
@@ -410,10 +464,12 @@ describe("observations", () => {
 
     it("keeps external ids unique per source", async () => {
       const metric = await water();
-      const first = await record(metric, "2026-10-19", 3, { ...healthkit, externalId: "a" });
-      await expect(
+      await record(metric, "2026-10-19", 3, { ...healthkit, externalId: "a" });
+      await expectSpoorError(
         record(metric, "2026-10-20", 3, { ...healthkit, externalId: "a" }),
-      ).rejects.toThrow(`Observation ${first.id}: already has external id "a" from healthkit`);
+        "conflict",
+        { entity: "observation", field: "externalId" },
+      );
       await record(metric, "2026-10-20", 3, { writtenBy: "import", externalId: "a" });
     });
   });
@@ -426,9 +482,10 @@ describe("observations", () => {
 
       expect(await listObservations(db, metric.id)).toEqual([]);
       expect(await rows("SELECT * FROM observation_selections")).toEqual([]);
-      await expect(deleteObservation(db, created.id)).rejects.toThrow(
-        `Observation ${created.id}: not found`,
-      );
+      await expectSpoorError(deleteObservation(db, created.id), "not_found", {
+        entity: "observation",
+        id: created.id,
+      });
     });
 
     it("frees the day for a new observation", async () => {
@@ -515,7 +572,7 @@ describe("observations", () => {
       expect(await listDayObservations(db, "2026-10-19")).toEqual([
         { metric: w, observation: null },
       ]);
-      await expect(listDayObservations(db, "2026-13-01")).rejects.toThrow(/date/);
+      await expectSpoorError(listDayObservations(db, "2026-13-01"), "invalid", { field: "date" });
     });
   });
 
@@ -562,11 +619,15 @@ describe("observations", () => {
     });
 
     it("rejects invalid dates and reversed ranges", async () => {
-      await expect(countDayObservations(db, "2026-13-01", "2026-10-19")).rejects.toThrow(/date/);
-      await expect(countDayObservations(db, "2026-10-19", "nope")).rejects.toThrow(/date/);
-      await expect(countDayObservations(db, "2026-10-20", "2026-10-19")).rejects.toThrow(
-        /before it starts/,
-      );
+      await expectSpoorError(countDayObservations(db, "2026-13-01", "2026-10-19"), "invalid", {
+        field: "from",
+      });
+      await expectSpoorError(countDayObservations(db, "2026-10-19", "nope"), "invalid", {
+        field: "to",
+      });
+      await expectSpoorError(countDayObservations(db, "2026-10-20", "2026-10-19"), "invalid", {
+        field: "to",
+      });
     });
   });
 });

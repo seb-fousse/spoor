@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { isNonEmptyString, optionalText, requireName } from "./guards";
 
 describe("isNonEmptyString", () => {
@@ -26,8 +27,12 @@ describe("requireName", () => {
     expect(requireName("Thing 1", "  Alex ")).toBe("Alex");
   });
 
-  it("names the record when the name is blank", () => {
-    expect(() => requireName("Thing 1", "  ")).toThrow("Thing 1: name is required");
+  it("refuses a blank name, naming the record and the field", async () => {
+    await expectSpoorError(
+      () => requireName("Thing 1", "  ", { entity: "thing", id: "1" }),
+      "invalid",
+      { entity: "thing", id: "1", field: "name" },
+    );
   });
 });
 

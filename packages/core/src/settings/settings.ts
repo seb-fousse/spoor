@@ -1,6 +1,7 @@
 import type { Database } from "../db/platform";
 import { queryBuilder } from "../db/query";
 import { isTimeZone, systemTimeZone } from "../lib/days";
+import { SpoorError } from "../lib/spoor-error";
 import { now } from "../lib/time";
 
 /**
@@ -23,7 +24,11 @@ export async function getSetting<T>(db: Database, key: string): Promise<T | unde
 export async function setSetting(db: Database, key: string, value: unknown): Promise<void> {
   const json = JSON.stringify(value);
   if (json === undefined) {
-    throw new Error(`Setting ${JSON.stringify(key)} must be a JSON value; got ${typeof value}`);
+    throw new SpoorError(
+      "invalid",
+      `Setting ${JSON.stringify(key)} must be a JSON value; got ${typeof value}`,
+      { entity: "setting", id: key, field: "value" },
+    );
   }
   await queryBuilder(db)
     .insertInto("settings")
@@ -49,7 +54,11 @@ export async function getTimeZone(db: Database): Promise<string> {
 /** Sets the `time_zone` setting. Throws unless `timeZone` is a valid IANA ID. */
 export async function setTimeZone(db: Database, timeZone: string): Promise<void> {
   if (!isTimeZone(timeZone)) {
-    throw new Error(`Setting "time_zone": invalid time zone ${JSON.stringify(timeZone)}`);
+    throw new SpoorError(
+      "invalid",
+      `Setting "time_zone": invalid time zone ${JSON.stringify(timeZone)}`,
+      { entity: "setting", id: "time_zone", field: "timeZone" },
+    );
   }
   await setSetting(db, "time_zone", timeZone);
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { dumpAll } from "../testing/sample-data";
 import { createCategory, getCategory, listCategories } from "../timelines/categories";
@@ -91,29 +92,30 @@ describe("mergeThings", () => {
     expect(
       await db.query("SELECT id FROM thing_field_values WHERE thing_id = ?", [alex.id]),
     ).toEqual([]);
-    await expect(
+    await expectSpoorError(
       createThing(db, {
         thingTypeId: movieType.id,
         values: { [f.title]: "Alien", [f.director]: alex.id },
       }),
-    ).rejects.toThrow(new RegExp(`thing ${alex.id} not found`));
+      "not_found",
+      { entity: "thing", id: alex.id, fieldId: f.director },
+    );
   });
 
   it.each([
-    [
-      "into itself",
-      (t: Awaited<ReturnType<typeof setup>>) => [t.alex.id, t.alex.id],
-      /into itself/,
-    ],
+    ["into itself", (t: Awaited<ReturnType<typeof setup>>) => [t.alex.id, t.alex.id], "invalid"],
     [
       "an unknown duplicate",
       (t: Awaited<ReturnType<typeof setup>>) => [t.alex.id, "01900000-0000-7000-8000-000000000000"],
-      /not found/,
+      "not_found",
     ],
-  ])("refuses merging %s", async (_, ids, message) => {
+  ] as const)("refuses merging %s", async (_, ids, code) => {
     const things = await setup();
     const [survivor, duplicate] = ids(things);
-    await expect(mergeThings(db, survivor, duplicate)).rejects.toThrow(message);
+    await expectSpoorError(mergeThings(db, survivor, duplicate), code, {
+      entity: "thing",
+      id: duplicate,
+    });
   });
 
   it("refuses things of different types, and a deleted or merged survivor, changing nothing", async () => {
@@ -127,10 +129,14 @@ describe("mergeThings", () => {
     await deleteThing(db, kim.id);
 
     const before = await dumpAll(db);
-    await expect(mergeThings(db, movie.id, sam.id)).rejects.toThrow(/of another type/);
-    await expect(mergeThings(db, alex.id, sam.id)).rejects.toThrow(`Thing ${alex.id}: not found`);
-    await expect(mergeThings(db, kim.id, sam.id)).rejects.toThrow(`Thing ${kim.id}: not found`);
-    await expect(mergeThings(db, sam.id, kim.id)).rejects.toThrow(`Thing ${kim.id}: not found`);
+    await expectSpoorError(mergeThings(db, movie.id, sam.id), "invalid", {
+      entity: "thing",
+      id: sam.id,
+    });
+    const missing = (id: string) => ({ entity: "thing", id }) as const;
+    await expectSpoorError(mergeThings(db, alex.id, sam.id), "not_found", missing(alex.id));
+    await expectSpoorError(mergeThings(db, kim.id, sam.id), "not_found", missing(kim.id));
+    await expectSpoorError(mergeThings(db, sam.id, kim.id), "not_found", missing(kim.id));
     expect(await dumpAll(db)).toEqual(before);
   });
 

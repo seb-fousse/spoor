@@ -308,6 +308,13 @@
           }
         }
       }
+    },
+    // Rule 5: core throws only SpoorError (#144), so an app can tell a failure the
+    // user caused from a bug by its code. Tests and the testing helpers may throw
+    // plain errors.
+    {
+      "includes": ["packages/core/src/**", "!**/*.test.ts", "!packages/core/src/testing/**"],
+      "plugins": ["./tools/biome/plugins/core-throws-spoor-error.grit"]
     }
   ]
 }

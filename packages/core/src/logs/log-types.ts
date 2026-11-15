@@ -19,6 +19,7 @@ import {
 import { LOG_TABLES } from "../definitions/tables";
 import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import { tree } from "../lib/tree";
 
@@ -81,7 +82,7 @@ export async function createLogType(
       .insertInto("log_types")
       .values({
         id,
-        name: requireName(`Log type ${id}`, input.name),
+        name: requireName(`Log type ${id}`, input.name, { entity: "log_type", id }),
         description: optionalText(input.description),
         parent_type_id: parentTypeId,
         created_at: t,
@@ -125,7 +126,10 @@ export async function updateLogType(
     await queryBuilder(db)
       .updateTable("log_types")
       .set({
-        name: patch.name === undefined ? type.name : requireName(`Log type ${id}`, patch.name),
+        name:
+          patch.name === undefined
+            ? type.name
+            : requireName(`Log type ${id}`, patch.name, { entity: "log_type", id }),
         description:
           patch.description === undefined ? type.description : optionalText(patch.description),
         updated_at: now(),
@@ -235,14 +239,18 @@ export async function deleteLogType(db: Database, id: string): Promise<void> {
 
 export async function requireLogType(db: Database, id: string): Promise<LogType> {
   const type = await getLogType(db, id);
-  if (!type) throw new Error(`Log type ${id}: not found`);
+  if (!type) {
+    throw new SpoorError("not_found", `Log type ${id}: not found`, { entity: "log_type", id });
+  }
   return type;
 }
 
 /** An unarchived type: one offered for new entries. */
 export async function requireOfferedLogType(db: Database, id: string): Promise<LogType> {
   const type = await requireLogType(db, id);
-  if (type.archivedAt !== null) throw new Error(`Log type ${id}: archived`);
+  if (type.archivedAt !== null) {
+    throw new SpoorError("archived", `Log type ${id}: archived`, { entity: "log_type", id });
+  }
   return type;
 }
 

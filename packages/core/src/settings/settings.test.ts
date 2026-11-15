@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
 import { systemTimeZone } from "../lib/days";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { getSetting, getTimeZone, setSetting, setTimeZone } from "./settings";
 
@@ -54,8 +55,13 @@ describe("settings", () => {
   });
 
   it("rejects values that are not JSON", async () => {
-    await expect(setSetting(db, "k", undefined)).rejects.toThrow('Setting "k"');
-    await expect(setSetting(db, "k", () => {})).rejects.toThrow('Setting "k"');
+    const details = { entity: "setting", id: "k", field: "value" } as const;
+    await expectSpoorError(setSetting(db, "k", undefined), "invalid", details);
+    await expectSpoorError(
+      setSetting(db, "k", () => {}),
+      "invalid",
+      details,
+    );
   });
 
   it("refuses invalid JSON written directly", async () => {
@@ -75,7 +81,10 @@ describe("settings", () => {
     });
 
     it("rejects an invalid zone, naming the setting", async () => {
-      await expect(setTimeZone(db, "Mars/Olympus")).rejects.toThrow('Setting "time_zone"');
+      await expectSpoorError(setTimeZone(db, "Mars/Olympus"), "invalid", {
+        entity: "setting",
+        id: "time_zone",
+      });
       expect(await getSetting(db, "time_zone")).toBeUndefined();
     });
 

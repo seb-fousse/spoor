@@ -2,6 +2,7 @@ import type { Database } from "../db/platform";
 import { queryBuilder } from "../db/query";
 import { isNonEmptyString, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { parseStored, SpoorError, type SpoorErrorDetails } from "../lib/spoor-error";
 import type { Instant } from "../lib/time";
 import {
   decodeValue,
@@ -168,23 +169,32 @@ export async function updateField(
   at: Instant,
 ): Promise<void> {
   const label = `${tables.fieldKind} ${fieldId}`;
+  const subject: SpoorErrorDetails = { entity: tables.fieldEntity, id: fieldId };
   const field = await requireField(db, tables, fieldId);
-  const name = patch.name === undefined ? field.name : requireName(label, patch.name);
+  const name = patch.name === undefined ? field.name : requireName(label, patch.name, subject);
   if (patch.name !== undefined) {
     const others = (await getFields(db, tables, field.typeId)).filter((f) => f.id !== fieldId);
     assertUniqueNames(tables, [...others, { id: fieldId, name }]);
   }
   const required = patch.required ?? field.required;
-  if (typeof required !== "boolean") throw new Error(`${label}: required must be true or false`);
+  if (typeof required !== "boolean") {
+    throw new SpoorError("invalid", `${label}: required must be true or false`, {
+      ...subject,
+      field: "required",
+    });
+  }
   const shape =
     patch.constraints === undefined
       ? field.shape
-      : parseShape(label, FIELD_VALUE_TYPES, field.shape.valueType, patch.constraints);
+      : parseShape(label, FIELD_VALUE_TYPES, field.shape.valueType, patch.constraints, subject);
   if (
     (shape.valueType === "ref" || shape.valueType === "multi_ref") &&
     shape.constraints.thingTypeId !== (field.shape.constraints as RefConstraints).thingTypeId
   ) {
-    throw new Error(`${label}: cannot change the thing type it refers to`);
+    throw new SpoorError("invalid", `${label}: cannot change the thing type it refers to`, {
+      ...subject,
+      field: "constraints",
+    });
   }
   await definitionQuery(db, tables)
     .updateTable("def_fields")
@@ -195,7 +205,7 @@ export async function updateField(
       option_labels: JSON.stringify(
         patch.optionLabels === undefined
           ? field.optionLabels
-          : parseOptionLabels(label, patch.optionLabels),
+          : parseOptionLabels(label, patch.optionLabels, subject),
       ),
       updated_at: at,
     })
@@ -217,8 +227,10 @@ export async function reorderFields(
   const fields = await getFields(db, tables, typeId);
   const sorted = (ids: readonly string[]) => JSON.stringify([...ids].sort());
   if (sorted(fieldIds) !== sorted(fields.map((f) => f.id))) {
-    throw new Error(
+    throw new SpoorError(
+      "invalid",
       `${typeLabel(tables, typeId, true)}: a new order must list each of its fields once`,
+      { entity: tables.typeEntity, id: typeId, field: "fieldIds" },
     );
   }
   const q = definitionQuery(db, tables);
@@ -312,21 +324,32 @@ export async function validateValues(
   const result: FieldValue[] = [];
   for (const [fieldId, input] of Object.entries(patch)) {
     const label = valueLabel(tables, record.id, fieldId);
+    const subject = valueSubject(tables, record.id, fieldId);
     const field = fields.find((f) => f.id === fieldId);
     if (!field) {
-      throw new Error(`${label}: not a field of ${typeLabel(tables, record.typeId)}`);
+      throw new SpoorError(
+        "not_found",
+        `${label}: not a field of ${typeLabel(tables, record.typeId)}`,
+        {
+          entity: tables.fieldEntity,
+          id: fieldId,
+        },
+      );
     }
     const value =
       input === null || (Array.isArray(input) && input.length === 0)
         ? null
-        : validateValue(label, field.shape, input);
-    if (value === null && field.required) throw new Error(`${label}: is required`);
+        : validateValue(label, field.shape, input, subject);
+    if (value === null && field.required) {
+      throw new SpoorError("invalid", `${label}: is required`, { ...subject, rule: "required" });
+    }
     if (field.shape.valueType === "ref" || field.shape.valueType === "multi_ref") {
       const kept = new Set(stored.filter((r) => r.field_id === fieldId).map((r) => r.value_ref));
       const ids = value === null ? [] : Array.isArray(value) ? value : [value as string];
       await assertRefsTo(
         db,
         label,
+        subject,
         field.shape.constraints,
         ids.filter((id) => !kept.has(id)),
       );
@@ -335,7 +358,10 @@ export async function validateValues(
   }
   for (const field of fields) {
     if (field.required && !(field.id in patch) && !stored.some((r) => r.field_id === field.id)) {
-      throw new Error(`${valueLabel(tables, record.id, field.id)}: is required`);
+      throw new SpoorError("invalid", `${valueLabel(tables, record.id, field.id)}: is required`, {
+        ...valueSubject(tables, record.id, field.id),
+        rule: "required",
+      });
     }
   }
   return result;
@@ -356,7 +382,11 @@ export async function writeValues(
   writer: ValueWriter,
 ): Promise<boolean> {
   if (!isNonEmptyString(writer.writtenBy)) {
-    throw new Error(`${tables.recordKind} ${recordId}: a writer is required`);
+    throw new SpoorError("invalid", `${tables.recordKind} ${recordId}: a writer is required`, {
+      entity: tables.recordEntity,
+      id: recordId,
+      field: "writtenBy",
+    });
   }
   const q = definitionQuery(db, tables);
   const stored = await storedRows(db, tables, recordId);
@@ -473,8 +503,10 @@ export async function readValues(
   const rows = await storedRows(db, tables, record.id);
   for (const row of rows) {
     if (!fields.some((f) => f.id === row.field_id)) {
-      throw new Error(
+      throw new SpoorError(
+        "internal",
         `${valueLabel(tables, record.id, row.field_id)}: stored, but not a field of ${typeLabel(tables, record.typeId)}`,
+        { entity: tables.recordEntity, id: record.id },
       );
     }
   }
@@ -487,7 +519,11 @@ export async function readValues(
     if (isMultiValueType(valueType)) {
       values[field.id] = own.map((r) => decodeValue(label, "ref", r) as string).sort();
     } else if (own.length > 1) {
-      throw new Error(`${label}: ${own.length} values stored for a ${valueType} field`);
+      throw new SpoorError(
+        "internal",
+        `${label}: ${own.length} values stored for a ${valueType} field`,
+        { entity: tables.recordEntity, id: record.id },
+      );
     } else {
       values[field.id] = decodeValue(label, valueType, own[0]);
     }
@@ -547,14 +583,20 @@ export async function repointRefs(
 
 function draftField(tables: DefinitionTables, id: string, input: NewField): FieldDraft {
   const label = `${tables.fieldKind} ${id}`;
+  const subject: SpoorErrorDetails = { entity: tables.fieldEntity, id };
   const required = input.required ?? false;
-  if (typeof required !== "boolean") throw new Error(`${label}: required must be true or false`);
+  if (typeof required !== "boolean") {
+    throw new SpoorError("invalid", `${label}: required must be true or false`, {
+      ...subject,
+      field: "required",
+    });
+  }
   return {
     id,
-    name: requireName(label, input.name),
-    shape: parseShape(label, FIELD_VALUE_TYPES, input.valueType, input.constraints),
+    name: requireName(label, input.name, subject),
+    shape: parseShape(label, FIELD_VALUE_TYPES, input.valueType, input.constraints, subject),
     required,
-    optionLabels: parseOptionLabels(label, input.optionLabels),
+    optionLabels: parseOptionLabels(label, input.optionLabels, subject),
   };
 }
 
@@ -585,13 +627,18 @@ async function insertField(
 
 function toField(tables: DefinitionTables, row: DefinitionDB["def_fields"]): FieldDefinition {
   const label = `${tables.fieldKind} ${row.id}`;
+  const subject: SpoorErrorDetails = { entity: tables.fieldEntity, id: row.id };
   return {
     id: row.id,
     typeId: row.def_type_id,
     name: row.name,
     position: row.position,
-    optionLabels: parseOptionLabels(label, JSON.parse(row.option_labels)),
-    shape: parseShape(label, FIELD_VALUE_TYPES, row.value_type, JSON.parse(row.constraints)),
+    optionLabels: parseStored(() =>
+      parseOptionLabels(label, JSON.parse(row.option_labels), subject),
+    ),
+    shape: parseStored(() =>
+      parseShape(label, FIELD_VALUE_TYPES, row.value_type, JSON.parse(row.constraints), subject),
+    ),
     required: row.required === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -608,8 +655,10 @@ function assertUniqueNames(
     const key = name.trim().toLowerCase();
     const other = seen.get(key);
     if (other !== undefined) {
-      throw new Error(
+      throw new SpoorError(
+        "conflict",
         `${tables.fieldKind} ${id}: name ${JSON.stringify(name.trim())} is already used by field ${other}`,
+        { entity: tables.fieldEntity, id, field: "name" },
       );
     }
     seen.set(key, id);
@@ -626,10 +675,18 @@ async function assertRefTarget(db: Database, tables: DefinitionTables, field: Fi
     .where("id", "=", thingTypeId)
     .executeTakeFirst();
   if (!target) {
-    throw new Error(`${tables.fieldKind} ${field.id}: thing type ${thingTypeId} not found`);
+    throw new SpoorError(
+      "not_found",
+      `${tables.fieldKind} ${field.id}: thing type ${thingTypeId} not found`,
+      { entity: "thing_type", id: thingTypeId },
+    );
   }
   if (target.archived_at !== null) {
-    throw new Error(`${tables.fieldKind} ${field.id}: thing type ${thingTypeId} is archived`);
+    throw new SpoorError(
+      "archived",
+      `${tables.fieldKind} ${field.id}: thing type ${thingTypeId} is archived`,
+      { entity: "thing_type", id: thingTypeId },
+    );
   }
 }
 
@@ -637,6 +694,7 @@ async function assertRefTarget(db: Database, tables: DefinitionTables, field: Fi
 async function assertRefsTo(
   db: Database,
   label: string,
+  subject: SpoorErrorDetails,
   constraints: RefConstraints,
   ids: readonly string[],
 ) {
@@ -652,9 +710,19 @@ async function assertRefsTo(
   );
   for (const id of ids) {
     const thing = things.get(id);
-    if (!thing) throw new Error(`${label}: thing ${id} not found`);
+    if (!thing) {
+      throw new SpoorError("not_found", `${label}: thing ${id} not found`, {
+        entity: "thing",
+        id,
+        fieldId: subject.fieldId,
+      });
+    }
     if (thing.thing_type_id !== constraints.thingTypeId) {
-      throw new Error(`${label}: thing ${id} is not of thing type ${constraints.thingTypeId}`);
+      throw new SpoorError(
+        "invalid",
+        `${label}: thing ${id} is not of thing type ${constraints.thingTypeId}`,
+        { ...subject, rule: "type" },
+      );
     }
   }
 }
@@ -665,13 +733,23 @@ async function requireType(db: Database, tables: DefinitionTables, typeId: strin
     .select("id")
     .where("id", "=", typeId)
     .executeTakeFirst();
-  if (!type) throw new Error(`${tables.typeKind} ${typeId}: not found`);
+  if (!type) {
+    throw new SpoorError("not_found", `${tables.typeKind} ${typeId}: not found`, {
+      entity: tables.typeEntity,
+      id: typeId,
+    });
+  }
   return type;
 }
 
 async function requireField(db: Database, tables: DefinitionTables, id: string) {
   const field = await getField(db, tables, id);
-  if (!field) throw new Error(`${tables.fieldKind} ${id}: not found`);
+  if (!field) {
+    throw new SpoorError("not_found", `${tables.fieldKind} ${id}: not found`, {
+      entity: tables.fieldEntity,
+      id,
+    });
+  }
   return field;
 }
 
@@ -687,6 +765,15 @@ function storedRows(db: Database, tables: DefinitionTables, recordId: string) {
 /** `"Thing <id>, field <id>"`, as `values/values.ts` names failing values. */
 function valueLabel(tables: DefinitionTables, recordId: string, fieldId: string) {
   return `${tables.recordKind} ${recordId}, field ${fieldId}`;
+}
+
+/** A value's record and field, as an error's details. */
+function valueSubject(
+  tables: DefinitionTables,
+  recordId: string,
+  fieldId: string,
+): SpoorErrorDetails {
+  return { entity: tables.recordEntity, id: recordId, field: "values", fieldId };
 }
 
 /** `"thing type <id>"`, or capitalised at the start of an error. */

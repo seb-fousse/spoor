@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { isTimeZone } from "../lib/days";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, instantToIso, isInstant, now } from "../lib/time";
 import { getTimeZone } from "../settings/settings";
 import { requireOfferedCategory } from "./categories";
@@ -43,7 +44,13 @@ export async function startInterval(
   options: { at?: Instant; timeZone?: string } = {},
 ): Promise<TimelineInterval> {
   const at = options.at ?? now();
-  if (!isInstant(at)) throw new Error(`Timeline category ${categoryId}: invalid start ${at}`);
+  if (!isInstant(at)) {
+    throw new SpoorError("invalid", `Timeline category ${categoryId}: invalid start ${at}`, {
+      entity: "timeline_category",
+      id: categoryId,
+      field: "at",
+    });
+  }
   const timeZone = options.timeZone ?? (await getTimeZone(db));
   const id = newId();
   await transaction(db, async () => {
@@ -57,9 +64,11 @@ export async function startInterval(
     if (!timeline.exclusive) ongoing = ongoing.where("category_id", "=", categoryId);
     for (const interval of (await ongoing.execute()).map(toInterval)) {
       if (interval.startAt >= at) {
-        throw new Error(
+        throw new SpoorError(
+          "conflict",
           `Timeline interval ${interval.id}: ongoing since ${instantToIso(interval.startAt)}, ` +
             `cannot start another at ${instantToIso(at)}`,
+          { entity: "timeline_interval", id, field: "at" },
         );
       }
       await q
@@ -122,7 +131,7 @@ export async function listIntervalsInRange(
 ): Promise<TimelineInterval[]> {
   const { from, to } = range;
   if (!isInstant(from) || !isInstant(to) || to <= from) {
-    throw new Error(`Invalid interval range: [${from}, ${to})`);
+    throw new SpoorError("invalid", `Invalid interval range: [${from}, ${to})`, { field: "range" });
   }
   if (timelineIds.length === 0) return [];
   const rows = await queryBuilder(db)
@@ -153,8 +162,10 @@ export async function updateInterval(
     if (categoryId !== interval.categoryId) {
       const { category } = await requireOfferedCategory(db, categoryId);
       if (category.timelineId !== interval.timelineId) {
-        throw new Error(
+        throw new SpoorError(
+          "invalid",
           `Timeline interval ${id}: category ${categoryId} belongs to another timeline`,
+          { entity: "timeline_interval", id, field: "categoryId" },
         );
       }
     }
@@ -189,7 +200,12 @@ export async function stopInterval(
 ): Promise<TimelineInterval> {
   await transaction(db, async () => {
     const interval = await requireInterval(db, id);
-    if (interval.endAt !== null) throw new Error(`Timeline interval ${id}: not ongoing`);
+    if (interval.endAt !== null) {
+      throw new SpoorError("conflict", `Timeline interval ${id}: not ongoing`, {
+        entity: "timeline_interval",
+        id,
+      });
+    }
     const timeline = await requireTimeline(db, interval.timelineId);
     await assertValidInterval(db, timeline, { ...interval, endAt: at });
     await queryBuilder(db)
@@ -221,7 +237,11 @@ export async function splitInterval(
       at <= interval.startAt ||
       (interval.endAt !== null && at >= interval.endAt)
     ) {
-      throw new Error(`Timeline interval ${id}: cannot split at ${at}, which is not inside it`);
+      throw new SpoorError(
+        "invalid",
+        `Timeline interval ${id}: cannot split at ${at}, which is not inside it`,
+        { entity: "timeline_interval", id, field: "at" },
+      );
     }
     const timeline = await requireTimeline(db, interval.timelineId);
     // Shortened first, so the later piece doesn't overlap it.
@@ -282,16 +302,21 @@ async function insertInterval(db: Database, timeline: Timeline, draft: IntervalD
 }
 
 async function assertValidInterval(db: Database, timeline: Timeline, draft: IntervalDraft) {
-  const label = `Timeline interval ${draft.id}`;
-  if (!isInstant(draft.startAt)) throw new Error(`${label}: invalid start ${draft.startAt}`);
+  const invalid = (problem: string, field: string) =>
+    new SpoorError("invalid", `Timeline interval ${draft.id}: ${problem}`, {
+      entity: "timeline_interval",
+      id: draft.id,
+      field,
+    });
+  if (!isInstant(draft.startAt)) throw invalid(`invalid start ${draft.startAt}`, "startAt");
   if (draft.endAt !== null && !isInstant(draft.endAt)) {
-    throw new Error(`${label}: invalid end ${draft.endAt}`);
+    throw invalid(`invalid end ${draft.endAt}`, "endAt");
   }
   if (draft.endAt !== null && draft.endAt <= draft.startAt) {
-    throw new Error(`${label}: must end after it starts`);
+    throw invalid("must end after it starts", "endAt");
   }
   if (!isTimeZone(draft.timeZone)) {
-    throw new Error(`${label}: invalid time zone ${JSON.stringify(draft.timeZone)}`);
+    throw invalid(`invalid time zone ${JSON.stringify(draft.timeZone)}`, "timeZone");
   }
   await assertNoOverlap(db, timeline, draft);
 }
@@ -316,13 +341,22 @@ async function assertNoOverlap(
   if (draft.endAt !== null) query = query.where("start_at", "<", draft.endAt);
   const conflict = await query.limit(1).executeTakeFirst();
   if (conflict) {
-    throw new Error(`Timeline interval ${draft.id}: overlaps interval ${conflict.id}`);
+    throw new SpoorError(
+      "conflict",
+      `Timeline interval ${draft.id}: overlaps interval ${conflict.id}`,
+      { entity: "timeline_interval", id: draft.id },
+    );
   }
 }
 
 export async function requireInterval(db: Database, id: string): Promise<TimelineInterval> {
   const interval = await getInterval(db, id);
-  if (!interval) throw new Error(`Timeline interval ${id}: not found`);
+  if (!interval) {
+    throw new SpoorError("not_found", `Timeline interval ${id}: not found`, {
+      entity: "timeline_interval",
+      id,
+    });
+  }
   return interval;
 }
 

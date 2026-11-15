@@ -1,4 +1,5 @@
 import type { DB } from "../db/schema/tables";
+import type { SpoorEntity } from "../lib/spoor-error";
 
 /** Where one kind of definition lives. Each slice declares one. */
 export interface DefinitionTables {
@@ -8,6 +9,10 @@ export interface DefinitionTables {
   readonly fieldKind: string;
   /** Names a record holding values in errors, such as `"Thing"`. */
   readonly recordKind: string;
+  /** The type, field and record as an error's `details.entity`. */
+  readonly typeEntity: SpoorEntity;
+  readonly fieldEntity: SpoorEntity;
+  readonly recordEntity: SpoorEntity;
   /** Types: `id`, `updated_at`, plus the slice's own columns. */
   readonly types: keyof DB;
   /**
@@ -29,6 +34,9 @@ export const THING_TABLES = {
   typeKind: "Thing type",
   fieldKind: "Thing field",
   recordKind: "Thing",
+  typeEntity: "thing_type",
+  fieldEntity: "thing_field",
+  recordEntity: "thing",
   types: "thing_types",
   fields: "thing_fields",
   records: "things",
@@ -41,6 +49,9 @@ export const LOG_TABLES = {
   typeKind: "Log type",
   fieldKind: "Log field",
   recordKind: "Log entry",
+  typeEntity: "log_type",
+  fieldEntity: "log_field",
+  recordEntity: "log_entry",
   types: "log_types",
   fields: "log_fields",
   records: "log_entries",

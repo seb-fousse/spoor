@@ -2,6 +2,7 @@ import type { Database } from "../db/platform";
 import { transaction } from "../db/transaction";
 import { isTimeZone } from "../lib/days";
 import { isUuid } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { isoToInstant } from "../lib/time";
 import {
   TABLES as ALL_TABLES,
@@ -17,7 +18,9 @@ const TABLES: readonly TableSpec[] = ALL_TABLES;
  * Import (see docs/data-spec.md § Export and import): restores an export into an
  * empty database, keeping every id, timestamp and state as written.
  *
- * Every value is validated before the database is touched. The inserts then run in
+ * Every value is validated before the database is touched. A refused document is
+ * `invalid`, with the `path` at fault in its details, or `newer_version`; a database
+ * that already holds data is a `conflict`. The inserts then run in
  * one transaction: the database constraints enforce foreign keys and per-row
  * consistency, and each table's `check` enforces the cross-record rules only core
  * knows, such as interval overlap. A refused or failed import changes nothing.
@@ -30,11 +33,11 @@ export async function importJson(db: Database, text: string): Promise<void> {
   try {
     doc = JSON.parse(text);
   } catch (cause) {
-    throw new Error(
+    throw new SpoorError(
+      "invalid",
       `Import file is not valid JSON: ${cause instanceof Error ? cause.message : cause}`,
-      {
-        cause,
-      },
+      {},
+      { cause },
     );
   }
   await importData(db, doc);
@@ -52,7 +55,10 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
       if (spec.upsertOn !== undefined) continue;
       const [existing] = await db.query(`SELECT 1 FROM ${spec.table} LIMIT 1`);
       if (existing !== undefined) {
-        throw new Error(`Import needs an empty database, but ${spec.table} already has rows`);
+        throw new SpoorError(
+          "conflict",
+          `Import needs an empty database, but ${spec.table} already has rows`,
+        );
       }
     }
     for (const spec of TABLES) {
@@ -68,8 +74,10 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
         try {
           await db.execute(sql, values);
         } catch (cause) {
-          throw new Error(
+          throw new SpoorError(
+            "invalid",
             `${spec.key}[${i}]: ${cause instanceof Error ? cause.message : String(cause)}`,
+            { path: `${spec.key}[${i}]` },
             { cause },
           );
         }
@@ -77,7 +85,9 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
     }
     for (const spec of TABLES) {
       const problem = await spec.check?.(db);
-      if (problem !== undefined) throw new Error(`${spec.key}: ${problem}`);
+      if (problem !== undefined) {
+        throw new SpoorError("invalid", `${spec.key}: ${problem}`, { path: spec.key });
+      }
     }
   });
 }
@@ -123,34 +133,46 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 /** Every table's rows as SQL parameter lists, in column order, or throws on the first problem. */
 function validateDocument(doc: unknown): Map<TableSpec, unknown[][]> {
-  if (!isObject(doc)) throw new Error("Import file must be a JSON object");
+  if (!isObject(doc)) throw new SpoorError("invalid", "Import file must be a JSON object");
 
   const version = doc.schemaVersion;
   if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
-    throw new Error("Import file: schemaVersion must be a positive integer");
+    throw new SpoorError("invalid", "Import file: schemaVersion must be a positive integer", {
+      path: "schemaVersion",
+    });
   }
   if (version > EXPORT_SCHEMA_VERSION) {
-    throw new Error(
+    throw new SpoorError(
+      "newer_version",
       `Import file has format version ${version}, newer than this version of Spoor supports (${EXPORT_SCHEMA_VERSION}). ` +
         "It was written by a newer version of Spoor; update the app to import it.",
+      { version, supported: EXPORT_SCHEMA_VERSION },
     );
   }
   try {
     isoToInstant(doc.exportedAt as string);
   } catch {
-    throw new Error("Import file: exportedAt must be an ISO 8601 UTC instant");
+    throw new SpoorError("invalid", "Import file: exportedAt must be an ISO 8601 UTC instant", {
+      path: "exportedAt",
+    });
   }
 
   const known = new Set<string>(["schemaVersion", "exportedAt", ...TABLES.map((t) => t.key)]);
   for (const key of Object.keys(doc)) {
-    if (!known.has(key)) throw new Error(`Import file: unknown field ${JSON.stringify(key)}`);
+    if (!known.has(key)) {
+      throw new SpoorError("invalid", `Import file: unknown field ${JSON.stringify(key)}`, {
+        path: key,
+      });
+    }
   }
 
   const result = new Map<TableSpec, unknown[][]>();
   for (const spec of TABLES) {
     const records = doc[spec.key];
     if (records === undefined) continue;
-    if (!Array.isArray(records)) throw new Error(`${spec.key} must be an array`);
+    if (!Array.isArray(records)) {
+      throw new SpoorError("invalid", `${spec.key} must be an array`, { path: spec.key });
+    }
     const columns = columnsOf(spec);
     result.set(
       spec,
@@ -166,19 +188,21 @@ function validateRecord(
   columns: readonly Column[],
   record: unknown,
 ): unknown[] {
-  const where = (id?: unknown) =>
-    typeof id === "string" ? `${key}[${index}] (id ${id})` : `${key}[${index}]`;
-  if (!isObject(record)) throw new Error(`${where()}: must be an object`);
+  const path = `${key}[${index}]`;
+  const where = (id?: unknown) => (typeof id === "string" ? `${path} (id ${id})` : path);
+  if (!isObject(record)) throw new SpoorError("invalid", `${where()}: must be an object`, { path });
   const label = where(record.id);
+  const invalid = (problem: string, field: string) =>
+    new SpoorError("invalid", `${label}: ${problem}`, { path: `${path}.${field}` });
 
   const names = new Set(columns.map((c) => c.name));
   for (const field of Object.keys(record)) {
-    if (!names.has(field)) throw new Error(`${label}: unknown field ${JSON.stringify(field)}`);
+    if (!names.has(field)) throw invalid(`unknown field ${JSON.stringify(field)}`, field);
   }
   return columns.map((column) => {
-    if (!(column.name in record)) throw new Error(`${label}: ${column.name} is missing`);
+    if (!(column.name in record)) throw invalid(`${column.name} is missing`, column.name);
     const problem = checkValue(column, record[column.name]);
-    if (problem !== undefined) throw new Error(`${label}: ${column.name} ${problem}`);
+    if (problem !== undefined) throw invalid(`${column.name} ${problem}`, column.name);
     return toParam(column, record[column.name]);
   });
 }
