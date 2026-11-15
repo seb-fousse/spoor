@@ -1,0 +1,15 @@
+// Core throws only SpoorError, so an app can tell a failure the user caused from a
+// bug by its code (#146, rule 5; #144). biome.jsonc scopes this plugin to core's
+// source, outside the tests and the testing helpers.
+//
+// It reports every plain Error core makes, not only `throw new Error(...)`: an
+// error built ahead of the throw, as a factory like `fail(cause)` does, is thrown
+// all the same. `Error(...)` without `new` makes one too.
+language js
+
+or {
+  `new Error($...)`,
+  `Error($...)`
+} as $error where {
+  register_diagnostic(span=$error, message="Core throws only SpoorError. Throw a new SpoorError(code, message, details) from lib/spoor-error, with the code that says who caused the failure.", severity="error")
+}
