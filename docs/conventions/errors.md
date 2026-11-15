@@ -58,9 +58,13 @@ that catches a promise keeps what it caught, typed `unknown`, not a string. No c
 which returns a `DescribedError`, `{ title?, message, expected }`:
 
 - **It words each code**, more precisely when `details` say more: which value rule was broken
-  and its limit, which name clashed, which kind of record is archived or gone.
-- **It names records the way users do.** A timeline interval is a "block", and a thing or log
-  field is a "field".
+  and its limit, which name clashed, which kind of record is archived or gone, how many things
+  have no value for a field picked as the title (`count`).
+- **An import error blames the file.** Any error with a `path` starts "The file can't be
+  imported", names the path, and adds the value rule broken or the definition Spoor can't
+  read, so the user knows their saved data is fine.
+- **It names records the way users do.** A timeline interval is a "block", a thing or log
+  field is a "field", and an observation's value belongs to its "metric".
 - **It never names an id**, and never uses the error's `message`.
 - **`internal`, and anything that isn't a `SpoorError`, get one text,** "Something went
   wrong", with `expected: false`. `not_found` has its own wording, and `expected: false` too.
@@ -68,7 +72,8 @@ which returns a `DescribedError`, `{ title?, message, expected }`:
 
 **Why:** one place decides what users read, and it can be tested code by code.
 
-- **Source:** [#144](https://github.com/seb-fousse/spoor/issues/144), [#162](https://github.com/seb-fousse/spoor/pull/162)
+- **Source:** [#144](https://github.com/seb-fousse/spoor/issues/144), [#162](https://github.com/seb-fousse/spoor/pull/162),
+  [#161](https://github.com/seb-fousse/spoor/pull/161), [#163](https://github.com/seb-fousse/spoor/pull/163)
 - **Lint:** none
 - **Example:** [`lib/errors.test.ts`](../../apps/desktop/src/lib/errors.test.ts), which covers every code
 

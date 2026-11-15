@@ -63,10 +63,113 @@ describe("describeError", () => {
       }
     });
 
-    it("says where an import file is wrong", () => {
-      expect(described("invalid", { path: "timelines[0].name" }).message).toBe(
-        "The file can't be imported: timelines[0].name isn't valid.",
+    it("says an observation's value is its metric's", () => {
+      const observation = { entity: "observation", id: ID, field: "value" } as const;
+      expect(described("invalid", { ...observation, rule: "type" }).message).toBe(
+        "A value isn't the right kind for its metric.",
       );
+      expect(described("invalid", { ...observation, rule: "option" }).message).toBe(
+        "A value isn't one of its metric's options.",
+      );
+    });
+
+    describe("an import file", () => {
+      it("says where the file is wrong", () => {
+        expect(described("invalid", { path: "timelines[0].name" }).message).toBe(
+          "The file can't be imported: timelines[0].name isn't valid.",
+        );
+      });
+
+      it("words a thing or log value the file's field could not hold", () => {
+        expect(
+          described("invalid", {
+            path: "thingFieldValues[3].valueText",
+            entity: "thing",
+            id: ID,
+            field: "values",
+            fieldId: ID,
+            rule: "type",
+          }).message,
+        ).toBe(
+          "The file can't be imported: thingFieldValues[3].valueText isn't valid. " +
+            "A value isn't the right kind for its field.",
+        );
+        expect(
+          described("invalid", {
+            path: "logFieldValues[1].valueInstant",
+            entity: "log_entry",
+            field: "values",
+            fieldId: ID,
+            rule: "range",
+          }).message,
+        ).toBe(
+          "The file can't be imported: logFieldValues[1].valueInstant isn't valid. " +
+            "A date must be between the years 0 and 9999.",
+        );
+      });
+
+      it("words an observation or selection the file's metric could not hold", () => {
+        const observation = {
+          entity: "observation",
+          id: ID,
+          field: "value",
+          metricId: ID,
+        } as const;
+        expect(
+          described("invalid", { ...observation, path: "observations[2].valueBool", rule: "type" })
+            .message,
+        ).toBe(
+          "The file can't be imported: observations[2].valueBool isn't valid. " +
+            "A value isn't the right kind for its metric.",
+        );
+        expect(
+          described("invalid", {
+            ...observation,
+            path: "observationSelections[0].optionKey",
+            rule: "option",
+          }).message,
+        ).toBe(
+          "The file can't be imported: observationSelections[0].optionKey isn't valid. " +
+            "A value isn't one of its metric's options.",
+        );
+        expect(
+          described("invalid", {
+            ...observation,
+            path: "observationSelections[4].optionKey",
+            rule: "unique",
+          }).message,
+        ).toBe(
+          "The file can't be imported: observationSelections[4].optionKey isn't valid. " +
+            "The same option is chosen twice.",
+        );
+      });
+
+      it("words a field or metric definition Spoor can't read", () => {
+        const cases: [SpoorErrorDetails, string][] = [
+          [
+            {
+              path: "observationMetrics[0].constraints",
+              entity: "observation_metric",
+              field: "constraints",
+              constraint: "min",
+            },
+            "It has a metric whose constraints Spoor can't read.",
+          ],
+          [
+            { path: "thingFields[1].valueType", entity: "thing_field", field: "valueType" },
+            "It has a field whose value type Spoor can't read.",
+          ],
+          [
+            { path: "logFields[2].optionLabels", entity: "log_field", field: "optionLabels" },
+            "It has a field whose option labels Spoor can't read.",
+          ],
+        ];
+        for (const [details, message] of cases) {
+          expect(described("invalid", { id: ID, ...details }).message).toBe(
+            `The file can't be imported: ${details.path} isn't valid. ${message}`,
+          );
+        }
+      });
     });
   });
 
@@ -102,6 +205,28 @@ describe("describeError", () => {
       );
       expect(described("conflict", { entity: "timeline_category", field: "thingId" }).message).toBe(
         "That thing already has a category on this timeline.",
+      );
+    });
+
+    it("counts the things a title field has no value on", () => {
+      const title = (count?: number) =>
+        described("conflict", {
+          entity: "thing_type",
+          id: ID,
+          field: "titleFieldId",
+          fieldId: ID,
+          count,
+        }).message;
+      expect(title(1)).toBe(
+        "1 thing has no value for that field, so it can't be the title. Fill it in first.",
+      );
+      expect(title(3)).toBe(
+        "3 things have no value for that field, so it can't be the title. " +
+          "Fill it in for each first.",
+      );
+      expect(title()).toBe(
+        "Some things have no value for that field, so it can't be the title. " +
+          "Fill it in for each first.",
       );
     });
   });

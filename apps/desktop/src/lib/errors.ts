@@ -48,6 +48,13 @@ const FIELD_NOUNS: Record<string, string> = {
   externalId: "external id",
 };
 
+/** The parts of a field's or metric's definition an import file can get wrong, by `details.field`. */
+const DEFINITION_NOUNS: Record<string, string> = {
+  valueType: "value type",
+  constraints: "constraints",
+  optionLabels: "option labels",
+};
+
 /**
  * Words `error` for users. Every `SpoorError` code has its wording, made more
  * precise by the details that come with it; anything else, and `internal`, is
@@ -87,23 +94,49 @@ export function describeError(error: unknown): DescribedError {
   }
 }
 
-function invalidMessage({ rule, limit, field, path }: SpoorErrorDetails): string {
-  if (path !== undefined) return `The file can't be imported: ${path} isn't valid.`;
-  if (rule !== undefined) return valueMessage(rule, limit);
+function invalidMessage(details: SpoorErrorDetails): string {
+  const { rule, limit, field, path } = details;
+  if (path !== undefined) return importMessage(path, details);
+  if (rule !== undefined) return valueMessage(rule, limit, ownerNoun(details));
   const noun = field === undefined ? undefined : FIELD_NOUNS[field];
   if (noun) return `That ${noun} isn't valid. Check it and try again.`;
   return "That isn't valid. Check what you entered and try again.";
 }
 
-/** A field's value its field refuses, for the rule it broke. */
-function valueMessage(rule: NonNullable<SpoorErrorDetails["rule"]>, limit?: number | string) {
+/**
+ * An import file refused at `path`. It blames the file, not the data already
+ * saved, which a refused import leaves as it was, and says more when the details
+ * do: a value its field or metric could not hold, or a definition Spoor can't read.
+ */
+function importMessage(path: string, details: SpoorErrorDetails): string {
+  const { rule, limit, entity, field } = details;
+  const where = `The file can't be imported: ${path} isn't valid.`;
+  if (rule !== undefined) return `${where} ${valueMessage(rule, limit, ownerNoun(details))}`;
+  const part = field === undefined ? undefined : DEFINITION_NOUNS[field];
+  if (entity !== undefined && part !== undefined) {
+    return `${where} It has a ${ENTITY_NOUNS[entity]} whose ${part} Spoor can't read.`;
+  }
+  return where;
+}
+
+/** What a value belongs to: an observation's to its metric, anything else's to its field. */
+function ownerNoun({ entity, metricId }: SpoorErrorDetails): string {
+  return entity === "observation" || metricId !== undefined ? "metric" : "field";
+}
+
+/** A value its field or metric (`owner`) refuses, for the rule it broke. */
+function valueMessage(
+  rule: NonNullable<SpoorErrorDetails["rule"]>,
+  limit: number | string | undefined,
+  owner: string,
+) {
   switch (rule) {
     case "required":
       return "A required value is missing.";
     case "type":
-      return "A value isn't the right kind for its field.";
+      return `A value isn't the right kind for its ${owner}.`;
     case "option":
-      return "A value isn't one of its field's options.";
+      return `A value isn't one of its ${owner}'s options.`;
     case "unique":
       return "The same option is chosen twice.";
     case "range":
@@ -125,9 +158,10 @@ function valueMessage(rule: NonNullable<SpoorErrorDetails["rule"]>, limit?: numb
   }
 }
 
-function conflictMessage({ entity, field }: SpoorErrorDetails): string {
+function conflictMessage({ entity, field, count }: SpoorErrorDetails): string {
   const noun = field === undefined ? undefined : FIELD_NOUNS[field];
   if (noun) return `That ${noun} is already used. Choose another.`;
+  if (entity === "thing_type" && field === "titleFieldId") return titleFieldMessage(count);
   if (entity === "timeline" && field === "exclusive") {
     return "This timeline has overlapping blocks, so it can't be made exclusive.";
   }
@@ -140,4 +174,12 @@ function conflictMessage({ entity, field }: SpoorErrorDetails): string {
       : "That would overlap another block on this timeline.";
   }
   return "That clashes with something already saved.";
+}
+
+/** A title field refused because `count` things of the type have no value for it. */
+function titleFieldMessage(count: number | undefined): string {
+  const reason = "no value for that field, so it can't be the title.";
+  if (count === 1) return `1 thing has ${reason} Fill it in first.`;
+  const things = count === undefined ? "Some things" : `${count} things`;
+  return `${things} have ${reason} Fill it in for each first.`;
 }
