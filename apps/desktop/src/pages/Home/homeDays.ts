@@ -1,4 +1,4 @@
-import { formatDay, formatDayRange } from "@lib/format";
+import { formatDay, formatMonthRange } from "@lib/format";
 import { addDays, compareLocalDates, type LocalDate } from "@spoor/core";
 
 /**
@@ -150,8 +150,11 @@ function isVisible(state: HomeDays, day: LocalDate): boolean {
   );
 }
 
-/** The window as a compact label, such as "5 – 9 Nov 2026" or "Mon, 9 Nov 2026". */
+/**
+ * The window as a compact label: its months for a range, such as "Oct – Nov 2026" or "November 2026" (the
+ * grid's headers say which days), or the day itself for one, such as "Mon, 9 Nov 2026".
+ */
 export function formatWindow(state: HomeDays, locale?: string): string {
   if (state.range === "day") return formatDay(state.windowEnd, locale);
-  return formatDayRange(windowStart(state), state.windowEnd, locale);
+  return formatMonthRange(windowStart(state), state.windowEnd, locale);
 }

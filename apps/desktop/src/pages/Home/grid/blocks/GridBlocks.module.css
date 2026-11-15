@@ -5,14 +5,15 @@
  */
 
 /*
- * The day's observations recorded out of the total. Like the rail's cards, a
- * dashed outline means nothing recorded; a complete day is filled with the
- * accent. Its look doesn't change with the active day or today.
+ * The day's observations recorded out of the total, louder the more is left to
+ * record: filled with the accent when none are, outlined in it when some are,
+ * and greyed, like a disabled control, when all are. Its look doesn't change
+ * with the active day or today.
  */
 .badge {
   flex-shrink: 0;
   padding: 0 4px;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 60%, transparent);
+  border: 1px solid var(--app-accent);
   border-radius: var(--mantine-radius-xs);
   font-size: 10px;
   font-weight: 600;
@@ -20,14 +21,13 @@
   letter-spacing: 0;
   color: var(--app-text);
 
-  &[data-state="complete"] {
-    border-color: var(--app-accent);
+  &[data-state="empty"] {
     background: var(--app-accent);
     color: var(--app-surface);
   }
 
-  &[data-state="empty"] {
-    border: 1px dashed var(--app-border);
+  &[data-state="complete"] {
+    border-color: var(--app-border);
     color: var(--app-text-muted);
   }
 }

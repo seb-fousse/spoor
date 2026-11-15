@@ -137,8 +137,13 @@ describe("setRange", () => {
 });
 
 describe("formatWindow", () => {
-  it("labels a multi-day window as a range", () => {
-    expect(formatWindow(initialHomeDays(TODAY), "en-GB")).toMatch(/^5\s*–\s*9 Nov 2026$/);
+  it("labels a window within one month as that month", () => {
+    expect(formatWindow(initialHomeDays(TODAY), "en-GB")).toBe("November 2026");
+  });
+
+  it("labels a window across months as a range of months", () => {
+    const state = run(initialHomeDays(TODAY), { type: "pageWindow", by: -1 });
+    expect(formatWindow(state, "en-GB")).toMatch(/^Oct\s*–\s*Nov 2026$/);
   });
 
   it("labels a one-day window as that day", () => {

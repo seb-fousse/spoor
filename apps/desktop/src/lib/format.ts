@@ -26,7 +26,8 @@ const DAY = {
   year: "numeric",
 } as const;
 const SHORT_DAY = { timeZone: "UTC", weekday: "short", day: "numeric" } as const;
-const DAY_RANGE = { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" } as const;
+const MONTH = { timeZone: "UTC", month: "long", year: "numeric" } as const;
+const SHORT_MONTH = { timeZone: "UTC", month: "short", year: "numeric" } as const;
 
 /** `date` with a short weekday, such as "Mon, 9 Nov 2026". */
 export function formatDay(date: LocalDate, locale?: string): string {
@@ -38,9 +39,17 @@ export function formatShortDay(date: LocalDate, locale?: string): string {
   return dateFormat(SHORT_DAY, locale).format(Date.parse(date));
 }
 
-/** `from` to `to` as a compact range, such as "5 – 9 Nov 2026". */
-export function formatDayRange(from: LocalDate, to: LocalDate, locale?: string): string {
-  return dateFormat(DAY_RANGE, locale).formatRange(Date.parse(from), Date.parse(to));
+/**
+ * The months `from` to `to` fall in, with the year: the full name within one month, such as
+ * "November 2026", or short names across two, such as "Oct – Nov 2026".
+ */
+export function formatMonthRange(from: LocalDate, to: LocalDate, locale?: string): string {
+  // A LocalDate is "YYYY-MM-DD", so its first seven characters are its year and month.
+  const sameMonth = from.slice(0, 7) === to.slice(0, 7);
+  return dateFormat(sameMonth ? MONTH : SHORT_MONTH, locale).formatRange(
+    Date.parse(from),
+    Date.parse(to),
+  );
 }
 
 /** `instant` as a 24-hour wall-clock time in `timeZone`, such as "09:30". */

@@ -122,11 +122,16 @@
   outline-offset: -2px;
 }
 
-/* The active day: tinted, with an accent bar under its label. */
+/* The active day: tinted, framed in the accent. The frame is inset, so it moves nothing. */
 .dayHead[data-active] .dayLabel {
   background: color-mix(in srgb, var(--app-accent) 12%, transparent);
-  box-shadow: inset 0 -2px 0 var(--app-accent);
+  box-shadow: inset 0 0 0 1px var(--app-accent);
   font-weight: 700;
+}
+
+/* Inside the frame, so the focus ring doesn't hide it. */
+.dayHead[data-active] .dayLabel:focus-visible {
+  outline-offset: -3px;
 }
 
 .dayHead[data-today] .dayLabel {
