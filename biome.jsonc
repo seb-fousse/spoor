@@ -87,7 +87,10 @@
                   "@tanstack/react-query": {
                     "importNames": ["useQuery", "useMutation", "useQueryClient"],
                     "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
-                  }
+                  },
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the next block.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
                 }
               }
             }
@@ -100,6 +103,36 @@
     {
       "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
       "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
+    },
+    // Rule 3 in the files the first block leaves out but tests don't: the data
+    // hooks, which may use the database and query keys (rules 1 and 2), and the
+    // POC pages, exempt from rules 1, 2 and 4 but not this one. These files
+    // aren't in the first block, so these options replace nothing there.
+    {
+      "includes": [
+        "apps/desktop/src/data/**",
+        "apps/desktop/src/pages/Things.tsx",
+        "apps/desktop/src/pages/Observations.tsx",
+        "apps/desktop/src/pages/Logs/**",
+        "apps/desktop/src/pages/Timelines/**",
+        "!**/*.test.{ts,tsx}"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the first block.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }
