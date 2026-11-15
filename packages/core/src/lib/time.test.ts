@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import {
   addDays,
   compareLocalDates,
@@ -57,13 +58,13 @@ describe("instantToIso / isoToInstant", () => {
     }
   });
 
-  it("refuses instants it cannot write in the export form", () => {
-    expect(() => instantToIso(1.5)).toThrow();
-    expect(() => instantToIso(Number.NaN)).toThrow();
-    expect(() => instantToIso(253_402_300_800_000)).toThrow(); // year 10000
+  it("refuses instants it cannot write in the export form", async () => {
+    await expectSpoorError(() => instantToIso(1.5), "invalid");
+    await expectSpoorError(() => instantToIso(Number.NaN), "invalid");
+    await expectSpoorError(() => instantToIso(253_402_300_800_000), "invalid"); // year 10000
   });
 
-  it("rejects anything but YYYY-MM-DDTHH:mm:ss.sssZ, naming the value", () => {
+  it("rejects anything but YYYY-MM-DDTHH:mm:ss.sssZ", async () => {
     for (const bad of [
       "2026-10-24T18:00:00Z",
       "2026-10-24T18:00:00.000+00:00",
@@ -79,7 +80,7 @@ describe("instantToIso / isoToInstant", () => {
       "+002026-10-24T18:00:00.000Z",
       "",
     ]) {
-      expect(() => isoToInstant(bad)).toThrow(JSON.stringify(bad));
+      await expectSpoorError(() => isoToInstant(bad), "invalid");
     }
   });
 });
@@ -133,9 +134,9 @@ describe("addDays", () => {
     expect(addDays("2026-10-25", 1)).toBe("2026-10-26");
   });
 
-  it("throws on an invalid date or a fractional count", () => {
-    expect(() => addDays("2026-02-30", 1)).toThrow('"2026-02-30"');
-    expect(() => addDays("2026-10-24", 1.5)).toThrow();
+  it("throws on an invalid date or a fractional count", async () => {
+    await expectSpoorError(() => addDays("2026-02-30", 1), "invalid", { field: "date" });
+    await expectSpoorError(() => addDays("2026-10-24", 1.5), "invalid", { field: "days" });
   });
 });
 

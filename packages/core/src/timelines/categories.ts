@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import { getThingTitle } from "../things/things";
 import { requireTimeline } from "./timelines";
@@ -40,22 +41,35 @@ export async function createCategory(
 ): Promise<TimelineCategory> {
   const id = newId();
   const label = `Timeline category ${id}`;
+  const subject = { entity: "timeline_category", id } as const;
   const thingId = input.thingId ?? null;
   if (thingId !== null && input.name !== undefined) {
-    throw new Error(`${label}: takes its name from thing ${thingId}, so cannot be given one`);
+    throw new SpoorError(
+      "invalid",
+      `${label}: takes its name from thing ${thingId}, so cannot be given one`,
+      { ...subject, field: "name" },
+    );
   }
   await transaction(db, async () => {
     const q = queryBuilder(db);
     const timeline = await requireTimeline(db, timelineId);
     if (timeline.archivedAt !== null) {
-      throw new Error(`Timeline ${timelineId}: archived, cannot add categories`);
+      throw new SpoorError("archived", `Timeline ${timelineId}: archived, cannot add categories`, {
+        entity: "timeline",
+        id: timelineId,
+      });
     }
     let name: string;
     if (thingId === null) {
-      name = requireName(label, input.name ?? "");
+      name = requireName(label, input.name ?? "", subject);
     } else {
       const title = await getThingTitle(db, thingId);
-      if (title === undefined) throw new Error(`Thing ${thingId}: not found`);
+      if (title === undefined) {
+        throw new SpoorError("not_found", `Thing ${thingId}: not found`, {
+          entity: "thing",
+          id: thingId,
+        });
+      }
       name = title;
       // Backed by a partial unique index; checked first for a clear error.
       const existing = await q
@@ -65,8 +79,10 @@ export async function createCategory(
         .where("thing_id", "=", thingId)
         .executeTakeFirst();
       if (existing) {
-        throw new Error(
+        throw new SpoorError(
+          "conflict",
           `Thing ${thingId}: already has category ${existing.id} on timeline ${timelineId}`,
+          { ...subject, field: "thingId" },
         );
       }
     }
@@ -125,8 +141,10 @@ export async function updateCategory(
   await transaction(db, async () => {
     const category = await requireCategory(db, id);
     if (patch.name !== undefined && category.thingId !== null) {
-      throw new Error(
+      throw new SpoorError(
+        "invalid",
         `Timeline category ${id}: takes its name from thing ${category.thingId}, so cannot be renamed`,
+        { entity: "timeline_category", id, field: "name" },
       );
     }
     await queryBuilder(db)
@@ -135,7 +153,10 @@ export async function updateCategory(
         name:
           patch.name === undefined
             ? category.name
-            : requireName(`Timeline category ${id}`, patch.name),
+            : requireName(`Timeline category ${id}`, patch.name, {
+                entity: "timeline_category",
+                id,
+              }),
         description:
           patch.description === undefined ? category.description : optionalText(patch.description),
         updated_at: now(),
@@ -187,7 +208,12 @@ export async function deleteCategory(db: Database, id: string): Promise<void> {
 
 export async function requireCategory(db: Database, id: string): Promise<TimelineCategory> {
   const category = await getCategory(db, id);
-  if (!category) throw new Error(`Timeline category ${id}: not found`);
+  if (!category) {
+    throw new SpoorError("not_found", `Timeline category ${id}: not found`, {
+      entity: "timeline_category",
+      id,
+    });
+  }
   return category;
 }
 
@@ -195,8 +221,18 @@ export async function requireCategory(db: Database, id: string): Promise<Timelin
 export async function requireOfferedCategory(db: Database, id: string) {
   const category = await requireCategory(db, id);
   const timeline = await requireTimeline(db, category.timelineId);
-  if (category.archivedAt !== null) throw new Error(`Timeline category ${id}: archived`);
-  if (timeline.archivedAt !== null) throw new Error(`Timeline ${timeline.id}: archived`);
+  if (category.archivedAt !== null) {
+    throw new SpoorError("archived", `Timeline category ${id}: archived`, {
+      entity: "timeline_category",
+      id,
+    });
+  }
+  if (timeline.archivedAt !== null) {
+    throw new SpoorError("archived", `Timeline ${timeline.id}: archived`, {
+      entity: "timeline",
+      id: timeline.id,
+    });
+  }
   return { category, timeline };
 }
 

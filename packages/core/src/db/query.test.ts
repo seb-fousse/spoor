@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import type { Database } from "./platform";
 import { queryBuilder } from "./query";
@@ -105,13 +106,14 @@ describe("queryBuilder", () => {
     expect(query).toHaveBeenCalledWith("SELECT ? AS t, ? AS f", [1, 0]);
   });
 
-  it("refuses Kysely transactions, pointing to transaction()", async () => {
-    await expect(
+  it("refuses Kysely transactions, which only transaction() may run", async () => {
+    await expectSpoorError(
       queryBuilder(db)
         .transaction()
         .execute(() => insert("a")),
-    ).rejects.toThrow("transaction()");
-    await expect(queryBuilder(db).startTransaction().execute()).rejects.toThrow("transaction()");
+      "internal",
+    );
+    await expectSpoorError(queryBuilder(db).startTransaction().execute(), "internal");
     expect(await settings()).toEqual([]);
   });
 

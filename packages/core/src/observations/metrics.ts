@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { parseStored, SpoorError, type SpoorErrorDetails } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import {
   METRIC_VALUE_TYPES,
@@ -54,18 +55,19 @@ export async function createMetric(
 ): Promise<ObservationMetric> {
   const id = newId();
   const label = `Observation metric ${id}`;
-  const shape = parseShape(label, METRIC_VALUE_TYPES, input.valueType, input.constraints);
+  const subject: SpoorErrorDetails = { entity: "observation_metric", id };
+  const shape = parseShape(label, METRIC_VALUE_TYPES, input.valueType, input.constraints, subject);
   const t = now();
   await transaction(db, async () => {
     await queryBuilder(db)
       .insertInto("observation_metrics")
       .values({
         id,
-        name: requireName(label, input.name),
+        name: requireName(label, input.name, subject),
         description: optionalText(input.description),
         value_type: shape.valueType,
         constraints: JSON.stringify(shape.constraints),
-        option_labels: JSON.stringify(parseOptionLabels(label, input.optionLabels)),
+        option_labels: JSON.stringify(parseOptionLabels(label, input.optionLabels, subject)),
         created_at: t,
         updated_at: t,
       })
@@ -110,23 +112,25 @@ export async function updateMetric(
   },
 ): Promise<ObservationMetric> {
   const label = `Observation metric ${id}`;
+  const subject: SpoorErrorDetails = { entity: "observation_metric", id };
   await transaction(db, async () => {
     const metric = await requireMetric(db, id);
     const constraints =
       patch.constraints === undefined
         ? metric.constraints
-        : parseShape(label, METRIC_VALUE_TYPES, metric.valueType, patch.constraints).constraints;
+        : parseShape(label, METRIC_VALUE_TYPES, metric.valueType, patch.constraints, subject)
+            .constraints;
     await queryBuilder(db)
       .updateTable("observation_metrics")
       .set({
-        name: patch.name === undefined ? metric.name : requireName(label, patch.name),
+        name: patch.name === undefined ? metric.name : requireName(label, patch.name, subject),
         description:
           patch.description === undefined ? metric.description : optionalText(patch.description),
         constraints: JSON.stringify(constraints),
         option_labels: JSON.stringify(
           patch.optionLabels === undefined
             ? metric.optionLabels
-            : parseOptionLabels(label, patch.optionLabels),
+            : parseOptionLabels(label, patch.optionLabels, subject),
         ),
         updated_at: now(),
       })
@@ -177,24 +181,29 @@ export async function deleteMetric(db: Database, id: string): Promise<void> {
 
 export async function requireMetric(db: Database, id: string): Promise<ObservationMetric> {
   const metric = await getMetric(db, id);
-  if (!metric) throw new Error(`Observation metric ${id}: not found`);
+  if (!metric) {
+    throw new SpoorError("not_found", `Observation metric ${id}: not found`, {
+      entity: "observation_metric",
+      id,
+    });
+  }
   return metric;
 }
 
 export function toMetric(row: MetricRow): ObservationMetric {
   const label = `Observation metric ${row.id}`;
-  const shape = parseShape(
-    label,
-    METRIC_VALUE_TYPES,
-    row.value_type,
-    JSON.parse(row.constraints),
+  const subject: SpoorErrorDetails = { entity: "observation_metric", id: row.id };
+  const shape = parseStored(() =>
+    parseShape(label, METRIC_VALUE_TYPES, row.value_type, JSON.parse(row.constraints), subject),
   ) as MetricShape;
   return {
     ...shape,
     id: row.id,
     name: row.name,
     description: row.description,
-    optionLabels: parseOptionLabels(label, JSON.parse(row.option_labels)),
+    optionLabels: parseStored(() =>
+      parseOptionLabels(label, JSON.parse(row.option_labels), subject),
+    ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,

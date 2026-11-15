@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { isNonEmptyString } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import {
   addDays,
   compareLocalDates,
@@ -86,20 +87,31 @@ export async function recordObservation(
   const source = options.source ?? writtenBy;
   const externalId = options.externalId ?? null;
   const metricLabel = `Observation metric ${metricId}`;
-  const identifier = (field: string, id: string | null) => {
+  const metricSubject = { entity: "observation_metric", id: metricId } as const;
+  const identifier = (name: string, field: string, id: string | null) => {
     if (id !== null && (!isNonEmptyString(id) || id !== id.trim())) {
-      throw new Error(`${metricLabel}: invalid ${field} ${JSON.stringify(id)}`);
+      throw new SpoorError("invalid", `${metricLabel}: invalid ${name} ${JSON.stringify(id)}`, {
+        ...metricSubject,
+        field,
+      });
     }
   };
-  identifier("writer", writtenBy);
-  identifier("source", source);
-  identifier("external id", externalId);
-  if (!isLocalDate(date)) throw new Error(`${metricLabel}: invalid date ${JSON.stringify(date)}`);
+  identifier("writer", "writtenBy", writtenBy);
+  identifier("source", "source", source);
+  identifier("external id", "externalId", externalId);
+  if (!isLocalDate(date)) {
+    throw new SpoorError("invalid", `${metricLabel}: invalid date ${JSON.stringify(date)}`, {
+      ...metricSubject,
+      field: "date",
+    });
+  }
 
   const { id, skipped } = await transaction(db, async () => {
     const q = queryBuilder(db);
     const metric = await requireMetric(db, metricId);
-    if (metric.archivedAt !== null) throw new Error(`${metricLabel}: archived`);
+    if (metric.archivedAt !== null) {
+      throw new SpoorError("archived", `${metricLabel}: archived`, metricSubject);
+    }
     const existing = await q
       .selectFrom("observations")
       .select(["id", "written_by"])
@@ -108,7 +120,11 @@ export async function recordObservation(
       .executeTakeFirst();
     const id = existing?.id ?? newId();
     // Validated even when skipped, so bad input never passes silently.
-    const valid = validateValue(`Observation ${id}`, metric, value);
+    const valid = validateValue(`Observation ${id}`, metric, value, {
+      entity: "observation",
+      id,
+      field: "value",
+    });
     if (existing && writtenBy !== MANUAL && existing.written_by !== writtenBy) {
       return { id, skipped: true };
     }
@@ -134,8 +150,10 @@ export async function recordObservation(
           .where("external_id", "=", externalId)
           .executeTakeFirst();
         if (clash) {
-          throw new Error(
+          throw new SpoorError(
+            "conflict",
             `Observation ${clash.id}: already has external id ${JSON.stringify(externalId)} from ${source}`,
+            { entity: "observation", id, field: "externalId" },
           );
         }
       }
@@ -195,8 +213,10 @@ export async function listObservations(
     const date = options[bound];
     if (date === undefined) continue;
     if (!isLocalDate(date)) {
-      throw new Error(
+      throw new SpoorError(
+        "invalid",
         `Observation metric ${metricId}: invalid ${bound} date ${JSON.stringify(date)}`,
+        { entity: "observation_metric", id: metricId, field: bound },
       );
     }
     query = query.where("date", op, date);
@@ -212,7 +232,9 @@ export interface MetricDay {
 
 /** Every non-archived metric, in `listMetrics` order, with its observation on `date`. */
 export async function listDayObservations(db: Database, date: LocalDate): Promise<MetricDay[]> {
-  if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  if (!isLocalDate(date)) {
+    throw new SpoorError("invalid", `Invalid date ${JSON.stringify(date)}`, { field: "date" });
+  }
   const metrics = (await listMetrics(db)).filter((m) => m.archivedAt === null);
   if (metrics.length === 0) return [];
   const rows = await queryBuilder(db)
@@ -248,10 +270,17 @@ export async function countDayObservations(
   from: LocalDate,
   to: LocalDate,
 ): Promise<DayObservationCount[]> {
-  for (const date of [from, to]) {
-    if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  for (const [field, date] of [
+    ["from", from],
+    ["to", to],
+  ] as const) {
+    if (!isLocalDate(date)) {
+      throw new SpoorError("invalid", `Invalid date ${JSON.stringify(date)}`, { field });
+    }
   }
-  if (compareLocalDates(from, to) > 0) throw new Error("Date range ends before it starts");
+  if (compareLocalDates(from, to) > 0) {
+    throw new SpoorError("invalid", "Date range ends before it starts", { field: "to" });
+  }
   const q = queryBuilder(db);
   const { total } = await q
     .selectFrom("observation_metrics")
@@ -284,7 +313,12 @@ export async function deleteObservation(db: Database, id: string): Promise<void>
       .select("id")
       .where("id", "=", id)
       .executeTakeFirst();
-    if (!found) throw new Error(`Observation ${id}: not found`);
+    if (!found) {
+      throw new SpoorError("not_found", `Observation ${id}: not found`, {
+        entity: "observation",
+        id,
+      });
+    }
     await q.deleteFrom("observations").where("id", "=", id).execute();
   });
 }

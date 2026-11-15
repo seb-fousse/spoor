@@ -10,6 +10,7 @@ import {
   SqliteIntrospector,
   SqliteQueryCompiler,
 } from "kysely";
+import { SpoorError } from "../lib/spoor-error";
 import type { Database } from "./platform";
 import type { DB } from "./schema/tables";
 
@@ -54,13 +55,13 @@ function seamDialect(db: Database): Dialect {
     // The seam shares one connection, and `transaction()` queues transactions
     // on it. A second path that does not queue could interleave with it.
     async beginTransaction() {
-      throw new Error(NO_TRANSACTIONS);
+      throw new SpoorError("internal", NO_TRANSACTIONS);
     },
     async commitTransaction() {
-      throw new Error(NO_TRANSACTIONS);
+      throw new SpoorError("internal", NO_TRANSACTIONS);
     },
     async rollbackTransaction() {
-      throw new Error(NO_TRANSACTIONS);
+      throw new SpoorError("internal", NO_TRANSACTIONS);
     },
   };
   return {
@@ -92,7 +93,10 @@ function seamConnection(db: Database): DatabaseConnection {
     },
     // biome-ignore lint/correctness/useYield: it refuses before yielding anything.
     async *streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error("Streaming queries are not supported over the Database seam");
+      throw new SpoorError(
+        "internal",
+        "Streaming queries are not supported over the Database seam",
+      );
     },
   };
 }

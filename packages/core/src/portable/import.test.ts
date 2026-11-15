@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
+import type { SpoorErrorCode, SpoorErrorDetails } from "../lib/spoor-error";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { dumpAll, populate } from "../testing/sample-data";
 import { exportData } from "./export";
@@ -34,16 +36,17 @@ describe("importData", () => {
     return Object.values(dump).every((rows) => rows.length === 0);
   };
 
-  /** Asserts `doc` is refused with `message` and that nothing was written. */
-  const refused = async (message: string | RegExp) => {
-    await expect(importData(db, doc)).rejects.toThrow(message);
+  /** Asserts `doc` is refused as `invalid` (or `code`) with `details`, and that nothing was written. */
+  const refused = async (details: SpoorErrorDetails, code: SpoorErrorCode = "invalid") => {
+    const error = await expectSpoorError(importData(db, doc), code, details);
     expect(await empty()).toBe(true);
+    return error;
   };
 
   it("refuses a database that already has data, leaving it untouched", async () => {
     await importData(db, doc);
     const before = await dumpAll(db);
-    await expect(importData(db, doc)).rejects.toThrow(/empty database, but \w+ already has rows/);
+    await expectSpoorError(importData(db, doc), "conflict");
     expect(await dumpAll(db)).toEqual(before);
   });
 
@@ -74,83 +77,85 @@ describe("importData", () => {
 
   it("refuses a newer format version", async () => {
     doc.schemaVersion = 2;
-    await refused(/newer version of Spoor/);
+    await refused({ version: 2, supported: 1 }, "newer_version");
   });
 
   it("refuses text that is not JSON", async () => {
-    await expect(importJson(db, "{nope")).rejects.toThrow(/not valid JSON/);
+    const error = await expectSpoorError(importJson(db, "{nope"), "invalid");
+    expect(error.cause).toBeInstanceOf(SyntaxError);
   });
 
   it.each([
-    ["not an object", [] as never, /must be a JSON object/],
-    ["a bad schemaVersion", { schemaVersion: "1" } as never, /schemaVersion/],
-  ])("refuses a document that is %s", async (_, bad, message) => {
-    await expect(importData(db, bad)).rejects.toThrow(message);
+    ["not an object", [] as never, {}],
+    ["a bad schemaVersion", { schemaVersion: "1" } as never, { path: "schemaVersion" }],
+  ])("refuses a document that is %s", async (_, bad, details) => {
+    await expectSpoorError(importData(db, bad), "invalid", details);
   });
 
   it("refuses an unknown top-level field", async () => {
     doc.surprise = [];
-    await refused(/unknown field "surprise"/);
+    await refused({ path: "surprise" });
   });
 
   it("refuses a table that is not an array", async () => {
     doc.timelines = {} as never;
-    await refused(/timelines must be an array/);
+    await refused({ path: "timelines" });
   });
 
   it("names the record and field of invalid data", async () => {
     const interval = rows(doc, "timelineIntervals")[1];
     if (interval) interval.startAt = "2026-10-20 08:00";
-    await refused(
-      new RegExp(`timelineIntervals\\[1\\] \\(id ${interval?.id}\\): startAt must be an ISO 8601`),
-    );
+    await refused({ path: "timelineIntervals[1].startAt" });
   });
 
   it.each([
-    ["a wrong type", "name", 5, /timelines\[0\] .*: name must be a string/],
-    ["a null in a required field", "name", null, /name must not be null/],
-    ["a non-UUID id", "id", "not-a-uuid", /id must be a lowercase UUID/],
-    ["a non-boolean flag", "exclusive", 1, /exclusive must be true or false/],
-    ["an unknown field", "colour", "red", /unknown field "colour"/],
-    ["a blank name", "name", "   ", /name must be non-empty with no leading/],
-    ["an untrimmed name", "name", " Work", /name must be non-empty with no leading/],
-    ["an empty description", "description", "", /description must be non-empty/],
-  ])("refuses %s", async (_, field, value, message) => {
+    ["a wrong type", "name", 5],
+    ["a null in a required field", "name", null],
+    ["a non-UUID id", "id", "not-a-uuid"],
+    ["a non-boolean flag", "exclusive", 1],
+    ["an unknown field", "colour", "red"],
+    ["a blank name", "name", "   "],
+    ["an untrimmed name", "name", " Work"],
+    ["an empty description", "description", ""],
+  ])("refuses %s, naming where it is", async (_, field, value) => {
     const timeline = rows(doc, "timelines")[0];
     if (timeline) timeline[field] = value;
-    await refused(message);
+    await refused({ path: `timelines[0].${field}` });
   });
 
   it("refuses a non-number in a real column", async () => {
-    const observation = rows(doc, "observations").find((o) => o.valueNum !== null);
-    if (observation) observation.valueNum = "7.5";
-    await refused(/valueNum must be a number/);
+    const i = rows(doc, "observations").findIndex((o) => o.valueNum !== null);
+    rows(doc, "observations")[i].valueNum = "7.5";
+    await refused({ path: `observations[${i}].valueNum` });
   });
 
   it("refuses a missing field", async () => {
     const timeline = rows(doc, "timelines")[0];
     if (timeline) delete timeline.archivedAt;
-    await refused(/archivedAt is missing/);
+    await refused({ path: "timelines[0].archivedAt" });
   });
 
   it("rolls everything back when the database rejects a record", async () => {
     // An interval whose category does not exist violates a foreign key.
     const interval = rows(doc, "timelineIntervals")[0];
     if (interval) interval.categoryId = "01900000-0000-7000-8000-0000000000ff";
-    await refused(/timelineIntervals\[0\]/);
+    const error = await refused({ path: "timelineIntervals[0]" });
+    expect(error.cause).toBeInstanceOf(Error);
   });
 
   it("rolls back when a constraint is violated", async () => {
     // Ending when it starts breaks the CHECK on the interval.
     const interval = rows(doc, "timelineIntervals")[0];
     if (interval) interval.endAt = interval.startAt;
-    await refused(/timelineIntervals\[0\]/);
+    await refused({ path: "timelineIntervals[0]" });
   });
 
   it("refuses an interval in a time zone the platform does not know", async () => {
     const work = intervalStartingAt("2026-10-20T08:00:00.000Z");
     work.timeZone = "Mars/Olympus";
-    await refused(/timeZone must be an IANA time zone/);
+    await refused({
+      path: `timelineIntervals[${rows(doc, "timelineIntervals").indexOf(work)}].timeZone`,
+    });
   });
 
   describe("the overlap rule", () => {
@@ -161,7 +166,7 @@ describe("importData", () => {
       if (!timeline) throw new Error("fixture has no Activities timeline");
       return timeline;
     };
-    const OVERLAP = /timelineIntervals: intervals \S+ and \S+ overlap on timeline \S+/;
+    const OVERLAP = { path: "timelineIntervals" };
 
     it("refuses intervals that overlap on an exclusive timeline", async () => {
       intervalStartingAt("2026-10-20T00:00:00.000Z").endAt = "2026-10-20T09:00:00.000Z";

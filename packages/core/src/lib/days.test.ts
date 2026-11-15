@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expectSpoorError } from "../testing/expect-spoor-error";
 import {
   dayOf,
   dayOfEntry,
@@ -44,9 +45,9 @@ describe("dayOf", () => {
     expect(dayOf(Date.UTC(2024, 0, 2, 11), "Pacific/Pago_Pago")).toBe("2024-01-02");
   });
 
-  it("rejects an invalid zone or instant, naming it", () => {
-    expect(() => dayOf(0, "Mars/Olympus")).toThrow(/Mars\/Olympus/);
-    expect(() => dayOf(Number.NaN, "UTC")).toThrow(/Invalid instant/);
+  it("rejects an invalid zone or instant", async () => {
+    await expectSpoorError(() => dayOf(0, "Mars/Olympus"), "invalid", { field: "timeZone" });
+    await expectSpoorError(() => dayOf(Number.NaN, "UTC"), "invalid", { field: "instant" });
   });
 });
 
@@ -94,9 +95,9 @@ describe("startOfDay / dayRange", () => {
     expect(end).toBe(start);
   });
 
-  it("rejects invalid dates, naming them", () => {
+  it("rejects invalid dates", async () => {
     for (const date of ["2024-02-30", "2024-1-01", "0000-01-01", "2024-01-01T00:00", ""]) {
-      expect(() => startOfDay(date, "UTC")).toThrow(JSON.stringify(date));
+      await expectSpoorError(() => startOfDay(date, "UTC"), "invalid", { field: "date" });
     }
   });
 });
@@ -139,8 +140,8 @@ describe("daysSpanned", () => {
     ).toEqual(["2011-12-29", "2011-12-31"]);
   });
 
-  it("rejects an interval ending before it starts", () => {
-    expect(() => daysSpanned(2, 1, paris)).toThrow(/ends before it starts/);
+  it("rejects an interval ending before it starts", async () => {
+    await expectSpoorError(() => daysSpanned(2, 1, paris), "invalid", { field: "endAt" });
   });
 });
 

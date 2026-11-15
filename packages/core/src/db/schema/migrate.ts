@@ -1,3 +1,4 @@
+import { SpoorError } from "../../lib/spoor-error";
 import type { Database } from "../platform";
 import { MIGRATIONS, type Migration } from "./migrations";
 
@@ -10,7 +11,8 @@ import { MIGRATIONS, type Migration } from "./migrations";
  * migration leaves both untouched, and no bookkeeping table is needed.
  *
  * A database whose version is newer than any known migration was written by a
- * newer Spoor. It is refused, never touched.
+ * newer Spoor. It is refused as `newer_version`, never touched. A migration that
+ * fails is `internal`, with the database's error as its cause.
  *
  * Run it once, before anything else uses `db`: the seam shares one connection,
  * so statements from other callers would land inside the migration transaction.
@@ -21,7 +23,10 @@ export async function migrate(
 ): Promise<{ from: number; to: number }> {
   migrations.forEach((m, i) => {
     if (m.version !== i + 1) {
-      throw new Error(`Migration versions must be 1..n in order; got ${m.version} at index ${i}`);
+      throw new SpoorError(
+        "internal",
+        `Migration versions must be 1..n in order; got ${m.version} at index ${i}`,
+      );
     }
   });
 
@@ -30,16 +35,20 @@ export async function migrate(
   const from = row?.user_version ?? 0;
 
   if (from > latest) {
-    throw new Error(
+    throw new SpoorError(
+      "newer_version",
       `Database schema version ${from} is newer than this version of Spoor supports (${latest}). ` +
         "It was written by a newer version of Spoor; update the app to open it.",
+      { version: from, supported: latest },
     );
   }
 
   for (const { version, name, statements } of migrations.slice(from)) {
     const fail = (cause: unknown) =>
-      new Error(
+      new SpoorError(
+        "internal",
         `Migration ${version} (${name}) failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        {},
         { cause },
       );
 

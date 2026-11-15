@@ -1,5 +1,6 @@
 import { readdirSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { expectSpoorError } from "../../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../../testing/in-memory-database";
 import type { Database } from "../platform";
 import { migrate } from "./migrate";
@@ -66,10 +67,8 @@ describe("migrate", () => {
       },
     ];
 
-    const error = await migrate(db, broken).catch((e: Error) => e);
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toMatch(/^Migration 2 \(half broken\) failed: /);
-    expect((error as Error).cause).toBeInstanceOf(Error);
+    const error = await expectSpoorError(migrate(db, broken), "internal");
+    expect(error.cause).toBeInstanceOf(Error);
 
     expect(await userVersion()).toBe(1);
     expect(await tables()).toEqual(["a"]);
@@ -77,7 +76,10 @@ describe("migrate", () => {
 
   it("refuses a database written by a newer version, without touching it", async () => {
     await db.execute("PRAGMA user_version = 3");
-    await expect(migrate(db, FIXTURES)).rejects.toThrow(/newer version of Spoor/);
+    await expectSpoorError(migrate(db, FIXTURES), "newer_version", {
+      version: 3,
+      supported: FIXTURES.length,
+    });
     expect(await userVersion()).toBe(3);
     expect(await tables()).toEqual([]);
   });
@@ -88,7 +90,7 @@ describe("migrate", () => {
     ["misordering", [FIXTURES[1], FIXTURES[0]]],
     ["not starting at 1", [{ ...FIXTURES[0], version: 0 }]],
   ])("rejects %s in versions", async (_, migrations) => {
-    await expect(migrate(db, migrations)).rejects.toThrow(/1\.\.n in order/);
+    await expectSpoorError(migrate(db, migrations), "internal");
     expect(await userVersion()).toBe(0);
   });
 

@@ -16,6 +16,7 @@ import {
 } from "../lib/days";
 import { isNonEmptyString } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import {
   addDays,
   type Instant,
@@ -134,15 +135,24 @@ type EntryRow = Selectable<DB["log_entries"]>;
 export async function createLogEntry(db: Database, input: NewLogEntry): Promise<LogEntry> {
   const id = newId();
   const label = `Log entry ${id}`;
+  const entry = { entity: "log_entry", id } as const;
   const parentEntryId = input.parentEntryId ?? null;
   // Read before the transaction, as `createInterval` does. A child entry has no zone of its own.
   const timeZone =
     parentEntryId === null ? (input.timeZone ?? (await getTimeZone(db))) : input.timeZone;
   const source = input.source ?? MANUAL;
-  if (!isNonEmptyString(source)) throw new Error(`${label}: a source is required`);
+  if (!isNonEmptyString(source)) {
+    throw new SpoorError("invalid", `${label}: a source is required`, {
+      ...entry,
+      field: "source",
+    });
+  }
   const externalId = input.externalId ?? null;
   if (externalId !== null && !isNonEmptyString(externalId)) {
-    throw new Error(`${label}: an external id must be a non-empty string`);
+    throw new SpoorError("invalid", `${label}: an external id must be a non-empty string`, {
+      ...entry,
+      field: "externalId",
+    });
   }
 
   await transaction(db, async () => {
@@ -153,15 +163,25 @@ export async function createLogEntry(db: Database, input: NewLogEntry): Promise<
 
     if (parentEntryId === null) {
       if (type.parentTypeId !== null) {
-        throw new Error(
+        throw new SpoorError(
+          "invalid",
           `${label}: log type ${type.id} is for child entries of log type ${type.parentTypeId}, so a parent entry is required`,
+          { ...entry, field: "parentEntryId" },
         );
       }
       if (input.position !== undefined) {
-        throw new Error(`${label}: only a child entry has a position`);
+        throw new SpoorError("invalid", `${label}: only a child entry has a position`, {
+          ...entry,
+          field: "position",
+        });
       }
-      if (input.occurredAt === undefined) throw new Error(`${label}: occurredAt is required`);
-      time = normaliseTime(label, {
+      if (input.occurredAt === undefined) {
+        throw new SpoorError("invalid", `${label}: occurredAt is required`, {
+          ...entry,
+          field: "occurredAt",
+        });
+      }
+      time = normaliseTime(label, id, {
         occurredAt: input.occurredAt,
         endedAt: input.endedAt ?? null,
         precision: input.precision ?? "instant",
@@ -174,28 +194,44 @@ export async function createLogEntry(db: Database, input: NewLogEntry): Promise<
         input.precision !== undefined ||
         timeZone !== undefined
       ) {
-        throw new Error(`${label}: a child entry inherits its time from its parent entry`);
+        throw new SpoorError(
+          "invalid",
+          `${label}: a child entry inherits its time from its parent entry`,
+          { ...entry, field: "occurredAt" },
+        );
       }
       const parent = await q
         .selectFrom("log_entries")
         .select("log_type_id")
         .where("id", "=", parentEntryId)
         .executeTakeFirst();
-      if (!parent) throw new Error(`${label}: parent entry ${parentEntryId} not found`);
+      if (!parent) {
+        throw new SpoorError("not_found", `${label}: parent entry ${parentEntryId} not found`, {
+          entity: "log_entry",
+          id: parentEntryId,
+        });
+      }
       if (type.parentTypeId === null) {
-        throw new Error(
+        throw new SpoorError(
+          "invalid",
           `${label}: log type ${type.id} has no parent type, so its entries cannot be child entries`,
+          { ...entry, field: "parentEntryId" },
         );
       }
       if (type.parentTypeId !== parent.log_type_id) {
-        throw new Error(
+        throw new SpoorError(
+          "invalid",
           `${label}: log type ${type.id} is for child entries of log type ${type.parentTypeId}, ` +
             `but parent entry ${parentEntryId} is of log type ${parent.log_type_id}`,
+          { ...entry, field: "parentEntryId" },
         );
       }
       position = input.position ?? (await nextPosition(db, parentEntryId));
       if (!Number.isSafeInteger(position)) {
-        throw new Error(`${label}: position must be an integer`);
+        throw new SpoorError("invalid", `${label}: position must be an integer`, {
+          ...entry,
+          field: "position",
+        });
       }
     }
 
@@ -207,8 +243,10 @@ export async function createLogEntry(db: Database, input: NewLogEntry): Promise<
         .where("external_id", "=", externalId)
         .executeTakeFirst();
       if (clash) {
-        throw new Error(
+        throw new SpoorError(
+          "conflict",
           `${label}: log entry ${clash.id} already has external id ${JSON.stringify(externalId)} from ${source}`,
+          { ...entry, field: "externalId" },
         );
       }
     }
@@ -298,7 +336,9 @@ export interface DayLogGroup {
  * on no day.
  */
 export async function listDayLogEntries(db: Database, date: LocalDate): Promise<DayLogGroup[]> {
-  if (!isLocalDate(date)) throw new Error(`Invalid date ${JSON.stringify(date)}`);
+  if (!isLocalDate(date)) {
+    throw new SpoorError("invalid", `Invalid date ${JSON.stringify(date)}`, { field: "date" });
+  }
   // Stored zones vary, so narrow by a day either side in UTC and decide exactly below.
   const lower = startOfDay(addDays(date, -1), "UTC");
   const upper = startOfDay(addDays(date, 2), "UTC");
@@ -394,9 +434,13 @@ export async function updateLogEntry(
       patch.precision !== undefined
     ) {
       if (row.parent_entry_id !== null) {
-        throw new Error(`${label}: a child entry inherits its time from its parent entry`);
+        throw new SpoorError(
+          "invalid",
+          `${label}: a child entry inherits its time from its parent entry`,
+          { entity: "log_entry", id, field: "occurredAt" },
+        );
       }
-      const time = normaliseTime(label, {
+      const time = normaliseTime(label, id, {
         occurredAt: patch.occurredAt ?? (row.occurred_at as Instant),
         endedAt: patch.endedAt === undefined ? row.ended_at : patch.endedAt,
         precision: patch.precision ?? (row.precision as Precision),
@@ -427,7 +471,12 @@ export async function moveChildEntry(db: Database, id: string, position: number)
   await transaction(db, async () => {
     const q = queryBuilder(db);
     const row = await requireEntry(db, id);
-    if (row.parent_entry_id === null) throw new Error(`Log entry ${id}: not a child entry`);
+    if (row.parent_entry_id === null) {
+      throw new SpoorError("invalid", `Log entry ${id}: not a child entry`, {
+        entity: "log_entry",
+        id,
+      });
+    }
     const siblings = await q
       .selectFrom("log_entries")
       .select(["id", "position"])
@@ -436,7 +485,11 @@ export async function moveChildEntry(db: Database, id: string, position: number)
       .orderBy("id")
       .execute();
     if (!Number.isSafeInteger(position) || position < 1 || position > siblings.length) {
-      throw new Error(`Log entry ${id}: position must be between 1 and ${siblings.length}`);
+      throw new SpoorError(
+        "invalid",
+        `Log entry ${id}: position must be between 1 and ${siblings.length}`,
+        { entity: "log_entry", id, field: "position" },
+      );
     }
     const order = siblings.filter((s) => s.id !== id);
     order.splice(position - 1, 0, { id, position: row.position });
@@ -497,26 +550,29 @@ type StoredTime = Pick<EntryRow, "occurred_at" | "ended_at" | "precision" | "tim
 /** A top-level entry's time as stored: validated, and truncated to its precision. */
 function normaliseTime(
   label: string,
+  id: string,
   input: { occurredAt: Instant; endedAt: Instant | null; precision: Precision; timeZone: string },
 ): StoredTime {
   const { precision, timeZone } = input;
+  const invalid = (problem: string, field: string) =>
+    new SpoorError("invalid", `${label}: ${problem}`, { entity: "log_entry", id, field });
   if (!PRECISIONS.includes(precision)) {
-    throw new Error(`${label}: precision must be one of ${PRECISIONS.join(", ")}`);
+    throw invalid(`precision must be one of ${PRECISIONS.join(", ")}`, "precision");
   }
   if (!isTimeZone(timeZone)) {
-    throw new Error(`${label}: invalid time zone ${JSON.stringify(timeZone)}`);
+    throw invalid(`invalid time zone ${JSON.stringify(timeZone)}`, "timeZone");
   }
   if (!isRepresentable(input.occurredAt)) {
-    throw new Error(`${label}: invalid occurredAt ${input.occurredAt}`);
+    throw invalid(`invalid occurredAt ${input.occurredAt}`, "occurredAt");
   }
   if (input.endedAt !== null && !isRepresentable(input.endedAt)) {
-    throw new Error(`${label}: invalid endedAt ${input.endedAt}`);
+    throw invalid(`invalid endedAt ${input.endedAt}`, "endedAt");
   }
   const occurredAt = truncateToPrecision(input.occurredAt, precision, timeZone);
   const endedAt =
     input.endedAt === null ? null : truncateToPrecision(input.endedAt, precision, timeZone);
   if (endedAt !== null && endedAt < occurredAt) {
-    throw new Error(`${label}: must not end before it occurs`);
+    throw invalid("must not end before it occurs", "endedAt");
   }
   return { occurred_at: occurredAt, ended_at: endedAt, precision, time_zone: timeZone };
 }
@@ -548,7 +604,9 @@ async function requireEntry(db: Database, id: string): Promise<EntryRow> {
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
-  if (!row) throw new Error(`Log entry ${id}: not found`);
+  if (!row) {
+    throw new SpoorError("not_found", `Log entry ${id}: not found`, { entity: "log_entry", id });
+  }
   return row;
 }
 
@@ -567,7 +625,10 @@ async function toEntries(db: Database, rows: readonly EntryRow[]): Promise<LogEn
     for (const parent of parents) known.set(parent.id, parent);
     const next = parentIdsMissing(known);
     if (next.some((id) => missing.includes(id))) {
-      throw new Error(`Log entry ${next[0]}: not found, but has child entries`);
+      throw new SpoorError("internal", `Log entry ${next[0]}: not found, but has child entries`, {
+        entity: "log_entry",
+        id: next[0],
+      });
     }
     missing = next;
   }
@@ -576,11 +637,21 @@ async function toEntries(db: Database, rows: readonly EntryRow[]): Promise<LogEn
   const place = (row: EntryRow, path: readonly string[] = []) => {
     const done = placed.get(row.id);
     if (done) return done;
-    if (path.includes(row.id)) throw new Error(`Log entry ${row.id}: is its own ancestor`);
+    if (path.includes(row.id)) {
+      throw new SpoorError("internal", `Log entry ${row.id}: is its own ancestor`, {
+        entity: "log_entry",
+        id: row.id,
+      });
+    }
     const own = ownTime(row);
     let placement: { resolved: EntryTime; day: LocalDate | null };
     if (row.parent_entry_id === null) {
-      if (own === null) throw new Error(`Log entry ${row.id}: has no time`);
+      if (own === null) {
+        throw new SpoorError("internal", `Log entry ${row.id}: has no time`, {
+          entity: "log_entry",
+          id: row.id,
+        });
+      }
       placement = { resolved: own, day: entryDay(own) };
     } else {
       const parent = place(known.get(row.parent_entry_id) as EntryRow, [...path, row.id]);
@@ -628,7 +699,11 @@ function parentIdsMissing(known: ReadonlyMap<string, EntryRow>): string[] {
 function ownTime(row: EntryRow): EntryTime | null {
   if (row.occurred_at === null || row.precision === null || row.time_zone === null) return null;
   if (!PRECISIONS.includes(row.precision as Precision)) {
-    throw new Error(`Log entry ${row.id}: unknown precision ${JSON.stringify(row.precision)}`);
+    throw new SpoorError(
+      "internal",
+      `Log entry ${row.id}: unknown precision ${JSON.stringify(row.precision)}`,
+      { entity: "log_entry", id: row.id },
+    );
   }
   return {
     occurredAt: row.occurred_at,

@@ -1,4 +1,5 @@
 import { isUuid } from "../lib/ids";
+import { SpoorError, type SpoorErrorDetails, type SpoorValueRule } from "../lib/spoor-error";
 import { type Instant, instantToIso, isInstant, isLocalDate, type LocalDate } from "../lib/time";
 
 /**
@@ -21,8 +22,11 @@ import { type Instant, instantToIso, isInstant, isLocalDate, type LocalDate } fr
  *   the columns the table has. `multi_enum` and `multi_ref` are stored as one
  *   row per selected key or referenced thing by their callers.
  *
- * Errors name the record and field through the `label` argument, such as
- * `"Log entry <id>, field <id>"`.
+ * Refused input is an `invalid` `SpoorError`; storage that breaks these rules
+ * (`encodeValue`, `decodeValue`) is `internal`. Messages name the record and field
+ * through the `label` argument, such as `"Log entry <id>, field <id>"`, and the
+ * details of refused input start from the `details` argument, which names them
+ * for an app (`entity`, `id`, `fieldId`).
  */
 
 export const VALUE_TYPES = [
@@ -145,31 +149,43 @@ export type Value = SingleValue | string[];
 /**
  * The shape for `valueType` and `constraints` as read from input, a definition
  * record, or an import, in canonical form: known keys only, in a fixed order,
- * options sorted by `order`. Throws, naming `label`, if `valueType` is not in
- * `allowed` or the constraints are invalid. Unknown constraint keys are
- * refused rather than dropped.
+ * options sorted by `order`. Throws `invalid`, naming `label`, if `valueType` is
+ * not in `allowed` (`field: "valueType"`) or the constraints are invalid
+ * (`field: "constraints"`). Unknown constraint keys are refused rather than
+ * dropped.
  */
 export function parseShape(
   label: string,
   allowed: readonly ValueType[],
   valueType: unknown,
   constraints: unknown,
+  details: SpoorErrorDetails = {},
 ): ValueShape {
   if (!allowed.includes(valueType as ValueType)) {
-    throw new Error(`${label}: value type must be one of ${allowed.join(", ")}`);
+    throw new SpoorError("invalid", `${label}: value type must be one of ${allowed.join(", ")}`, {
+      ...details,
+      field: "valueType",
+    });
   }
   const type = valueType as ValueType;
   const raw = constraints ?? {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${label}: constraints must be an object`);
+    throw new SpoorError("invalid", `${label}: constraints must be an object`, {
+      ...details,
+      field: "constraints",
+    });
   }
   const c = raw as Record<string, unknown>;
-  const fail = (problem: string): never => {
-    throw new Error(`${label}: ${problem}`);
+  const fail = (problem: string, constraint: string): never => {
+    throw new SpoorError("invalid", `${label}: ${problem}`, {
+      ...details,
+      field: "constraints",
+      constraint,
+    });
   };
   const only = (...keys: string[]) => {
     for (const key of Object.keys(c)) {
-      if (!keys.includes(key)) fail(`unknown ${type} constraint ${JSON.stringify(key)}`);
+      if (!keys.includes(key)) fail(`unknown ${type} constraint ${JSON.stringify(key)}`, key);
     }
   };
   const count = (key: string): number | undefined => {
@@ -177,7 +193,7 @@ export function parseShape(
     if (n === undefined) return undefined;
     return Number.isSafeInteger(n) && (n as number) >= 0
       ? (n as number)
-      : fail(`${key} must be a whole number of at least 0`);
+      : fail(`${key} must be a whole number of at least 0`, key);
   };
   const ordered = <T extends number | string>(
     key: string,
@@ -185,7 +201,7 @@ export function parseShape(
     max: T | undefined,
   ) => {
     if (min !== undefined && max !== undefined && min > max) {
-      fail(`min${key} must not be greater than max${key}`);
+      fail(`min${key} must not be greater than max${key}`, `min${key}`);
     }
   };
 
@@ -200,16 +216,19 @@ export function parseShape(
       const finite = (key: string) => {
         const n = c[key];
         if (n === undefined) return undefined;
-        return typeof n === "number" && Number.isFinite(n) ? n : fail(`${key} must be a number`);
+        return typeof n === "number" && Number.isFinite(n)
+          ? n
+          : fail(`${key} must be a number`, key);
       };
       if (c.unit !== undefined && (typeof c.unit !== "string" || c.unit.trim() === "")) {
-        fail("unit must be a non-empty string");
+        fail("unit must be a non-empty string", "unit");
       }
       const min = finite("min");
       const max = finite("max");
       const precision = count("precision");
       ordered("", min, max);
-      if (precision !== undefined && precision > 15) fail("precision must be at most 15");
+      if (precision !== undefined && precision > 15)
+        fail("precision must be at most 15", "precision");
       return {
         valueType: type,
         constraints: compact({ unit: (c.unit as string | undefined)?.trim(), min, max, precision }),
@@ -226,7 +245,7 @@ export function parseShape(
       const maxSelected = count("maxSelected");
       ordered("Selected", minSelected, maxSelected);
       if (minSelected !== undefined && minSelected > options.length) {
-        fail("minSelected must not exceed the number of options");
+        fail("minSelected must not exceed the number of options", "minSelected");
       }
       return { valueType: type, constraints: compact({ options, minSelected, maxSelected }) };
     }
@@ -242,7 +261,8 @@ export function parseShape(
     case "date": {
       only("min", "max");
       for (const key of ["min", "max"]) {
-        if (c[key] !== undefined && !isLocalDate(c[key])) fail(`${key} must be a YYYY-MM-DD date`);
+        if (c[key] !== undefined && !isLocalDate(c[key]))
+          fail(`${key} must be a YYYY-MM-DD date`, key);
       }
       const min = c.min as LocalDate | undefined;
       const max = c.max as LocalDate | undefined;
@@ -253,12 +273,16 @@ export function parseShape(
     case "ref":
     case "multi_ref":
       only("thingTypeId");
-      if (!isUuid(c.thingTypeId)) fail("thingTypeId must be a lowercase UUID");
+      if (!isUuid(c.thingTypeId)) fail("thingTypeId must be a lowercase UUID", "thingTypeId");
       return { valueType: type, constraints: { thingTypeId: c.thingTypeId as string } };
   }
 }
 
-function parseOptions(fail: (problem: string) => never, raw: unknown): EnumOption[] {
+function parseOptions(
+  failOn: (problem: string, constraint: string) => never,
+  raw: unknown,
+): EnumOption[] {
+  const fail = (problem: string) => failOn(problem, "options");
   if (!Array.isArray(raw) || raw.length === 0) fail("options must be a non-empty array");
   const options = (raw as unknown[]).map((o, i): EnumOption => {
     if (typeof o !== "object" || o === null || Array.isArray(o)) {
@@ -294,16 +318,25 @@ function compact<T extends object>(obj: T): T {
  * key to non-empty label. Not checked against the options, so a removed
  * option's key keeps its label.
  */
-export function parseOptionLabels(label: string, raw: unknown): Record<string, string> {
+export function parseOptionLabels(
+  label: string,
+  raw: unknown,
+  details: SpoorErrorDetails = {},
+): Record<string, string> {
   const labels = raw ?? {};
   if (typeof labels !== "object" || Array.isArray(labels)) {
-    throw new Error(`${label}: option labels must be an object`);
+    throw new SpoorError("invalid", `${label}: option labels must be an object`, {
+      ...details,
+      field: "optionLabels",
+    });
   }
   const result: Record<string, string> = {};
   for (const [key, text] of Object.entries(labels)) {
     if (typeof text !== "string" || text.trim() === "") {
-      throw new Error(
+      throw new SpoorError(
+        "invalid",
         `${label}: label for option ${JSON.stringify(key)} must be a non-empty string`,
+        { ...details, field: "optionLabels" },
       );
     }
     result[key] = text.trim();
@@ -320,21 +353,27 @@ export function optionLabel(labels: Readonly<Record<string, string>>, key: strin
 // Values
 
 /**
- * `value` if it is valid for `shape`, or throws naming `label`. Invalid values
- * are refused, never coerced. Whether a `ref` target exists and has the right
- * thing type needs the database, so callers check that.
+ * `value` if it is valid for `shape`, or throws `invalid` naming `label`, with
+ * the `rule` it broke (and its `limit`) in the details. Invalid values are
+ * refused, never coerced. Whether a `ref` target exists and has the right thing
+ * type needs the database, so callers check that.
  */
-export function validateValue(label: string, shape: ValueShape, value: unknown): Value {
-  const fail = (problem: string): never => {
-    throw new Error(`${label}: ${problem}`);
+export function validateValue(
+  label: string,
+  shape: ValueShape,
+  value: unknown,
+  details: SpoorErrorDetails = {},
+): Value {
+  const fail = (problem: string, rule: SpoorValueRule = "type", limit?: number | string): never => {
+    throw new SpoorError("invalid", `${label}: ${problem}`, compact({ ...details, rule, limit }));
   };
   const keyOf = (options: readonly EnumOption[], key: unknown) =>
     typeof key === "string" && options.some((o) => o.key === key)
       ? key
-      : fail(`${JSON.stringify(key)} is not an option`);
+      : fail(`${JSON.stringify(key)} is not an option`, "option");
   const members = (v: unknown): string[] => {
     if (!Array.isArray(v)) return fail("must be an array");
-    if (new Set(v).size !== v.length) fail("must not repeat a member");
+    if (new Set(v).size !== v.length) fail("must not repeat a member", "unique");
     return v;
   };
 
@@ -345,10 +384,10 @@ export function validateValue(label: string, shape: ValueShape, value: unknown):
     case "number": {
       if (typeof value !== "number" || !Number.isFinite(value)) return fail("must be a number");
       const { min, max, precision } = shape.constraints;
-      if (min !== undefined && value < min) fail(`must be at least ${min}`);
-      if (max !== undefined && value > max) fail(`must be at most ${max}`);
+      if (min !== undefined && value < min) fail(`must be at least ${min}`, "min", min);
+      if (max !== undefined && value > max) fail(`must be at most ${max}`, "max", max);
       if (precision !== undefined && Number(value.toFixed(precision)) !== value) {
-        fail(`must have at most ${precision} decimal places`);
+        fail(`must have at most ${precision} decimal places`, "precision", precision);
       }
       return value;
     }
@@ -361,10 +400,10 @@ export function validateValue(label: string, shape: ValueShape, value: unknown):
       for (const key of keys) keyOf(shape.constraints.options, key);
       const { minSelected, maxSelected } = shape.constraints;
       if (minSelected !== undefined && keys.length < minSelected) {
-        fail(`must select at least ${minSelected}`);
+        fail(`must select at least ${minSelected}`, "minSelected", minSelected);
       }
       if (maxSelected !== undefined && keys.length > maxSelected) {
-        fail(`must select at most ${maxSelected}`);
+        fail(`must select at most ${maxSelected}`, "maxSelected", maxSelected);
       }
       return keys;
     }
@@ -373,10 +412,10 @@ export function validateValue(label: string, shape: ValueShape, value: unknown):
       if (typeof value !== "string") return fail("must be a string");
       const { minLength, maxLength } = shape.constraints;
       if (minLength !== undefined && value.length < minLength) {
-        fail(`must be at least ${minLength} characters`);
+        fail(`must be at least ${minLength} characters`, "minLength", minLength);
       }
       if (maxLength !== undefined && value.length > maxLength) {
-        fail(`must be at most ${maxLength} characters`);
+        fail(`must be at most ${maxLength} characters`, "maxLength", maxLength);
       }
       return value;
     }
@@ -384,8 +423,8 @@ export function validateValue(label: string, shape: ValueShape, value: unknown):
     case "date": {
       if (!isLocalDate(value)) return fail("must be a YYYY-MM-DD date");
       const { min, max } = shape.constraints;
-      if (min !== undefined && value < min) fail(`must be on or after ${min}`);
-      if (max !== undefined && value > max) fail(`must be on or before ${max}`);
+      if (min !== undefined && value < min) fail(`must be on or after ${min}`, "min", min);
+      if (max !== undefined && value > max) fail(`must be on or before ${max}`, "max", max);
       return value;
     }
 
@@ -394,7 +433,7 @@ export function validateValue(label: string, shape: ValueShape, value: unknown):
       try {
         instantToIso(value);
       } catch {
-        fail("must be between years 0000 and 9999");
+        fail("must be between years 0000 and 9999", "range");
       }
       return value;
 
@@ -467,7 +506,7 @@ export function encodeValue<C extends ValueColumn = ValueColumn>(
 ): Pick<ValueColumns, C> {
   const column = COLUMN_OF[valueType];
   if (!(columns as readonly ValueColumn[]).includes(column)) {
-    throw new Error(`No ${column} column for a ${valueType} value`);
+    throw new SpoorError("internal", `No ${column} column for a ${valueType} value`);
   }
   const encoded = Object.fromEntries(columns.map((c) => [c, null])) as Record<C, unknown>;
   encoded[column as C] = valueType === "boolean" ? Number(value) : value;
@@ -475,8 +514,9 @@ export function encodeValue<C extends ValueColumn = ValueColumn>(
 }
 
 /**
- * The single value of `valueType` stored in `row`. Throws, naming `label`, if
- * its column is empty, which for a live record means the data is corrupt.
+ * The single value of `valueType` stored in `row`. Throws `internal`, naming
+ * `label`, if its column is empty, which for a live record means the data is
+ * corrupt.
  */
 export function decodeValue(
   label: string,
@@ -485,7 +525,7 @@ export function decodeValue(
 ): SingleValue {
   const stored = row[COLUMN_OF[valueType]];
   if (stored === null || stored === undefined) {
-    throw new Error(`${label}: no ${valueType} value stored`);
+    throw new SpoorError("internal", `${label}: no ${valueType} value stored`);
   }
   return valueType === "boolean" ? stored === 1 : stored;
 }

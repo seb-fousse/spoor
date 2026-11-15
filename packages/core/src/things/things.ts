@@ -7,6 +7,7 @@ import { MANUAL, readValues, setValues, type ValuePatch } from "../definitions/e
 import { THING_TABLES } from "../definitions/tables";
 import { isNonEmptyString } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import type { Value } from "../values/values";
 import { previewThingsDeletion, requireThingType, type ThingDeletion } from "./thing-types";
@@ -56,16 +57,30 @@ export async function createThing(
 ): Promise<Thing> {
   const id = newId();
   const label = `Thing ${id}`;
+  const subject = { entity: "thing", id } as const;
   const source = input.source ?? MANUAL;
-  if (!isNonEmptyString(source)) throw new Error(`${label}: source is required`);
+  if (!isNonEmptyString(source)) {
+    throw new SpoorError("invalid", `${label}: source is required`, {
+      ...subject,
+      field: "source",
+    });
+  }
   const externalId = input.externalId ?? null;
   if (externalId !== null && !isNonEmptyString(externalId)) {
-    throw new Error(`${label}: external id must be a non-empty string`);
+    throw new SpoorError("invalid", `${label}: external id must be a non-empty string`, {
+      ...subject,
+      field: "externalId",
+    });
   }
   await transaction(db, async () => {
     const q = queryBuilder(db);
     const type = await requireThingType(db, input.thingTypeId);
-    if (type.archivedAt !== null) throw new Error(`Thing type ${type.id}: archived`);
+    if (type.archivedAt !== null) {
+      throw new SpoorError("archived", `Thing type ${type.id}: archived`, {
+        entity: "thing_type",
+        id: type.id,
+      });
+    }
     if (externalId !== null) {
       const existing = await q
         .selectFrom("things")
@@ -74,8 +89,10 @@ export async function createThing(
         .where("external_id", "=", externalId)
         .executeTakeFirst();
       if (existing) {
-        throw new Error(
+        throw new SpoorError(
+          "conflict",
           `${label}: thing ${existing.id} already has external id ${JSON.stringify(externalId)} from ${source}`,
+          { ...subject, field: "externalId" },
         );
       }
     }
@@ -201,7 +218,7 @@ async function requireThing(db: Database, id: string): Promise<ThingRow> {
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
-  if (!row) throw new Error(`Thing ${id}: not found`);
+  if (!row) throw new SpoorError("not_found", `Thing ${id}: not found`, { entity: "thing", id });
   return row;
 }
 async function withValues(db: Database, row: ThingRow): Promise<Thing> {

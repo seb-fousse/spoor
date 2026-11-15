@@ -5,6 +5,7 @@ import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 import { findOverlap } from "./overlap";
 
@@ -49,7 +50,7 @@ export async function createTimeline(
       .insertInto("timelines")
       .values({
         id,
-        name: requireName(`Timeline ${id}`, input.name),
+        name: requireName(`Timeline ${id}`, input.name, { entity: "timeline", id }),
         description: optionalText(input.description),
         exclusive: Number(input.exclusive ?? true),
         created_at: t,
@@ -96,15 +97,20 @@ export async function updateTimeline(
     if (patch.exclusive && !timeline.exclusive) {
       const overlap = await findOverlap(db, { timelineId: id, assumeExclusive: true });
       if (overlap) {
-        throw new Error(
+        throw new SpoorError(
+          "conflict",
           `Timeline ${id}: cannot become exclusive, intervals ${overlap.a} and ${overlap.b} overlap`,
+          { entity: "timeline", id, field: "exclusive" },
         );
       }
     }
     await q
       .updateTable("timelines")
       .set({
-        name: patch.name === undefined ? timeline.name : requireName(`Timeline ${id}`, patch.name),
+        name:
+          patch.name === undefined
+            ? timeline.name
+            : requireName(`Timeline ${id}`, patch.name, { entity: "timeline", id }),
         description:
           patch.description === undefined ? timeline.description : optionalText(patch.description),
         exclusive: Number(patch.exclusive ?? timeline.exclusive),
@@ -160,7 +166,9 @@ export async function deleteTimeline(db: Database, id: string): Promise<void> {
 
 export async function requireTimeline(db: Database, id: string): Promise<Timeline> {
   const timeline = await getTimeline(db, id);
-  if (!timeline) throw new Error(`Timeline ${id}: not found`);
+  if (!timeline) {
+    throw new SpoorError("not_found", `Timeline ${id}: not found`, { entity: "timeline", id });
+  }
   return timeline;
 }
 

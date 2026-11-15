@@ -19,6 +19,7 @@ import {
 import { THING_TABLES } from "../definitions/tables";
 import { optionalText, requireName } from "../lib/guards";
 import { newId } from "../lib/ids";
+import { SpoorError } from "../lib/spoor-error";
 import { type Instant, now } from "../lib/time";
 /**
  * Thing types and their fields (see docs/data-spec.md § 4. Things). Fields go through
@@ -70,12 +71,22 @@ export async function createThingType(
 ): Promise<ThingType> {
   const id = newId();
   const label = `Thing type ${id}`;
-  const name = requireName(label, input.name);
+  const subject = { entity: "thing_type", id } as const;
+  const name = requireName(label, input.name, subject);
   const drafts = draftFields(THING_TABLES, input.fields);
   const title = drafts[input.titleFieldIndex ?? 0];
-  if (title === undefined) throw new Error(`${label}: needs a title field`);
+  if (title === undefined) {
+    throw new SpoorError("invalid", `${label}: needs a title field`, {
+      ...subject,
+      field: "titleFieldIndex",
+    });
+  }
   if (title.shape.valueType !== "text" || !title.required) {
-    throw new Error(`${label}: title field ${title.id} must be a required text field`);
+    throw new SpoorError(
+      "invalid",
+      `${label}: title field ${title.id} must be a required text field`,
+      { ...subject, field: "titleFieldIndex", fieldId: title.id },
+    );
   }
   await transaction(db, async () => {
     const t = now();
@@ -128,14 +139,21 @@ export async function updateThingType(
       const fields = await getFields(db, THING_TABLES, id);
       const field = fields.find((f) => f.id === patch.titleFieldId);
       if (!field) {
-        throw new Error(`Thing type ${id}: field ${patch.titleFieldId} is not one of its fields`);
+        throw new SpoorError(
+          "not_found",
+          `Thing type ${id}: field ${patch.titleFieldId} is not one of its fields`,
+          { entity: "thing_field", id: patch.titleFieldId },
+        );
       }
       assertTitleShape(id, field.id, field.shape.valueType, field.required);
     }
     await queryBuilder(db)
       .updateTable("thing_types")
       .set({
-        name: patch.name === undefined ? type.name : requireName(`Thing type ${id}`, patch.name),
+        name:
+          patch.name === undefined
+            ? type.name
+            : requireName(`Thing type ${id}`, patch.name, { entity: "thing_type", id }),
         description:
           patch.description === undefined ? type.description : optionalText(patch.description),
         title_field_id: patch.titleFieldId ?? type.titleFieldId,
@@ -173,7 +191,11 @@ export async function updateThingField(
     const type = await requireThingType(db, thingTypeId);
     await requireOwnField(db, thingTypeId, fieldId);
     if (fieldId === type.titleFieldId && patch.required === false) {
-      throw new Error(`Thing type ${thingTypeId}: title field ${fieldId} must stay required`);
+      throw new SpoorError(
+        "invalid",
+        `Thing type ${thingTypeId}: title field ${fieldId} must stay required`,
+        { entity: "thing_type", id: thingTypeId, field: "required", fieldId },
+      );
     }
     await updateField(db, THING_TABLES, fieldId, patch, now());
   });
@@ -203,7 +225,11 @@ export async function deleteThingField(
     const type = await requireThingType(db, thingTypeId);
     await requireOwnField(db, thingTypeId, fieldId);
     if (fieldId === type.titleFieldId) {
-      throw new Error(`Thing type ${thingTypeId}: title field ${fieldId} cannot be deleted`);
+      throw new SpoorError(
+        "invalid",
+        `Thing type ${thingTypeId}: title field ${fieldId} cannot be deleted`,
+        { entity: "thing_type", id: thingTypeId, fieldId },
+      );
     }
     await deleteField(db, THING_TABLES, fieldId);
   });
@@ -269,13 +295,19 @@ export async function deleteThingType(db: Database, id: string): Promise<void> {
 
 function assertTitleShape(typeId: string, fieldId: string, valueType: string, required: boolean) {
   if (valueType !== "text" || !required) {
-    throw new Error(`Thing type ${typeId}: title field ${fieldId} must be a required text field`);
+    throw new SpoorError(
+      "invalid",
+      `Thing type ${typeId}: title field ${fieldId} must be a required text field`,
+      { entity: "thing_type", id: typeId, field: "titleFieldId", fieldId },
+    );
   }
 }
 
 export async function requireThingType(db: Database, id: string): Promise<ThingType> {
   const type = await getThingType(db, id);
-  if (!type) throw new Error(`Thing type ${id}: not found`);
+  if (!type) {
+    throw new SpoorError("not_found", `Thing type ${id}: not found`, { entity: "thing_type", id });
+  }
   return type;
 }
 
@@ -286,7 +318,13 @@ async function requireOwnField(db: Database, thingTypeId: string, fieldId: strin
     .where("id", "=", fieldId)
     .where("thing_type_id", "=", thingTypeId)
     .executeTakeFirst();
-  if (!field) throw new Error(`Thing field ${fieldId}: not a field of thing type ${thingTypeId}`);
+  if (!field) {
+    throw new SpoorError(
+      "not_found",
+      `Thing field ${fieldId}: not a field of thing type ${thingTypeId}`,
+      { entity: "thing_field", id: fieldId },
+    );
+  }
 }
 
 /** What deleting the things whose `column` is `value` would delete or change. */
