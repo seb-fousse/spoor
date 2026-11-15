@@ -482,6 +482,9 @@ Everything else is edited in place: names, descriptions, positions,
 `required` are checked when a value is written, never against values already
 stored, so tightening a rule leaves existing records as they are until they
 are next edited. A field added later is simply empty on existing records.
+Every thing needs a title, so a field becomes a type's title field only if
+every thing of the type has a value for it; otherwise the change is refused
+with the count of things that have none.
 
 ## Storage
 

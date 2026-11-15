@@ -23,9 +23,12 @@
  *   import file).
  * - `conflict`: the input is fine on its own, but other stored data is in the way:
  *   a name or external id already used, an overlapping or later ongoing interval,
- *   an interval already stopped, a database that isn't empty for an import.
+ *   an interval already stopped, a database that isn't empty for an import, things
+ *   with no value for the field picked as their type's title.
  *   Details: `entity` and `id` (the record written, when there is one), `field`
- *   (the input property whose value clashes, such as `name` or `externalId`).
+ *   (the input property whose value clashes, such as `name` or `externalId`),
+ *   `fieldId` (the field the clash is on), `count` (how many records are in the
+ *   way, such as the things with no value for a title field).
  * - `archived`: the record written to, or one it needs, is archived.
  *   Details: `entity` and `id` (the archived record).
  * - `newer_version`: the database or an import file was written by a newer Spoor;
@@ -114,6 +117,8 @@ export interface SpoorErrorDetails {
   limit?: number | string;
   /** Where in an import file, such as `things[3]` or `schemaVersion`. */
   path?: string;
+  /** How many records are in the way, such as the things with no value for a title field. */
+  count?: number;
   /** The version found, for `newer_version`. */
   version?: number;
   /** The newest version this Spoor supports, for `newer_version`. */
