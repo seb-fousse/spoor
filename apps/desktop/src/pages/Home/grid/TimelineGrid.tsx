@@ -210,7 +210,7 @@ function Grid({
     Math.max(MORNING, (nowFraction(now, today, timeZone) ?? 0) * 24 - 2) * HOUR_HEIGHT,
   );
   useLayoutEffect(() => {
-    scrollRef.current?.scrollTo({ top: initialTop.current });
+    if (scrollRef.current) scrollRef.current.scrollTop = initialTop.current;
   }, []);
 
   // The day headers are one tab stop: only the active day's button is
@@ -628,41 +628,41 @@ function Grid({
         />
       )}
 
-      {/* Outside the scroller, so only the hours scroll. */}
-      <div ref={headerRef} className={classes.header}>
-        <div className={classes.corner} />
-        {days.map((day) => (
-          <div
-            key={day}
-            className={classes.dayHead}
-            data-today={day === today || undefined}
-            data-active={day === activeDay || undefined}
-          >
-            {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
-            <button
-              type="button"
-              className={classes.dayLabel}
-              data-day={day}
-              tabIndex={day === activeDay ? 0 : -1}
-              aria-current={day === activeDay ? "date" : undefined}
-              onClick={() => select(day)}
-              onKeyDown={onHeaderKeyDown}
-            >
-              {formatShortDay(day)}
-              <DayBadge count={counts?.get(day)} />
-            </button>
-            <div className={classes.timelineNames}>
-              {timelines.map((t) => (
-                <div key={t.id} className={classes.timelineName} title={t.name}>
-                  {t.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
+      {/* Inside the scroller, stuck to its top, so it can't drift out of line with the days. */}
       <div ref={scrollRef} className={classes.scroller}>
+        <div ref={headerRef} className={classes.header}>
+          <div className={classes.corner} />
+          {days.map((day) => (
+            <div
+              key={day}
+              className={classes.dayHead}
+              data-today={day === today || undefined}
+              data-active={day === activeDay || undefined}
+            >
+              {/* The keyboard way to pick a day; the column below takes mouse clicks too. */}
+              <button
+                type="button"
+                className={classes.dayLabel}
+                data-day={day}
+                tabIndex={day === activeDay ? 0 : -1}
+                aria-current={day === activeDay ? "date" : undefined}
+                onClick={() => select(day)}
+                onKeyDown={onHeaderKeyDown}
+              >
+                {formatShortDay(day)}
+                <DayBadge count={counts?.get(day)} />
+              </button>
+              <div className={classes.timelineNames}>
+                {timelines.map((t) => (
+                  <div key={t.id} className={classes.timelineName} title={t.name}>
+                    {t.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
         <div className={classes.body} {...{ [DRAG_ROOT]: "" }}>
           <div className={classes.gutter} aria-hidden="true">
             {HOURS.map((h) => (

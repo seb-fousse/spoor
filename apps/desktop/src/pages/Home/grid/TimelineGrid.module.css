@@ -19,9 +19,9 @@
 }
 
 /*
- * Only the hours scroll. Both the header and the scroller reserve the
- * scrollbar's gutter, so their columns stay the same width and line up, with
- * or without a classic scrollbar.
+ * Only the hours scroll. The header is inside, so it and the hours share the
+ * scrollbar's gutter. Its own stacking context keeps the sticky header under
+ * the grid's notices and popovers.
  */
 .scroller {
   flex: 1;
@@ -29,6 +29,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  isolation: isolate;
 }
 
 /* Loading and empty states fill the pane. */
@@ -38,12 +39,15 @@
   text-align: center;
 }
 
-/* Two tiers: the day, then the timeline names. */
+/*
+ * Two tiers: the day, then the timeline names. It sticks to the scroller's
+ * top, over the blocks.
+ */
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: grid;
-  flex-shrink: 0;
-  overflow: hidden;
-  scrollbar-gutter: stable;
   grid-template-columns: var(--columns);
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface-raised);
