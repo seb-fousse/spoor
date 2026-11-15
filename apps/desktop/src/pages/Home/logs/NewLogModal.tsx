@@ -1,16 +1,8 @@
+import { ErrorAlert } from "@components/ErrorAlert";
 import { type EntryTimeInput, LogEntryForm } from "@components/LogEntryForm";
 import { EMPTY_FIELDS, useCreateLogEntry, useFields, useLogTypes } from "@data/logs";
 import { formatDay } from "@lib/format";
-import {
-  ActionIcon,
-  Alert,
-  Button,
-  Group,
-  Modal,
-  Stack,
-  Text,
-  UnstyledButton,
-} from "@mantine/core";
+import { ActionIcon, Button, Group, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
 import type { LocalDate, LogEntry, LogType, NewLogEntry, Value } from "@spoor/core";
 import { useState } from "react";
 import classes from "./NewLogModal.module.css";
@@ -38,7 +30,7 @@ export function NewLogModal({ opened, day, onClose }: NewLogModalProps) {
   // Each stored entry invalidates the day lists, so the rail shows it.
   const createEntry = useCreateLogEntry();
   // The last save's error, cleared by the next save or by going back.
-  const error = createEntry.error?.message ?? typesQuery.error?.message ?? null;
+  const error = createEntry.error ?? typesQuery.error;
 
   // Live types only. Top-level ones get a card; a chosen type's children are added inside its entry.
   const live = (types ?? []).filter((t) => t.archivedAt === null);
@@ -93,7 +85,7 @@ export function NewLogModal({ opened, day, onClose }: NewLogModalProps) {
       }}
     >
       <Stack gap="md">
-        {error && <Alert color="red">{error}</Alert>}
+        {error && <ErrorAlert error={error} />}
 
         {types !== null && choices.length === 0 && (
           <Text c="dimmed">No log types yet. Add one on the Logs page.</Text>

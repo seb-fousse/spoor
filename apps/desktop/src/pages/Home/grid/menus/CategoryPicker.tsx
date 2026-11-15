@@ -1,3 +1,4 @@
+import { ErrorAlert } from "@components/ErrorAlert";
 import { Popover, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
 import type { TimelineCategory } from "@spoor/core";
 import { type KeyboardEvent, type ReactNode, useState } from "react";
@@ -14,8 +15,8 @@ interface CategoryPickerProps {
   currentId?: string;
   /** Categories the block can't take, because it would overlap their blocks. */
   disabledIds?: ReadonlySet<string>;
-  /** The last failed save's message. */
-  error: string | null;
+  /** The last failed save's error, if any. */
+  error: Error | null;
   saving: boolean;
   onPick: (category: { categoryId: string } | { newCategory: string }) => void;
   /** Esc or a click outside: nothing is written. */
@@ -133,11 +134,7 @@ export function CategoryPicker({
               category.
             </Text>
           )}
-          {error && (
-            <Text size="xs" c="red" px={6}>
-              {error}
-            </Text>
-          )}
+          {error && <ErrorAlert p={6} error={error} />}
         </Stack>
       </Popover.Dropdown>
     </Popover>
