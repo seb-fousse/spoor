@@ -101,6 +101,26 @@ export function dayRange(date: LocalDate, timeZone: string): [start: Instant, en
 }
 
 /**
+ * The instant a clock in `timeZone` reads `time` (`HH:mm` or `HH:mm:ss`, 24-hour) on `date`.
+ *
+ * A time that happens twice, when DST ends, is the earlier of the two. A time a DST change
+ * skips (or one on a date the zone skipped) moves forward by the gap, so 02:30 on a day that
+ * jumps from 02:00 to 03:00 is 03:30. This is `Temporal`'s `compatible` disambiguation.
+ */
+export function instantAt(date: LocalDate, time: string, timeZone: string): Instant {
+  const [year, month, day] = parseDate(date);
+  const local = utcFromParts(year, month, day, ...parseTime(time));
+  // The zone's offsets a day either side. No zone changes its offset twice within two days,
+  // so the instant is `local` minus one of them.
+  const before = offsetAt(local - 24 * HOUR, timeZone);
+  const after = offsetAt(local + 24 * HOUR, timeZone);
+  const reads = (instant: number) => instant + offsetAt(instant, timeZone) === local;
+  const candidates = [local - before, local - after].filter(reads).sort((a, b) => a - b);
+  // No candidate reads `time`: it's in a gap, so keep the offset from before the gap.
+  return candidates[0] ?? local - before;
+}
+
+/**
  * The dates the half-open interval `[startAt, endAt)` touches in `timeZone`, in
  * order. An interval ending exactly at midnight does not touch the next day; a
  * zero-length interval touches the day it sits in.
@@ -208,6 +228,21 @@ function parseDate(date: string): [year: number, month: number, day: number] {
   if (!match || parts[0] < 1 || formatDate(...civilDate(utcFromParts(...parts))) !== date) {
     throw new SpoorError("invalid", `Invalid date (expected YYYY-MM-DD): ${JSON.stringify(date)}`, {
       field: "date",
+    });
+  }
+  return parts;
+}
+
+function parseTime(time: string): [hour: number, minute: number, second: number] {
+  const match = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time);
+  const parts: [number, number, number] = [
+    Number(match?.[1]),
+    Number(match?.[2]),
+    Number(match?.[3] ?? 0),
+  ];
+  if (!match || parts[0] > 23 || parts[1] > 59 || parts[2] > 59) {
+    throw new SpoorError("invalid", `Invalid time (expected HH:mm[:ss]): ${JSON.stringify(time)}`, {
+      field: "time",
     });
   }
   return parts;

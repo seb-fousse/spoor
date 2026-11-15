@@ -10,8 +10,8 @@ How the app holds, counts and shows dates and times.
 Both come from core's [`lib/time.ts`](../../packages/core/src/lib/time.ts), as do the helpers
 that step and compare them: `now`, `addDays` and `compareLocalDates`. Core's
 [`lib/days.ts`](../../packages/core/src/lib/days.ts) turns one into the other in a zone:
-`dayOf`, `startOfDay`, `dayRange` and `daysSpanned`. Use these rather than `Date` arithmetic.
-Outside the POC pages, no app code calls `new Date`.
+`dayOf`, `startOfDay`, `dayRange`, `daysSpanned` and `instantAt`. Use these rather than `Date`
+arithmetic. Outside the POC pages, no app code calls `new Date`.
 
 **Why:** they're the types core stores (see [data-spec.md](../data-spec.md)), and a date with
 no zone can't shift by a day when it's read in another zone.
@@ -56,9 +56,6 @@ record's own: a log entry's time is shown in the zone it was recorded in
 (`formatTime` in [`LogEntryForm/formatEntry.ts`](../../apps/desktop/src/components/LogEntryForm/formatEntry.ts)),
 and its datetime values in the setting's zone.
 
-Parsing isn't covered yet. `LogEntryForm` parses a datetime field's input with `dayjs`, in the
-device's zone, so a value can show in a different zone from the one it was typed in.
-
 **Why:** `toLocaleString()` and its kind use the device's zone, not the setting's. Home's log
 rail once showed datetime values in the wrong zone that way.
 
@@ -68,3 +65,21 @@ rail once showed datetime values in the wrong zone that way.
   `lib/format.ts` and tests
 - **Example:** [`pages/Home/RightHeader.tsx`](../../apps/desktop/src/pages/Home/RightHeader.tsx)
   shows its day with `formatDay`
+
+## Parse in the zone you format in
+
+A typed date and time has no zone: Mantine's `DateTimePicker` gives `"YYYY-MM-DD HH:mm:ss"`.
+Read it with core's `instantAt(date, time, timeZone)`, in the zone the value is shown in, so it
+shows back as typed. For a log entry's datetime values, that's the `time_zone` setting:
+`LogEntryForm` reads it with `useTimeZone` and can't add until it loads. Never parse a wall-clock
+time with `dayjs(input)` or `Date.parse`, which read it in the device's zone.
+
+`instantAt` handles DST the way `Temporal` does by default: a time that happens twice is the
+earlier one, and a time that's skipped moves forward by the gap.
+
+**Why:** a value typed as 09:00 showed at another time once saved, whenever the setting differed
+from the device's zone.
+
+- **Source:** [#165](https://github.com/seb-fousse/spoor/issues/165)
+- **Lint:** none
+- **Example:** [`LogEntryForm/parseInput.ts`](../../apps/desktop/src/components/LogEntryForm/parseInput.ts)
