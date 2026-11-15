@@ -1,6 +1,7 @@
 import { BottomBar } from "@components/BottomBar";
+import { ErrorAlert } from "@components/ErrorAlert";
 import { useHistoryRoute } from "@hooks/useHistoryRoute";
-import { Alert, AppShell, Box, Center, Loader } from "@mantine/core";
+import { AppShell, Box, Center, Loader } from "@mantine/core";
 import { Analytics } from "@pages/Analytics";
 import { Home, HomeStateProvider } from "@pages/Home";
 import { Logs } from "@pages/Logs";
@@ -39,12 +40,18 @@ function Page({ route }: { route: RouteId }) {
 }
 
 function App() {
-  // "migrating", "ready", or the migration error.
-  const [status, setStatus] = useState("migrating");
+  // "migrating", "ready", or the migration failed with `error`.
+  const [status, setStatus] = useState<"migrating" | "ready" | "failed">("migrating");
+  const [error, setError] = useState<unknown>(null);
   const { route, navigate, canGoBack, canGoForward } = useHistoryRoute();
 
   useEffect(() => {
-    migrated.then(() => setStatus("ready")).catch((e: Error) => setStatus(`error: ${e.message}`));
+    migrated
+      .then(() => setStatus("ready"))
+      .catch((e: unknown) => {
+        setError(e);
+        setStatus("failed");
+      });
   }, []);
 
   return (
@@ -65,9 +72,7 @@ function App() {
             <Loader />
           </Center>
         ) : (
-          <Alert m="md" color="red" title="Could not open the database">
-            {status}
-          </Alert>
+          <ErrorAlert m="md" title="Could not open the database" error={error} />
         )}
       </AppShell.Main>
 

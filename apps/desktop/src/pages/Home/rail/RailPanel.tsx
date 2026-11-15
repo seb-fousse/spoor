@@ -1,5 +1,6 @@
+import { ErrorAlert } from "@components/ErrorAlert";
 import type { ReadResult } from "@data/readResult";
-import { Alert, Loader } from "@mantine/core";
+import { Loader } from "@mantine/core";
 import { type ReactNode, useId } from "react";
 import classes from "./RailPanel.module.css";
 
@@ -58,11 +59,7 @@ export function RailPanel({
       </header>
 
       <div className={classes.body}>
-        {read.error && (
-          <Alert color="red" title={errorTitle}>
-            {read.error.message}
-          </Alert>
-        )}
+        {read.error && <ErrorAlert title={errorTitle} error={read.error} />}
         {read.status === "pending" && <Loader size="sm" />}
         {empty}
         <div

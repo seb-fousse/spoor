@@ -6,6 +6,7 @@ import {
   listDayObservations,
   type ObservationMetric,
   recordObservation,
+  SpoorError,
 } from "@spoor/core";
 import type { QueryClient } from "@tanstack/react-query";
 import { createTestRoot, type TestRoot, tick } from "@test/render";
@@ -37,6 +38,12 @@ const slept = {
   optionLabels: {},
   archivedAt: null,
 } as unknown as ObservationMetric;
+// A save core refuses, and how the rail words it.
+const refused = new SpoorError("archived", "Observation metric slept: archived", {
+  entity: "observation_metric",
+  id: slept.id,
+});
+const REFUSED = "This metric is archived, so it can't be changed.";
 
 let root: TestRoot;
 // A fresh cache per test, so no test sees another's loaded days or saves.
@@ -97,17 +104,17 @@ afterEach(() => {
 
 describe("ObservationRail", () => {
   it("shows a failed save on its day, and not on other days", async () => {
-    vi.mocked(recordObservation).mockRejectedValue(new Error("disk full"));
+    vi.mocked(recordObservation).mockRejectedValue(refused);
     await showDay(MONDAY);
 
     await answerYes();
     expect(recordObservation).toHaveBeenCalledWith(db, slept.id, MONDAY, true);
-    expect(shownError()).toContain("disk full");
+    expect(shownError()).toContain(REFUSED);
 
     await showDay(TUESDAY);
     expect(shownError()).toBeNull();
 
     await showDay(MONDAY);
-    expect(shownError()).toContain("disk full");
+    expect(shownError()).toContain(REFUSED);
   });
 });

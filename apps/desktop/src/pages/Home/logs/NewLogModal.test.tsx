@@ -13,6 +13,7 @@ import {
   type LogType,
   listDayLogEntries,
   listLogTypes,
+  SpoorError,
 } from "@spoor/core";
 import type { QueryClient } from "@tanstack/react-query";
 import { createTestRoot, type TestRoot, tick } from "@test/render";
@@ -45,6 +46,13 @@ const walk = {
   archivedAt: null,
 } as LogType;
 const entry = { id: "entry-1", logTypeId: walk.id, day: MONDAY, values: {} } as LogEntry;
+// A save core refuses, and how the modal words it.
+const refused = new SpoorError("invalid", "Log entry Walk: Distance is required", {
+  entity: "log_field",
+  id: "distance",
+  rule: "required",
+});
+const REFUSED = "A required value is missing.";
 
 /** The day's log groups the rail last showed. */
 let railGroups: DayLogGroup[] | undefined;
@@ -165,22 +173,22 @@ describe("NewLogModal", () => {
   });
 
   it("shows a failed save, keeps the form open, and leaves the rail alone", async () => {
-    vi.mocked(createLogEntry).mockRejectedValue(new Error("disk full"));
+    vi.mocked(createLogEntry).mockRejectedValue(refused);
     await showModal(true);
 
     await addWalk();
 
-    expect(shownError()).toBe("disk full");
+    expect(shownError()).toBe(REFUSED);
     expect(hasButton("Add")).toBe(true);
     expect(onClose).not.toHaveBeenCalled();
     expect(listDayLogEntries).toHaveBeenCalledTimes(1);
   });
 
   it("clears a failed save's error when the user goes back to the log types", async () => {
-    vi.mocked(createLogEntry).mockRejectedValue(new Error("disk full"));
+    vi.mocked(createLogEntry).mockRejectedValue(refused);
     await showModal(true);
     await addWalk();
-    expect(shownError()).toBe("disk full");
+    expect(shownError()).toBe(REFUSED);
 
     await click("Back to log types");
 
@@ -189,10 +197,10 @@ describe("NewLogModal", () => {
   });
 
   it("clears a failed save's error when the user closes the modal and opens it again", async () => {
-    vi.mocked(createLogEntry).mockRejectedValue(new Error("disk full"));
+    vi.mocked(createLogEntry).mockRejectedValue(refused);
     await showModal(true);
     await addWalk();
-    expect(shownError()).toBe("disk full");
+    expect(shownError()).toBe(REFUSED);
 
     await pressEscape();
     expect(onClose).toHaveBeenCalledTimes(1);

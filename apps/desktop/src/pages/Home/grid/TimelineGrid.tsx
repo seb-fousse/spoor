@@ -1,3 +1,4 @@
+import { ErrorAlert } from "@components/ErrorAlert";
 import { useObservationCounts } from "@data/observations";
 import type { ReadResult } from "@data/readResult";
 import {
@@ -9,7 +10,7 @@ import {
 import { useNow } from "@hooks/useNow";
 import { shortcutHandler, shortcutLabel, useShortcuts } from "@keyboard";
 import { formatClockTime, formatShortDay } from "@lib/format";
-import { Alert, Button, Center, Loader, Stack, Text } from "@mantine/core";
+import { Button, Center, Loader, Stack, Text } from "@mantine/core";
 import {
   type DayObservationCount,
   dayOf,
@@ -125,11 +126,7 @@ export function TimelineGrid({
     );
   }
   if (read.status === "error") {
-    return (
-      <Alert m="md" color="red" title="Could not load the timelines">
-        {read.error.message}
-      </Alert>
-    );
+    return <ErrorAlert m="md" title="Could not load the timelines" error={read.error} />;
   }
   const { data } = read;
   if (data.timelines.length === 0) {
@@ -256,10 +253,10 @@ function Grid({
 
   // Failed moves, resizes, deletes, splits and pastes show above the grid;
   // failed picks show in the popover.
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const run = (action: () => Promise<unknown>) => {
     setError(null);
-    action().catch((e: Error) => setError(e.message));
+    action().catch((e: unknown) => setError(e));
   };
 
   const move = useUpdateInterval();
@@ -392,7 +389,7 @@ function Grid({
             <CategoryPicker
               opened={draft.phase === "choosing"}
               categories={choicesFor(draft.timelineId)}
-              error={create.error?.message ?? null}
+              error={create.error}
               saving={create.isPending}
               onCancel={cancel}
               onPick={(choice) =>
@@ -523,7 +520,7 @@ function Grid({
               choices.map((c) => c.id),
             )
           }
-          error={recategorize.error?.message ?? null}
+          error={recategorize.error}
           saving={recategorize.isPending}
           onCancel={closeEdit}
           onPick={(choice) =>
@@ -620,17 +617,15 @@ function Grid({
       <div className={classes.notice} role="status">
         {notice && <span className={classes.noticeText}>{notice}</span>}
       </div>
-      {error && (
-        <Alert
-          color="red"
+      {error !== null && (
+        <ErrorAlert
           m="xs"
           py={6}
           withCloseButton
           closeButtonLabel="Dismiss"
           onClose={() => setError(null)}
-        >
-          {error}
-        </Alert>
+          error={error}
+        />
       )}
 
       {/* Outside the scroller, so only the hours scroll. */}
