@@ -407,6 +407,23 @@ describe("importData", () => {
           rule: "type",
         });
       });
+
+      it("to a timeline's default thing type that does not exist, by the foreign key", async () => {
+        const { index, row } = find("timelines", "name", "People");
+        row.defaultThingTypeId = BOGUS_THING;
+        await refused({ path: `timelines[${index}]` });
+      });
+    });
+
+    it("imports a timeline's default thing type archived since it was set", async () => {
+      // Archiving a thing type leaves the timelines offering it as they are.
+      const place = find("thingTypes", "name", "Place").row;
+      expect(place.archivedAt).not.toBeNull();
+      find("timelines", "name", "People").row.defaultThingTypeId = place.id;
+      await importData(db, doc);
+      expect((await dumpAll(db)).timelines).toContainEqual(
+        expect.objectContaining({ name: "People", default_thing_type_id: place.id }),
+      );
     });
 
     it("imports values that break constraints tightened since they were written", async () => {

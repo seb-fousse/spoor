@@ -5,7 +5,12 @@ import { dayRange } from "../lib/days";
 import { setTimeZone } from "../settings/settings";
 import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
-import { createThingType, getThingTypeFields } from "../things/thing-types";
+import {
+  createThingType,
+  deleteThingType,
+  getThingTypeFields,
+  setThingTypeArchived,
+} from "../things/thing-types";
 import { createThing, deleteThing, updateThingValues } from "../things/things";
 import {
   createCategory,
@@ -140,6 +145,87 @@ describe("timelines", () => {
       });
       await updateInterval(db, overlapping.id, { startAt: 2 * H });
       expect((await updateTimeline(db, timeline.id, { exclusive: true })).exclusive).toBe(true);
+    });
+  });
+
+  describe("default thing type", () => {
+    const thingType = (name: string) =>
+      createThingType(db, { name, fields: [{ name: "Name", valueType: "text", required: true }] });
+
+    /** A missing, an archived, and a deleted thing type's ids, each with how it is refused. */
+    const unofferable = async () => {
+      const archived = await thingType("Archived");
+      await setThingTypeArchived(db, archived.id, true);
+      const deleted = await thingType("Deleted");
+      await deleteThingType(db, deleted.id);
+      return [
+        { id: "01900000-0000-7000-8000-0000000000ff", code: "not_found" },
+        { id: archived.id, code: "archived" },
+        { id: deleted.id, code: "not_found" },
+      ] as const;
+    };
+
+    it("is set on create", async () => {
+      const person = await thingType("Person");
+      const timeline = await createTimeline(db, { name: "People", defaultThingTypeId: person.id });
+      expect(timeline.defaultThingTypeId).toBe(person.id);
+      expect((await getTimeline(db, timeline.id))?.defaultThingTypeId).toBe(person.id);
+    });
+
+    it("is set, changed, kept, and cleared on update", async () => {
+      const person = await thingType("Person");
+      const place = await thingType("Place");
+      const { id } = await createTimeline(db, { name: "People" });
+      const set = (defaultThingTypeId: string | null) =>
+        updateTimeline(db, id, { defaultThingTypeId });
+
+      expect((await set(person.id)).defaultThingTypeId).toBe(person.id);
+      expect((await set(place.id)).defaultThingTypeId).toBe(place.id);
+      expect((await updateTimeline(db, id, { name: "Company" })).defaultThingTypeId).toBe(place.id);
+      expect((await set(null)).defaultThingTypeId).toBeNull();
+    });
+
+    it("refuses a missing, archived, or deleted thing type on create", async () => {
+      for (const { id, code } of await unofferable()) {
+        await expectSpoorError(
+          createTimeline(db, { name: "People", defaultThingTypeId: id }),
+          code,
+          {
+            entity: "thing_type",
+            id,
+          },
+        );
+      }
+      expect(await listTimelines(db)).toEqual([]);
+    });
+
+    it("refuses a missing, archived, or deleted thing type on update, changing nothing", async () => {
+      const person = await thingType("Person");
+      const timeline = await createTimeline(db, { name: "People", defaultThingTypeId: person.id });
+      for (const { id, code } of await unofferable()) {
+        await expectSpoorError(
+          updateTimeline(db, timeline.id, { name: "Company", defaultThingTypeId: id }),
+          code,
+          { entity: "thing_type", id },
+        );
+      }
+      expect(await getTimeline(db, timeline.id)).toEqual(timeline);
+    });
+
+    it("is kept when its thing type is archived later, and cleared when it is deleted", async () => {
+      const person = await thingType("Person");
+      const { id } = await createTimeline(db, { name: "People", defaultThingTypeId: person.id });
+      await setThingTypeArchived(db, person.id, true);
+      expect((await getTimeline(db, id))?.defaultThingTypeId).toBe(person.id);
+      // Saving the timeline with the default it already has is not a new reference.
+      const renamed = await updateTimeline(db, id, {
+        name: "Company",
+        defaultThingTypeId: person.id,
+      });
+      expect(renamed).toMatchObject({ name: "Company", defaultThingTypeId: person.id });
+
+      await deleteThingType(db, person.id);
+      expect((await getTimeline(db, id))?.defaultThingTypeId).toBeNull();
     });
   });
 

@@ -115,11 +115,11 @@ export async function populateThings(db: Database): Promise<void> {
 
   // A timeline offering people first, with categories that are things, and a
   // duplicate merged into the survivor: one category moves, one is deleted.
-  const people = await createTimeline(db, { name: "People", exclusive: false });
-  await db.execute("UPDATE timelines SET default_thing_type_id = ? WHERE id = ?", [
-    person.id,
-    people.id,
-  ]);
+  const people = await createTimeline(db, {
+    name: "People",
+    exclusive: false,
+    defaultThingTypeId: person.id,
+  });
   const duplicate = await createThing(db, {
     thingTypeId: person.id,
     values: { [nameId]: "alex s" },

@@ -143,6 +143,10 @@ intervals of the same category must not overlap, so being with Alex and Sam at
 once is two overlapping intervals. A timeline can become non-exclusive at any
 time, and exclusive again only if none of its intervals overlap.
 
+A timeline's default thing type can be set, changed or cleared at any time, but
+only to a thing type that exists and is not archived. Archiving the type later
+leaves it set, as archiving never cascades; deleting the type clears it.
+
 ### Timeline category
 
 An untyped enum option owned by one timeline, such as “Running” or “At home”.

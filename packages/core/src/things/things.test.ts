@@ -435,8 +435,7 @@ describe("things", () => {
         thingTypeId: movie.id,
         values: { [title]: "Alien", [director]: alex.id },
       });
-      const people = await createTimeline(db, { name: "People" });
-      await db.execute("UPDATE timelines SET default_thing_type_id = ?", [type.id]);
+      const people = await createTimeline(db, { name: "People", defaultThingTypeId: type.id });
       const category = await createCategory(db, people.id, { thingId: alex.id });
 
       expect(await previewThingTypeDeletion(db, type.id)).toEqual({
