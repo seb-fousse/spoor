@@ -44,7 +44,7 @@
     //   whole, `paths` and `patterns` alike; they are not merged. So the last
     //   override that sets `noRestrictedImports` for a file must list every
     //   import rule that applies to it. Rule 6's patterns are repeated in each
-    //   such override, and rules 1 and 2's paths in the grid's, for that reason.
+    //   such override, and rules 1 to 3's paths in the grid's, for that reason.
     //
     // Rule 6: nothing imports a module's internals past its barrel (#145): a
     // shared component through @components/<Name>, a page through @pages/<Name>,
@@ -125,7 +125,10 @@
                   "@tanstack/react-query": {
                     "importNames": ["useQuery", "useMutation", "useQueryClient"],
                     "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
-                  }
+                  },
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the other blocks that set these options.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
                 },
                 // Rule 6, as in the first override.
                 "patterns": [
@@ -154,8 +157,54 @@
       "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
       "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
     },
+    // Rule 3 (and rule 6, repeated) in the files the second block leaves out
+    // but tests don't: the data hooks, which may use the database and query keys
+    // (rules 1 and 2), and the POC pages, exempt from rules 1, 2 and 4 but not
+    // these. These options replace the first block's for these files, so they
+    // list rule 6's patterns too.
+    {
+      "includes": [
+        "apps/desktop/src/data/**",
+        "apps/desktop/src/pages/Things/**",
+        "apps/desktop/src/pages/Observations/**",
+        "apps/desktop/src/pages/Logs/**",
+        "apps/desktop/src/pages/Timelines/**",
+        "!**/*.test.{ts,tsx}"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the other blocks that set these options.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
+                },
+                // Rule 6, as in the first override.
+                "patterns": [
+                  {
+                    "group": ["@components/*/**"],
+                    "message": "Import a shared component through its barrel, @components/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["@pages/*/**"],
+                    "message": "Import a page through its barrel, @pages/<Name>, not a file inside it."
+                  },
+                  {
+                    "group": ["**/grid/**", "!@pages/**"],
+                    "message": "Import Home's grid through its barrel, ./grid, not a file inside it. Only grid/ imports its own files."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     // Rule 6 inside Home's grid: its files import each other, so the grid pattern
-    // is left out. Rules 1 and 2 are repeated from the second override for the
+    // is left out. Rules 1, 2 and 3 are repeated from the second override for the
     // grid's files (not its tests), which that override covers.
     {
       "includes": ["apps/desktop/src/pages/Home/grid/**", "!**/*.test.{ts,tsx}"],
@@ -165,7 +214,7 @@
             "noRestrictedImports": {
               "level": "error",
               "options": {
-                // Rules 1 and 2, as in the second override.
+                // Rules 1, 2 and 3, as in the second override.
                 "paths": {
                   "@platform/DatabaseProvider": {
                     "importNames": ["useDatabase"],
@@ -175,7 +224,10 @@
                   "@tanstack/react-query": {
                     "importNames": ["useQuery", "useMutation", "useQueryClient"],
                     "message": "Only the data hooks in src/data/ run queries and writes. Read and write through them: a read hook, or a write hook built on useDbWrite."
-                  }
+                  },
+                  // Rule 3: core's test helpers are for tests. Keep in sync with the
+                  // same entry in the other blocks that set these options.
+                  "@spoor/core/testing": "@spoor/core/testing is for tests only: *.test.ts(x) files and src/test/. App code uses the database it is given, through the data hooks."
                 },
                 // Rule 6, without the grid pattern.
                 "patterns": [
