@@ -22,7 +22,7 @@
 
 /*
  * Scrolls both ways: the hours down, the days across. Across, it snaps a day
- * to the left edge, just right of the gutter.
+ * to the left edge, just right of the gutter, except while a drag scrolls it.
  * Its own stacking context keeps the sticky header and gutter under the
  * grid's notices and popovers. Scrolling past an end doesn't reach the page,
  * nor its back and forward swipe.
@@ -37,6 +37,10 @@
   scroll-snap-type: x mandatory;
   scroll-padding-left: var(--gutter);
   isolation: isolate;
+}
+
+.scroller[data-dragging] {
+  scroll-snap-type: none;
 }
 
 /* Loading and empty states fill the pane. */

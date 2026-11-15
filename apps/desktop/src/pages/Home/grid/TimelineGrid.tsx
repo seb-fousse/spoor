@@ -52,6 +52,7 @@ import { conflictingCategories, splitPoint } from "./edit/blockEdit";
 import { blockKeyHandler } from "./edit/blockShortcuts";
 import { useBlockDrag } from "./edit/useBlockDrag";
 import { useDragToCreate } from "./edit/useDragToCreate";
+import { useEdgeAutoScroll } from "./edit/useEdgeAutoScroll";
 import { useSplitAim } from "./edit/useSplitAim";
 import { type HiddenTimelines, visibleTimelines } from "./filter/timelineVisibility";
 import { type BlockSegment, type GridBlock, layoutGrid, nowFraction } from "./layout/gridLayout";
@@ -114,7 +115,8 @@ interface TimelineGridProps {
  * right-click menu of an empty stretch or with ⌘V at the pointer, landing
  * like a move would: never over a block it conflicts with.
  * Clicking a day's header or column makes it the active day. Each day's
- * header has a badge with how many of its observations are recorded.
+ * header has a badge with how many of its observations are recorded. While
+ * a block is drawn or dragged near an edge, the grid scrolls that way.
  *
  * The blocks and ghosts themselves are drawn by `GridBlocks`.
  */
@@ -286,8 +288,11 @@ function Grid({
     recategorize.reset();
   };
 
-  // The days scroll sideways, with the header, and settle on a day.
-  const { scrollRef, gutterRef, width, onScroll } = useDayScroll(days, visible, dispatch);
+  // The days scroll sideways, with the header, and settle on a day. While a
+  // block is drawn or dragged, the pointer near an edge scrolls the grid.
+  const dragging = drag.drawing || blockDrag.edit?.phase === "dragging";
+  const { scrollRef, gutterRef, width, onScroll } = useDayScroll(days, visible, dragging, dispatch);
+  useEdgeAutoScroll({ scroller: scrollRef, header: headerRef, gutter: gutterRef }, dragging);
 
   // Open on the morning, or a little before now if that is later. Only on the
   // first render: after that the user's scroll position wins.
@@ -651,7 +656,12 @@ function Grid({
         One scroller for both ways: the header sticks to its top and the gutter
         to its left, so neither drifts out of line with the days.
       */}
-      <div ref={scrollRef} className={classes.scroller} onScroll={onScroll}>
+      <div
+        ref={scrollRef}
+        className={classes.scroller}
+        data-dragging={dragging || undefined}
+        onScroll={onScroll}
+      >
         <div ref={headerRef} className={classes.header}>
           <div className={classes.corner} />
           {days.map((day) => (

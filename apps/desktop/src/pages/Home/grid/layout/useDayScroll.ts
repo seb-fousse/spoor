@@ -1,7 +1,7 @@
 import type { LocalDate } from "@spoor/core";
 import { type Dispatch, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { HomeDaysAction } from "../../homeDays";
-import { type DayStrip, placement, sameLeft, settledStart } from "./dayScroll";
+import { type DayStrip, nearestLeft, placement, sameLeft, settledStart } from "./dayScroll";
 
 /**
  * How long the grid waits after the last scroll event before it takes the
@@ -29,6 +29,9 @@ function settle(el: HTMLElement, strip: DayStrip, dispatch: Dispatch<HomeDaysAct
  * - Once a scroll settles on a day boundary, the day at the left edge becomes
  *   the window's start (`scroll`), which re-centres the strip around it, so
  *   there are always days to scroll to either way.
+ * - While `dragging` (a block being drawn or moved), it doesn't settle; the
+ *   grid's CSS also turns snapping off, so the drag can scroll it smoothly.
+ *   When the drag ends, the strip goes to the nearest day boundary.
  *
  * Spread `onScroll` on the scroller, `scrollRef` on it and `gutterRef` on the
  * hour gutter, and size each day column `width` pixels.
@@ -36,6 +39,7 @@ function settle(el: HTMLElement, strip: DayStrip, dispatch: Dispatch<HomeDaysAct
 export function useDayScroll(
   days: readonly LocalDate[],
   visible: number,
+  dragging: boolean,
   dispatch: Dispatch<HomeDaysAction>,
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -61,6 +65,7 @@ export function useDayScroll(
   const scrolledTo = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const glide = useRef(0);
+  const isDragging = useRef(dragging);
 
   // Before the new days paint, so the strip never shows them out of place.
   useLayoutEffect(() => {
@@ -94,13 +99,24 @@ export function useDayScroll(
     [],
   );
 
+  // A drag may leave the strip between two days; snap it to the nearest.
+  useEffect(() => {
+    isDragging.current = dragging;
+    const el = scrollRef.current;
+    const s = strip.current;
+    if (dragging || !el || !s) return;
+    const left = nearestLeft(el.scrollLeft, s);
+    if (sameLeft(left, el.scrollLeft)) settle(el, s, dispatch);
+    else el.scrollTo({ left, behavior: "smooth" });
+  }, [dragging, dispatch]);
+
   const onScroll = () => {
     if (scrollRef.current) scrolledTo.current = scrollRef.current.scrollLeft;
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       const el = scrollRef.current;
       const s = strip.current;
-      if (el && s) settle(el, s, dispatch);
+      if (el && s && !isDragging.current) settle(el, s, dispatch);
     }, SETTLE_MS);
   };
 
