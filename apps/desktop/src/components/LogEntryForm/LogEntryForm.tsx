@@ -12,7 +12,7 @@ export interface EntryTimeInput {
   precision?: Precision;
 }
 
-interface EntryFormProps {
+interface LogEntryFormProps {
   fields: LogField[];
   /** A child entry takes its parent's time, so the form has no time inputs. */
   child: boolean;
@@ -27,7 +27,13 @@ interface EntryFormProps {
 }
 
 /** A new entry's time (unless it is a child entry) and a value per field. */
-export function EntryForm({ fields, child, day, layout = "inline", onCreate }: EntryFormProps) {
+export function LogEntryForm({
+  fields,
+  child,
+  day,
+  layout = "inline",
+  onCreate,
+}: LogEntryFormProps) {
   const [picked, setPicked] = useState<string | null>(null);
   const entryDay = day ?? picked;
   const [inputs, setInputs] = useState<Record<string, string | string[]>>({});

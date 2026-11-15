@@ -6,7 +6,7 @@ import {
   newFieldDraft,
   toNewField,
 } from "@components/FieldList";
-import { describeValues, EntryForm, formatTime } from "@components/LogEntryForm";
+import { describeValues, formatTime, LogEntryForm } from "@components/LogEntryForm";
 import {
   EMPTY_FIELDS,
   useAddLogField,
@@ -276,7 +276,7 @@ function LogTypeDetail({ type, types, run }: { type: LogType; types: LogType[]; 
         </Text>
       ) : (
         type.archivedAt === null && (
-          <EntryForm
+          <LogEntryForm
             fields={fields}
             child={false}
             onCreate={(time, values) =>
@@ -415,7 +415,7 @@ function ChildEntryForm({
   return (
     <Group gap="xs" align="flex-end">
       <Text size="sm">{type.name}:</Text>
-      <EntryForm
+      <LogEntryForm
         fields={fields}
         child
         onCreate={(_, values) =>

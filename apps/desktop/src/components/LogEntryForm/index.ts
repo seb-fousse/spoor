@@ -1,2 +1,2 @@
-export { EntryForm, type EntryTimeInput } from "./EntryForm";
 export { describeValues, formatTime } from "./formatEntry";
+export { type EntryTimeInput, LogEntryForm } from "./LogEntryForm";
