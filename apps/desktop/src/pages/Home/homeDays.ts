@@ -7,6 +7,11 @@ import { addDays, compareLocalDates, type LocalDate } from "@spoor/core";
  * The timeline shows a window of consecutive days ending on `windowEnd`; the
  * rail shows `activeDay`. Every action keeps the active day inside the window,
  * so the rail never describes a day the timeline has scrolled away from.
+ *
+ * The timeline scrolls sideways through more days than the window (see
+ * `bufferDays`). The window is the days in view once it settles: the actions
+ * move it, and the timeline scrolls to it, or the user scrolls and the timeline
+ * reports where it settled with `scroll`.
  */
 
 /** How many days the timeline shows at once. */
@@ -37,7 +42,13 @@ export type HomeDaysAction =
   /** Show `range` days, keeping the window's end unless the active day would drop out. */
   | { type: "setRange"; range: DayRange }
   /** The date changed (midnight passed): follow it if the user was on the old today. */
-  | { type: "rollover"; from: LocalDate; to: LocalDate };
+  | { type: "rollover"; from: LocalDate; to: LocalDate }
+  /**
+   * The timeline was scrolled, and settled with `start` at its left edge. The
+   * active day stays unless it left the window; then it keeps its column, as
+   * when paging.
+   */
+  | { type: "scroll"; start: LocalDate };
 
 export function rangeLength(range: DayRange): number {
   const found = RANGES.find((r) => r.value === range);
@@ -45,8 +56,11 @@ export function rangeLength(range: DayRange): number {
   return found.length;
 }
 
+/** Where the window is: its last day, and how many days it has. */
+type Window = Pick<HomeDays, "windowEnd" | "range">;
+
 /** The first (leftmost) day of the window. */
-export function windowStart({ windowEnd, range }: HomeDays): LocalDate {
+export function windowStart({ windowEnd, range }: Window): LocalDate {
   return addDays(windowEnd, -(rangeLength(range) - 1));
 }
 
@@ -54,6 +68,17 @@ export function windowStart({ windowEnd, range }: HomeDays): LocalDate {
 export function windowDays(state: HomeDays): LocalDate[] {
   const start = windowStart(state);
   return Array.from({ length: rangeLength(state.range) }, (_, i) => addDays(start, i));
+}
+
+/**
+ * The days the timeline renders, oldest first: the window, with a window's
+ * worth either side of it, so the user can scroll a whole window either way
+ * before the timeline re-centres on where they stopped.
+ */
+export function bufferDays(state: Window): LocalDate[] {
+  const length = rangeLength(state.range);
+  const first = addDays(windowStart(state), -length);
+  return Array.from({ length: 3 * length }, (_, i) => addDays(first, i));
 }
 
 /** The default: five days ending today, with today active. */
@@ -87,6 +112,15 @@ export function homeDaysReducer(state: HomeDays, action: HomeDaysAction): HomeDa
       return isAtToday(state, action.from)
         ? { ...state, activeDay: action.to, windowEnd: action.to }
         : state;
+    case "scroll": {
+      const windowEnd = addDays(action.start, rangeLength(state.range) - 1);
+      // The same object, so settling where it already is renders nothing.
+      if (windowEnd === state.windowEnd) return state;
+      const next = { ...state, windowEnd };
+      if (isVisible(next, state.activeDay)) return next;
+      const column = Math.max(0, windowDays(state).indexOf(state.activeDay));
+      return { ...next, activeDay: addDays(action.start, column) };
+    }
   }
 }
 

@@ -25,7 +25,10 @@ interface DragState extends Omit<Draft, "range"> {
   /** `null` until the pointer has moved off the step it was pressed on. */
   range: DrawnRange | null;
   anchor: Instant;
-  /** Where the drag may reach: the visible days, or on an exclusive timeline the gap it started in. */
+  /**
+   * Where the drag may reach: the rendered days, or on an exclusive timeline
+   * the gap it started in.
+   */
   span: DrawnRange;
 }
 

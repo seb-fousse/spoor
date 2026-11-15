@@ -32,9 +32,10 @@
   }
 }
 
-/* A day column, with a hairline at every hour. */
+/* A day column, with a hairline at every hour. The grid snaps to its left edge. */
 .day {
   position: relative;
+  scroll-snap-align: start;
   display: grid;
   grid-template-columns: repeat(var(--timelines), minmax(0, 1fr));
   min-width: 0;
