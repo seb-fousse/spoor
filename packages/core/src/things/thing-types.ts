@@ -327,7 +327,7 @@ async function assertEveryThingHasValue(db: Database, typeId: string, fieldId: s
   const ids = missing.slice(0, 3).map((t) => t.id);
   const more = missing.length > ids.length ? ", ..." : "";
   throw new SpoorError(
-    "invalid",
+    "conflict",
     `Thing type ${typeId}: title field ${fieldId} has no value on ${missing.length} things (${ids.join(", ")}${more})`,
     { entity: "thing_type", id: typeId, field: "titleFieldId", fieldId, count: missing.length },
   );

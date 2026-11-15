@@ -193,7 +193,7 @@ describe("things", () => {
         required: true,
       });
       await createThing(db, { thingTypeId: type.id, values: { [name]: "Kim", [nick]: "K" } });
-      await expectSpoorError(updateThingType(db, type.id, { titleFieldId: nick }), "invalid", {
+      await expectSpoorError(updateThingType(db, type.id, { titleFieldId: nick }), "conflict", {
         entity: "thing_type",
         id: type.id,
         field: "titleFieldId",

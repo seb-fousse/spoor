@@ -14,19 +14,20 @@
  * - `invalid`: the input breaks a rule on its own, whatever else is stored: a
  *   required value left out, a value outside its field's constraints, a malformed
  *   import file, or an operation never allowed on the record as it is, such as
- *   deleting a thing type's title field, or picking a title field some of its
- *   things have no value for.
+ *   deleting a thing type's title field.
  *   Details: `entity` and `id` (the record written, when there is one), `field`
  *   (the input property at fault), `fieldId` (a thing or log field whose value or
  *   definition is at fault), `constraint` (with `field: "constraints"`, the
  *   constraint at fault), `rule` and `limit` (for a value its field refuses),
- *   `path` (where in an import file), `count` (how many records are in the way,
- *   such as the things with no value for a title field).
+ *   `path` (where in an import file).
  * - `conflict`: the input is fine on its own, but other stored data is in the way:
  *   a name or external id already used, an overlapping or later ongoing interval,
- *   an interval already stopped, a database that isn't empty for an import.
+ *   an interval already stopped, a database that isn't empty for an import, things
+ *   with no value for the field picked as their type's title.
  *   Details: `entity` and `id` (the record written, when there is one), `field`
- *   (the input property whose value clashes, such as `name` or `externalId`).
+ *   (the input property whose value clashes, such as `name` or `externalId`),
+ *   `fieldId` (the field the clash is on), `count` (how many records are in the
+ *   way, such as the things with no value for a title field).
  * - `archived`: the record written to, or one it needs, is archived.
  *   Details: `entity` and `id` (the archived record).
  * - `newer_version`: the database or an import file was written by a newer Spoor;
