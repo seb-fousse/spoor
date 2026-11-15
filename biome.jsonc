@@ -54,8 +54,8 @@
         "!apps/desktop/src/data/**",
         "!**/*.test.{ts,tsx}",
         "!apps/desktop/src/test/**",
-        "!apps/desktop/src/pages/Things.tsx",
-        "!apps/desktop/src/pages/Observations.tsx",
+        "!apps/desktop/src/pages/Things/**",
+        "!apps/desktop/src/pages/Observations/**",
         "!apps/desktop/src/pages/Logs/**",
         "!apps/desktop/src/pages/Timelines/**"
       ],
