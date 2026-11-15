@@ -8,6 +8,7 @@ import {
   type Database,
   type DayLogGroup,
   getLogTypeFields,
+  getTimeZone,
   type LocalDate,
   type LogEntry,
   type LogType,
@@ -28,6 +29,7 @@ vi.mock("@spoor/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@spoor/core")>()),
   createLogEntry: vi.fn(),
   getLogTypeFields: vi.fn(),
+  getTimeZone: vi.fn(),
   listDayLogEntries: vi.fn(),
   listLogTypes: vi.fn(),
 }));
@@ -129,6 +131,8 @@ beforeEach(() => {
   vi.mocked(listLogTypes).mockResolvedValue([walk]);
   vi.mocked(getLogTypeFields).mockResolvedValue([]);
   vi.mocked(listDayLogEntries).mockResolvedValue([]);
+  // The form reads datetimes in the setting, so it waits for it before it can add.
+  vi.mocked(getTimeZone).mockResolvedValue("Europe/Paris");
   queryClient = createQueryClient();
   onClose = vi.fn<() => void>();
   root = createTestRoot({ queryClient, db, mantine: true });

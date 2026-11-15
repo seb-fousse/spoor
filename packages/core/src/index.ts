@@ -16,6 +16,7 @@ export {
   dayOfEntry,
   dayRange,
   daysSpanned,
+  instantAt,
   isTimeZone,
   type Precision,
   startOfDay,

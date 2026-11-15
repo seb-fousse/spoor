@@ -5,6 +5,7 @@ import {
   dayOfEntry,
   dayRange,
   daysSpanned,
+  instantAt,
   isTimeZone,
   startOfDay,
   systemTimeZone,
@@ -99,6 +100,58 @@ describe("startOfDay / dayRange", () => {
     for (const date of ["2024-02-30", "2024-1-01", "0000-01-01", "2024-01-01T00:00", ""]) {
       await expectSpoorError(() => startOfDay(date, "UTC"), "invalid", { field: "date" });
     }
+  });
+});
+
+describe("instantAt", () => {
+  it("reads a wall-clock time in the zone given, not the device's", () => {
+    // Pacific/Auckland is +13 in March (NZDT); America/Los_Angeles is -08 (PST) in early March.
+    expect(instantAt("2026-03-04", "09:00", "Pacific/Auckland")).toBe(Date.UTC(2026, 2, 3, 20));
+    expect(instantAt("2026-03-04", "09:00", "America/Los_Angeles")).toBe(Date.UTC(2026, 2, 4, 17));
+    expect(instantAt("2026-03-04", "05:06:07", "Asia/Kolkata")).toBe(
+      Date.UTC(2026, 2, 3, 23, 36, 7),
+    );
+    expect(instantAt("2026-03-04", "23:59:59", "UTC")).toBe(Date.UTC(2026, 2, 4, 23, 59, 59));
+  });
+
+  it("uses the offset in force on the day, either side of a DST change", () => {
+    // Europe/Paris moves from +01 to +02 at 02:00 on 2025-03-30.
+    expect(instantAt("2025-03-30", "01:30", "Europe/Paris")).toBe(Date.UTC(2025, 2, 30, 0, 30));
+    expect(instantAt("2025-03-30", "09:00", "Europe/Paris")).toBe(Date.UTC(2025, 2, 30, 7));
+  });
+
+  it("moves a time a DST change skips forward by the gap", () => {
+    // 02:30 doesn't exist in Paris on 2025-03-30; it reads as 03:30 +02.
+    expect(instantAt("2025-03-30", "02:30", "Europe/Paris")).toBe(Date.UTC(2025, 2, 30, 1, 30));
+    // Samoa skipped 2011-12-30: its 09:00 is 2011-12-31 09:00 +14.
+    expect(instantAt("2011-12-30", "09:00", "Pacific/Apia")).toBe(Date.UTC(2011, 11, 30, 19));
+  });
+
+  it("takes the earlier of a time that happens twice", () => {
+    // 02:30 happens at +02 and again at +01 in Paris on 2025-10-26.
+    expect(instantAt("2025-10-26", "02:30", "Europe/Paris")).toBe(Date.UTC(2025, 9, 26, 0, 30));
+  });
+
+  it("round-trips through the zone's wall clock", () => {
+    const instant = instantAt("2026-07-01", "12:34:56", "Pacific/Auckland");
+    expect(dayOf(instant, "Pacific/Auckland")).toBe("2026-07-01");
+    expect(instant - startOfDay("2026-07-01", "Pacific/Auckland")).toBe(
+      (12 * 3600 + 34 * 60 + 56) * 1000,
+    );
+  });
+
+  it("rejects invalid times, dates and zones", async () => {
+    for (const time of ["24:00", "09:60", "09:00:60", "9:00", "09", "", "09:00:00.000"]) {
+      await expectSpoorError(() => instantAt("2026-03-04", time, "UTC"), "invalid", {
+        field: "time",
+      });
+    }
+    await expectSpoorError(() => instantAt("2026-02-30", "09:00", "UTC"), "invalid", {
+      field: "date",
+    });
+    await expectSpoorError(() => instantAt("2026-03-04", "09:00", "Mars/Olympus"), "invalid", {
+      field: "timeZone",
+    });
   });
 });
 

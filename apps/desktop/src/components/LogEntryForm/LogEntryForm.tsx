@@ -1,3 +1,5 @@
+import { ErrorAlert } from "@components/ErrorAlert";
+import { useTimeZone } from "@data/settings";
 import { EMPTY_THINGS, useThings } from "@data/things";
 import { Button, Group, MultiSelect, NumberInput, Select, Stack, TextInput } from "@mantine/core";
 import { DatePickerInput, DateTimePicker } from "@mantine/dates";
@@ -26,7 +28,10 @@ interface LogEntryFormProps {
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }
 
-/** A new entry's time (unless it is a child entry) and a value per field. */
+/**
+ * A new entry's time (unless it is a child entry) and a value per field. A datetime value is
+ * read in the `time_zone` setting, the zone it shows in, so the form waits for the setting.
+ */
 export function LogEntryForm({
   fields,
   child,
@@ -37,16 +42,19 @@ export function LogEntryForm({
   const [picked, setPicked] = useState<string | null>(null);
   const entryDay = day ?? picked;
   const [inputs, setInputs] = useState<Record<string, string | string[]>>({});
+  const zone = useTimeZone();
+  const timeZone = zone.data;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (timeZone === undefined) return;
     const values: Record<string, Value> = {};
     for (const field of fields) {
       const input = inputs[field.id];
       if (input === undefined || input === "" || (Array.isArray(input) && input.length === 0)) {
         continue;
       }
-      values[field.id] = parseInput(field.shape.valueType, input);
+      values[field.id] = parseInput(field.shape.valueType, input, timeZone);
     }
     const time = child || entryDay === null ? {} : dayToTime(entryDay);
     onCreate(time, values);
@@ -64,6 +72,7 @@ export function LogEntryForm({
   return (
     <form onSubmit={submit}>
       <Layout {...layoutProps}>
+        {zone.error && <ErrorAlert error={zone.error} title="Could not load the time zone" />}
         {!child && day === undefined && (
           <DatePickerInput
             size={size}
@@ -85,7 +94,11 @@ export function LogEntryForm({
           />
         ))}
         {/* The pickers are not native inputs, so `required` cannot stop an empty start. */}
-        <Button type="submit" size={size} disabled={!child && entryDay === null}>
+        <Button
+          type="submit"
+          size={size}
+          disabled={timeZone === undefined || (!child && entryDay === null)}
+        >
           Add
         </Button>
       </Layout>
