@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../db/platform";
 import { migrate } from "../db/schema/migrate";
 import type { NewField } from "../definitions/engine";
+import { createLogType } from "../logs/log-types";
 import { expectSpoorError } from "../testing/expect-spoor-error";
 import { createInMemoryDatabase } from "../testing/in-memory-database";
 import { createCategory, getCategory } from "../timelines/categories";
@@ -17,6 +18,7 @@ import {
   previewThingFieldDeletion,
   previewThingTypeDeletion,
   reorderThingFields,
+  SELF_THING_TYPE,
   setThingTypeArchived,
   type ThingType,
   updateThingField,
@@ -92,6 +94,110 @@ describe("things", () => {
       });
       const fields = await getThingTypeFields(db, type.id);
       expect(type.titleFieldId).toBe(fields[1].id);
+    });
+
+    describe("referring to itself", () => {
+      const PARENT: NewField = {
+        name: "Parent",
+        valueType: "ref",
+        constraints: { thingTypeId: SELF_THING_TYPE },
+      };
+      const FRIENDS: NewField = {
+        name: "Friends",
+        valueType: "multi_ref",
+        constraints: { thingTypeId: SELF_THING_TYPE },
+      };
+
+      it("creates ref and multi_ref fields to itself, so its things refer to each other", async () => {
+        const type = await createThingType(db, { name: "Person", fields: [NAME, PARENT, FRIENDS] });
+        const fields = await getThingTypeFields(db, type.id);
+        expect(fields.map((f) => f.shape)).toEqual([
+          { valueType: "text", constraints: {} },
+          { valueType: "ref", constraints: { thingTypeId: type.id } },
+          { valueType: "multi_ref", constraints: { thingTypeId: type.id } },
+        ]);
+        const [name, parent, friends] = fields.map((f) => f.id);
+        const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
+        const sam = await createThing(db, {
+          thingTypeId: type.id,
+          values: { [name]: "Sam", [parent]: alex.id, [friends]: [alex.id] },
+        });
+        await updateThingValues(db, alex.id, { [friends]: [sam.id] });
+        expect((await getThing(db, sam.id))?.values).toEqual({
+          [name]: "Sam",
+          [parent]: alex.id,
+          [friends]: [alex.id],
+        });
+        expect((await getThing(db, alex.id))?.values).toEqual({
+          [name]: "Alex",
+          [friends]: [sam.id],
+        });
+      });
+
+      it("refuses a thing of another type, as any ref field does", async () => {
+        const type = await createThingType(db, { name: "Person", fields: [NAME, PARENT] });
+        const [name, parent] = (await getThingTypeFields(db, type.id)).map((f) => f.id);
+        const { type: other, name: otherName } = await person();
+        const stranger = await createThing(db, {
+          thingTypeId: other.id,
+          values: { [otherName]: "Kim" },
+        });
+        await expectSpoorError(
+          createThing(db, {
+            thingTypeId: type.id,
+            values: { [name]: "Sam", [parent]: stranger.id },
+          }),
+          "invalid",
+          { entity: "thing", field: "values", fieldId: parent, rule: "type" },
+        );
+      });
+
+      it("refuses another field's archived target, writing nothing", async () => {
+        const { type: archived } = await person();
+        await setThingTypeArchived(db, archived.id, true);
+        const director = {
+          name: "Director",
+          valueType: "ref",
+          constraints: { thingTypeId: archived.id },
+        } as const;
+        await expectSpoorError(
+          createThingType(db, { name: "Movie", fields: [NAME, PARENT, director] }),
+          "archived",
+          { entity: "thing_type", id: archived.id },
+        );
+        expect(await count("thing_types")).toBe(1);
+      });
+
+      it("refuses a ref field to itself as the title", async () => {
+        await expectSpoorError(
+          createThingType(db, { name: "Person", fields: [NAME, PARENT], titleFieldIndex: 1 }),
+          "invalid",
+          { entity: "thing_type", field: "titleFieldIndex" },
+        );
+        expect(await count("thing_types")).toBe(0);
+      });
+
+      it("is refused once the type exists, which is referred to by its id", async () => {
+        const { type } = await person();
+        const notUuid = { field: "constraints", constraint: "thingTypeId" };
+        await expectSpoorError(addThingField(db, type.id, PARENT), "invalid", {
+          entity: "thing_field",
+          ...notUuid,
+        });
+        await expectSpoorError(createLogType(db, { name: "Visit", fields: [PARENT] }), "invalid", {
+          entity: "log_field",
+          ...notUuid,
+        });
+        const parent = await addThingField(db, type.id, {
+          ...PARENT,
+          constraints: { thingTypeId: type.id },
+        });
+        await expectSpoorError(
+          updateThingField(db, type.id, parent, { constraints: { thingTypeId: SELF_THING_TYPE } }),
+          "invalid",
+          { entity: "thing_field", ...notUuid },
+        );
+      });
     });
 
     it.each([

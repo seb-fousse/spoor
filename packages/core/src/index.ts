@@ -119,6 +119,7 @@ export {
   previewThingFieldDeletion,
   previewThingTypeDeletion,
   reorderThingFields,
+  SELF_THING_TYPE,
   setThingTypeArchived,
   type ThingDeletion,
   type ThingType,

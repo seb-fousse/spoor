@@ -7,6 +7,7 @@ import {
   deleteThingField,
   deleteThingType,
   getThingTypeFields,
+  SELF_THING_TYPE,
   setThingTypeArchived,
 } from "../things/thing-types";
 import { createThing, deleteThing } from "../things/things";
@@ -28,7 +29,8 @@ export async function populateThings(db: Database): Promise<void> {
   const fieldIds = async (typeId: string) =>
     (await getThingTypeFields(db, typeId)).map((f) => f.id);
 
-  // Person: starts with a birth date, which is deleted, and gains friends.
+  // Person: starts with a birth date, which is deleted, and a parent, a person
+  // too; then gains friends, also people.
   const name = {
     name: "Name",
     valueType: "text",
@@ -38,9 +40,13 @@ export async function populateThings(db: Database): Promise<void> {
   const person = await createThingType(db, {
     name: "Person",
     description: "Someone",
-    fields: [name, { name: "Born", valueType: "date" }],
+    fields: [
+      name,
+      { name: "Born", valueType: "date" },
+      { name: "Parent", valueType: "ref", constraints: { thingTypeId: SELF_THING_TYPE } },
+    ],
   });
-  const [nameId, bornId] = await fieldIds(person.id);
+  const [nameId, bornId, parentId] = await fieldIds(person.id);
   const alex = await createThing(db, {
     thingTypeId: person.id,
     values: { [nameId]: "Alex", [bornId]: "1990-04-01" },
@@ -57,7 +63,7 @@ export async function populateThings(db: Database): Promise<void> {
   });
   await createThing(db, {
     thingTypeId: person.id,
-    values: { [nameId]: "Sam", [friendsId]: [alex.id, survivor.id] },
+    values: { [nameId]: "Sam", [parentId]: alex.id, [friendsId]: [alex.id, survivor.id] },
   });
   const kim = await createThing(db, { thingTypeId: person.id, values: { [nameId]: "Kim" } });
   await deleteThing(db, kim.id);
