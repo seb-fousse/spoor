@@ -29,6 +29,9 @@ export default defineConfig(() => ({
   },
 
   test: {
+    // The app's tests, and the convention examples' (docs/conventions/), which
+    // nothing imports, so they never reach the build.
+    include: ["src/**/*.test.{ts,tsx}", "examples/**/*.test.{ts,tsx}"],
     // Tells React it runs under `act`, and gives jsdom a media query for Mantine.
     setupFiles: ["./src/test/setup.ts"],
   },

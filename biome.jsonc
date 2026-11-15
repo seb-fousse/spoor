@@ -46,6 +46,10 @@
     //   import rule that applies to it. Rule 6's patterns are repeated in each
     //   such override, and rules 1 to 3's paths in the grid's, for that reason.
     //
+    // apps/desktop/examples/ (docs/conventions/) mirrors src/'s folders and gets
+    // the same rules, so an example breaks lint when the convention it shows
+    // changes: examples/data/ is linted like src/data/, and so on.
+    //
     // Rule 6: nothing imports a module's internals past its barrel (#145): a
     // shared component through @components/<Name>, a page through @pages/<Name>,
     // and Home's grid through ./grid. It applies to every file in the app,
@@ -55,7 +59,7 @@
     // still exempt from the grid pattern, below, so a sibling import that names
     // the folder can't trip it.
     {
-      "includes": ["apps/desktop/src/**"],
+      "includes": ["apps/desktop/{src,examples}/**"],
       "linter": {
         "rules": {
           "style": {
@@ -88,8 +92,8 @@
     // directly. They are listed here once, as exclusions, and nowhere else.
     {
       "includes": [
-        "apps/desktop/src/**",
-        "!apps/desktop/src/data/**",
+        "apps/desktop/{src,examples}/**",
+        "!apps/desktop/{src,examples}/data/**",
         "!**/*.test.{ts,tsx}",
         "!apps/desktop/src/test/**",
         "!apps/desktop/src/pages/Things/**",
@@ -154,7 +158,7 @@
     // Rule 4 in the data hooks too, which the block above leaves out for rules 1
     // and 2. Tests may format dates.
     {
-      "includes": ["apps/desktop/src/data/**", "!**/*.test.{ts,tsx}"],
+      "includes": ["apps/desktop/{src,examples}/data/**", "!**/*.test.{ts,tsx}"],
       "plugins": ["./tools/biome/plugins/format-dates-in-lib-format.grit"]
     },
     // Rule 3 (and rule 6, repeated) in the files the second block leaves out
@@ -164,7 +168,7 @@
     // list rule 6's patterns too.
     {
       "includes": [
-        "apps/desktop/src/data/**",
+        "apps/desktop/{src,examples}/data/**",
         "apps/desktop/src/pages/Things/**",
         "apps/desktop/src/pages/Observations/**",
         "apps/desktop/src/pages/Logs/**",
@@ -278,7 +282,7 @@
     // and name.test.ts follow their file. It checks script files only, not CSS
     // modules. Core keeps its kebab-case names, so this is the desktop app's only.
     {
-      "includes": ["apps/desktop/src/**", "!apps/desktop/src/vite-env.d.ts"],
+      "includes": ["apps/desktop/{src,examples}/**", "!apps/desktop/src/vite-env.d.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -294,7 +298,7 @@
     // per-component overrides, which are named after the Mantine component.
     {
       "includes": [
-        "apps/desktop/src/**/*.ts",
+        "apps/desktop/{src,examples}/**/*.ts",
         "!apps/desktop/src/theme/components/**",
         "!apps/desktop/src/vite-env.d.ts"
       ],
