@@ -14,12 +14,14 @@
  * - `invalid`: the input breaks a rule on its own, whatever else is stored: a
  *   required value left out, a value outside its field's constraints, a malformed
  *   import file, or an operation never allowed on the record as it is, such as
- *   deleting a thing type's title field.
+ *   deleting a thing type's title field, or picking a title field some of its
+ *   things have no value for.
  *   Details: `entity` and `id` (the record written, when there is one), `field`
  *   (the input property at fault), `fieldId` (a thing or log field whose value or
  *   definition is at fault), `constraint` (with `field: "constraints"`, the
  *   constraint at fault), `rule` and `limit` (for a value its field refuses),
- *   `path` (where in an import file).
+ *   `path` (where in an import file), `count` (how many records are in the way,
+ *   such as the things with no value for a title field).
  * - `conflict`: the input is fine on its own, but other stored data is in the way:
  *   a name or external id already used, an overlapping or later ongoing interval,
  *   an interval already stopped, a database that isn't empty for an import.
@@ -111,6 +113,8 @@ export interface SpoorErrorDetails {
   limit?: number | string;
   /** Where in an import file, such as `things[3]` or `schemaVersion`. */
   path?: string;
+  /** How many records are in the way, such as the things with no value for a title field. */
+  count?: number;
   /** The version found, for `newer_version`. */
   version?: number;
   /** The newest version this Spoor supports, for `newer_version`. */

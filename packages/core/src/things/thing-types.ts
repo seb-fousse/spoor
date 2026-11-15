@@ -26,8 +26,8 @@ import { type Instant, now } from "../lib/time";
  * `definitions/engine.ts`, shared with log types.
  *
  * Every thing type has a title field: a required `text` field, never deleted,
- * whose value names each thing in references, categories and merging. Every
- * write runs in one transaction.
+ * whose value names each thing in references, categories and merging, so every
+ * thing of the type has a value for it. Every write runs in one transaction.
  */
 
 export interface ThingType {
@@ -127,7 +127,12 @@ export async function listThingTypes(db: Database): Promise<ThingType[]> {
   return rows.map(toThingType);
 }
 
-/** Renames, redescribes, or picks another title field: a required `text` field of the type. */
+/**
+ * Renames, redescribes, or picks another title field: a required `text` field of
+ * the type that every one of its things has a value for. A field added after some
+ * things were created is empty on them, so it can become the title only once
+ * each of them has a value.
+ */
 export async function updateThingType(
   db: Database,
   id: string,
@@ -146,6 +151,7 @@ export async function updateThingType(
         );
       }
       assertTitleShape(id, field.id, field.shape.valueType, field.required);
+      if (field.id !== type.titleFieldId) await assertEveryThingHasValue(db, id, field.id);
     }
     await queryBuilder(db)
       .updateTable("thing_types")
@@ -301,6 +307,30 @@ function assertTitleShape(typeId: string, fieldId: string, valueType: string, re
       { entity: "thing_type", id: typeId, field: "titleFieldId", fieldId },
     );
   }
+}
+
+/** Refuses a title field that some things of the type have no value for, naming how many. */
+async function assertEveryThingHasValue(db: Database, typeId: string, fieldId: string) {
+  const q = queryBuilder(db);
+  const missing = await q
+    .selectFrom("things")
+    .select("id")
+    .where("thing_type_id", "=", typeId)
+    .where(
+      "id",
+      "not in",
+      q.selectFrom("thing_field_values").select("thing_id").where("field_id", "=", fieldId),
+    )
+    .orderBy("id")
+    .execute();
+  if (missing.length === 0) return;
+  const ids = missing.slice(0, 3).map((t) => t.id);
+  const more = missing.length > ids.length ? ", ..." : "";
+  throw new SpoorError(
+    "invalid",
+    `Thing type ${typeId}: title field ${fieldId} has no value on ${missing.length} things (${ids.join(", ")}${more})`,
+    { entity: "thing_type", id: typeId, field: "titleFieldId", fieldId, count: missing.length },
+  );
 }
 
 export async function requireThingType(db: Database, id: string): Promise<ThingType> {

@@ -183,6 +183,44 @@ describe("things", () => {
       );
     });
 
+    it("refuses a title field some things have no value for, counting them", async () => {
+      const { type, name } = await person();
+      await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
+      await createThing(db, { thingTypeId: type.id, values: { [name]: "Sam" } });
+      const nick = await addThingField(db, type.id, {
+        name: "Nickname",
+        valueType: "text",
+        required: true,
+      });
+      await createThing(db, { thingTypeId: type.id, values: { [name]: "Kim", [nick]: "K" } });
+      await expectSpoorError(updateThingType(db, type.id, { titleFieldId: nick }), "invalid", {
+        entity: "thing_type",
+        id: type.id,
+        field: "titleFieldId",
+        fieldId: nick,
+        count: 2,
+      });
+      expect((await getThingType(db, type.id))?.titleFieldId).toBe(name);
+    });
+
+    it("picks a newer title field once every thing has a value for it", async () => {
+      const { type, name } = await person();
+      const alex = await createThing(db, { thingTypeId: type.id, values: { [name]: "Alex" } });
+      const nick = await addThingField(db, type.id, {
+        name: "Nickname",
+        valueType: "text",
+        required: true,
+      });
+      await updateThingValues(db, alex.id, { [nick]: "Al" });
+      const updated = await updateThingType(db, type.id, { titleFieldId: nick });
+      expect(updated.titleFieldId).toBe(nick);
+      expect(await getThingTitle(db, alex.id)).toBe("Al");
+      // Keeping the current title field is never refused.
+      await expect(updateThingType(db, type.id, { titleFieldId: nick })).resolves.toMatchObject({
+        titleFieldId: nick,
+      });
+    });
+
     describe("fields", () => {
       it("adds a field, which existing things lack and new ones must fill if required", async () => {
         const { type, name } = await person();
