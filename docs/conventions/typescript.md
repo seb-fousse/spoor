@@ -25,7 +25,7 @@ Export by name, and re-export by name from barrels. The one default export is `A
 
 - **Source:** Google TypeScript Style Guide, [Exports](https://google.github.io/styleguide/tsguide.html#exports)
 - **Lint:** none
-- **Example:** [`examples/components/RenameMetric/index.ts`](../../apps/desktop/examples/components/RenameMetric/index.ts)
+- **Example:** [`components/ErrorAlert/index.ts`](../../apps/desktop/src/components/ErrorAlert/index.ts)
 
 ## `as const` objects and unions, not enums
 
@@ -57,8 +57,8 @@ when a case is added and not handled, as in `describeError`.
 
 - **Source:** Google TypeScript Style Guide, [Interfaces vs type aliases](https://google.github.io/styleguide/tsguide.html#prefer-interfaces)
 - **Lint:** none
-- **Example:** `RenameMetricProps` in
-  [`examples/components/RenameMetric/RenameMetric.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.tsx)
+- **Example:** `NewLogModalProps` in
+  [`pages/Home/logs/NewLogModal.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.tsx)
 
 ## Infer types from their source
 
@@ -74,7 +74,7 @@ Don't restate a type another module already gives:
 
 - **Source:** [#142](https://github.com/seb-fousse/spoor/issues/142)
 - **Lint:** none
-- **Example:** [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+- **Example:** [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)
 
 ## Type-only imports say so
 
@@ -83,4 +83,4 @@ Import a type with `import type`, or `type` inline among values:
 
 - **Source:** Biome's recommended rules
 - **Lint:** Biome's `useImportType`, which warns and has a safe fix
-- **Example:** [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+- **Example:** [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)

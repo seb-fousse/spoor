@@ -4,8 +4,8 @@ How the app reads and writes the database. Every read and write goes through a d
 `src/data/`, and those hooks own the query cache: its keys, what each write invalidates, and
 what a read returns.
 
-The worked example is [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts):
-one read factory, one read hook and one write.
+The worked example is [`data/observations.ts`](../../apps/desktop/src/data/observations.ts):
+its read factories, read hooks and writes.
 
 ## Data hooks live in `src/data/<domain>.ts`
 
@@ -20,7 +20,7 @@ once was. One folder also gives the lint rules below a path to name.
 
 - **Source:** [#141](https://github.com/seb-fousse/spoor/issues/141)
 - **Lint:** rules 1 and 2 name `src/data/` as the one place allowed
-- **Example:** [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+- **Example:** [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)
 
 ## Only data hooks touch the database and the cache
 
@@ -43,7 +43,7 @@ can drift from the shared one, say when a write starts having to invalidate more
 
 - **Source:** [#139](https://github.com/seb-fousse/spoor/issues/139), [#141](https://github.com/seb-fousse/spoor/issues/141)
 - **Lint:** rule 1 (`useDatabase`), rule 2 (`queryKeys` and the three hooks)
-- **Example:** [`examples/components/RenameMetric/RenameMetric.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.tsx) reads and writes only through hooks
+- **Example:** [`pages/Home/logs/NewLogModal.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.tsx) reads and writes only through hooks
 
 ## Every key is in `queryKeys`
 
@@ -80,7 +80,7 @@ generic to its key.
   [queryOptions](https://tanstack.com/query/latest/docs/framework/react/reference/functions/queryOptions.md);
   TkDodo, [The Query Options API](https://tkdodo.eu/blog/the-query-options-api)
 - **Lint:** none
-- **Example:** `metricQueries` in [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+- **Example:** `observationQueries` in [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)
 
 ## A read hook returns `UseQueryResult` or `ReadResult`
 
@@ -102,8 +102,8 @@ that any single query's result is assignable to `ReadResult`.
 
 - **Source:** [#142](https://github.com/seb-fousse/spoor/issues/142)
 - **Lint:** none. `tsc` checks the shapes.
-- **Example:** `useMetricList` in [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts),
-  and its type test in [`examples/data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx)
+- **Example:** `useMetrics` in [`data/observations.ts`](../../apps/desktop/src/data/observations.ts),
+  and the type tests in [`data/readResult.test.ts`](../../apps/desktop/src/data/readResult.test.ts)
 
 ## A read never hides missing data
 
@@ -177,7 +177,7 @@ such as `NewLogModal` with its pending button and its error, get all of it.
 
 - **Source:** [#143](https://github.com/seb-fousse/spoor/issues/143)
 - **Lint:** rule 2 keeps `useMutation` and `useQueryClient` inside `src/data/`
-- **Example:** `useRenameMetric` in [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+- **Example:** `useUpdateMetric` in [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)
 
 ## A write invalidates by default
 
@@ -203,5 +203,5 @@ data until the app restarts, and nothing errors. The integration tests in
 - **Source:** [#143](https://github.com/seb-fousse/spoor/issues/143), [#147](https://github.com/seb-fousse/spoor/issues/147)
 - **Lint:** none
 - **Example:** `useRecordObservation` in [`data/observations.ts`](../../apps/desktop/src/data/observations.ts)
-  for `update`; `useRenameMetric` in [`examples/data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)
+  for `update`; `useUpdateMetric` in the same file
   for the default

@@ -2,9 +2,8 @@
 
 Where UI code goes, how it's named, and how it's styled.
 
-The worked example is
-[`examples/components/RenameMetric/`](../../apps/desktop/examples/components/RenameMetric): a
-component folder with its CSS module, its test and its `index.ts`.
+The worked examples are [`components/ErrorAlert/`](../../apps/desktop/src/components/ErrorAlert/), a component folder with its
+test and its `index.ts`, and [`components/ArrowButtons/`](../../apps/desktop/src/components/ArrowButtons/), one with its CSS module.
 
 ## Every shared component has its own folder
 
@@ -17,7 +16,7 @@ rule per folder.
 
 - **Source:** [#145](https://github.com/seb-fousse/spoor/issues/145), rule 1
 - **Lint:** rule 6 reports an import past the barrel, such as `@components/Icon/Icon`
-- **Example:** [`examples/components/RenameMetric/`](../../apps/desktop/examples/components/RenameMetric)
+- **Example:** [`components/ErrorAlert/`](../../apps/desktop/src/components/ErrorAlert/)
 
 ## Every page has its own folder
 
@@ -64,7 +63,7 @@ layout.
 
 - **Source:** [#145](https://github.com/seb-fousse/spoor/issues/145), rule 4
 - **Lint:** rule 6
-- **Example:** [`examples/components/RenameMetric/index.ts`](../../apps/desktop/examples/components/RenameMetric/index.ts)
+- **Example:** [`components/ErrorAlert/index.ts`](../../apps/desktop/src/components/ErrorAlert/index.ts)
 
 ## File names
 
@@ -82,7 +81,7 @@ doesn't check CSS file names, so `Name.module.css` isn't enforced.
 
 - **Source:** [#145](https://github.com/seb-fousse/spoor/issues/145), rule 5
 - **Lint:** rule 7
-- **Example:** the files in [`examples/`](../../apps/desktop/examples)
+- **Example:** the files in [`pages/Home/`](../../apps/desktop/src/pages/Home/)
 
 ## Mantine for controls, styled app-wide in `theme/components/`
 
@@ -119,7 +118,7 @@ both values.
 - **Source:** the comments in [`theme/index.ts`](../../apps/desktop/src/theme/index.ts) and
   [`theme/tokens.ts`](../../apps/desktop/src/theme/tokens.ts)
 - **Lint:** none. Biome doesn't check colour values.
-- **Example:** [`examples/components/RenameMetric/RenameMetric.module.css`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.module.css)
+- **Example:** [`components/ArrowButtons/ArrowButtons.module.css`](../../apps/desktop/src/components/ArrowButtons/ArrowButtons.module.css)
 
 ## Inline `style` only for values computed at render
 

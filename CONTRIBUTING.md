@@ -19,8 +19,7 @@ layer at a time.
 ## Conventions
 
 The desktop app's conventions, from data hooks to lint rules, are in
-[`docs/conventions/`](docs/conventions/README.md), with checked examples in
-[`apps/desktop/examples/`](apps/desktop/examples). Read them before adding to
+[`docs/conventions/`](docs/conventions/README.md). Read them before adding to
 the app.
 
 ## Setup

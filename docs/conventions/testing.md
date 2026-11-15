@@ -19,7 +19,7 @@ A test is `Name.test.ts` or `Name.test.tsx`, beside the file it tests. An integr
 
 - **Source:** [#145](https://github.com/seb-fousse/spoor/issues/145), rule 5
 - **Lint:** rule 7 checks the name before the first dot
-- **Example:** the tests in [`examples/`](../../apps/desktop/examples)
+- **Example:** the tests in [`data/`](../../apps/desktop/src/data/)
 
 ## The shared harness: `src/test/`
 
@@ -46,7 +46,7 @@ clear it afterwards.
 
 - **Source:** [#147](https://github.com/seb-fousse/spoor/issues/147)
 - **Lint:** none
-- **Example:** [`examples/data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx)
+- **Example:** [`data/observations.test.tsx`](../../apps/desktop/src/data/observations.test.tsx)
 
 ## Pure modules: call them
 
@@ -55,7 +55,7 @@ needs no environment comment.
 
 - **Source:** [react.md](react.md#logic-in-pure-modules-hooks-and-components-stay-thin)
 - **Lint:** none
-- **Example:** [`examples/lib/longestStreak.test.ts`](../../apps/desktop/examples/lib/longestStreak.test.ts)
+- **Example:** [`pages/Home/homeDays.test.ts`](../../apps/desktop/src/pages/Home/homeDays.test.ts)
 
 ## Hooks and components: stub core
 
@@ -75,8 +75,8 @@ calls:
 
 - **Source:** [#147](https://github.com/seb-fousse/spoor/issues/147)
 - **Lint:** none
-- **Example:** [`examples/data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx)
-  for a hook; [`examples/components/RenameMetric/RenameMetric.test.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.test.tsx)
+- **Example:** [`data/observations.test.tsx`](../../apps/desktop/src/data/observations.test.tsx)
+  for a hook; [`pages/Home/logs/NewLogModal.test.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.test.tsx)
   for a component
 
 ## Integration tests: the real hooks on a real database
@@ -102,7 +102,7 @@ still passes isn't testing the wiring.
 
 - **Source:** [#147](https://github.com/seb-fousse/spoor/issues/147)
 - **Lint:** rule 3 keeps `@spoor/core/testing` in tests and `src/test/`
-- **Example:** [`examples/data/metrics.integration.test.tsx`](../../apps/desktop/examples/data/metrics.integration.test.tsx)
+- **Example:** [`data/observations.integration.test.tsx`](../../apps/desktop/src/data/observations.integration.test.tsx)
 
 ## Types are tested by `tsc`
 
@@ -111,8 +111,7 @@ still passes isn't testing the wiring.
 
 - **Source:** Vitest, [Testing Types](https://vitest.dev/guide/testing-types)
 - **Lint:** none
-- **Example:** [`data/readResult.test.ts`](../../apps/desktop/src/data/readResult.test.ts), and the
-  type test in [`examples/data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx)
+- **Example:** [`data/readResult.test.ts`](../../apps/desktop/src/data/readResult.test.ts)
 
 ## Core's tests
 

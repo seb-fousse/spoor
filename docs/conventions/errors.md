@@ -3,10 +3,9 @@
 Core says what went wrong with a code. The app turns the code into words written for users,
 and shows every error the same way.
 
-The worked example is
-[`examples/components/RenameMetric/`](../../apps/desktop/examples/components/RenameMetric): a
-failed read and a failed save, each shown through `ErrorAlert`, and a test of what the user
-sees.
+The worked examples are [`pages/Home/rail/RailPanel.tsx`](../../apps/desktop/src/pages/Home/rail/RailPanel.tsx), a failed read shown
+through `ErrorAlert`, and [`pages/Home/logs/NewLogModal.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.tsx), a failed save, with a test
+of what the user sees.
 
 ## Core throws only `SpoorError`
 
@@ -92,8 +91,8 @@ It's used by `App`, `TimelineGrid` (for its load error and for failed edits), `R
 
 - **Source:** [#144](https://github.com/seb-fousse/spoor/issues/144), [#162](https://github.com/seb-fousse/spoor/pull/162)
 - **Lint:** none
-- **Example:** [`examples/components/RenameMetric/RenameMetric.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.tsx),
-  tested in [`RenameMetric.test.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.test.tsx)
+- **Example:** [`pages/Home/logs/NewLogModal.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.tsx),
+  tested in [`NewLogModal.test.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.test.tsx)
 
 ## How long an error stays on screen
 
@@ -112,8 +111,8 @@ An error stays until the next attempt, going back, or closing:
 
 - **Source:** [#144](https://github.com/seb-fousse/spoor/issues/144), [#139](https://github.com/seb-fousse/spoor/issues/139)
 - **Lint:** none
-- **Example:** the save error and Cancel in
-  [`examples/components/RenameMetric/RenameMetric.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.tsx)
+- **Example:** the save error and its `reset()` calls in
+  [`pages/Home/logs/NewLogModal.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.tsx)
 
 ## Tests assert the code or the words
 
@@ -123,6 +122,5 @@ An error stays until the next attempt, going back, or closing:
 
 - **Source:** [#144](https://github.com/seb-fousse/spoor/issues/144)
 - **Lint:** none
-- **Example:** [`examples/data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx),
-  [`examples/data/metrics.integration.test.tsx`](../../apps/desktop/examples/data/metrics.integration.test.tsx),
-  [`examples/components/RenameMetric/RenameMetric.test.tsx`](../../apps/desktop/examples/components/RenameMetric/RenameMetric.test.tsx)
+- **Example:** [`lib/errors.test.ts`](../../apps/desktop/src/lib/errors.test.ts),
+  [`pages/Home/logs/NewLogModal.test.tsx`](../../apps/desktop/src/pages/Home/logs/NewLogModal.test.tsx)

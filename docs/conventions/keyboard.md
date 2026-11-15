@@ -2,9 +2,8 @@
 
 How shortcuts are declared, bound and shown. Everything here is exported from `@keyboard`.
 
-The worked example is
-[`examples/components/DayStepper/`](../../apps/desktop/examples/components/DayStepper): two
-shortcuts bound page-wide and shown on their buttons, with a test.
+The worked example is Home's day navigation: [`pages/Home/dayShortcuts.ts`](../../apps/desktop/src/pages/Home/dayShortcuts.ts) binds
+the shortcuts page-wide, and [`pages/Home/LeftHeader.tsx`](../../apps/desktop/src/pages/Home/LeftHeader.tsx) shows them on its buttons.
 
 ## Every shortcut is in `SHORTCUTS`
 
@@ -51,7 +50,7 @@ another handler already took, so an element's own `shortcutHandler` wins over th
 
 - **Source:** [`keyboard/useShortcuts.ts`](../../apps/desktop/src/keyboard/useShortcuts.ts)
 - **Lint:** none
-- **Example:** [`examples/components/DayStepper/DayStepper.tsx`](../../apps/desktop/examples/components/DayStepper/DayStepper.tsx)
+- **Example:** [`pages/Home/dayShortcuts.ts`](../../apps/desktop/src/pages/Home/dayShortcuts.ts)
 
 ## Leave a key to the element that needs it: `ownsKey`
 
@@ -70,7 +69,7 @@ go to the element it was pressed in instead of running a shortcut:
 - **Source:** [`keyboard/ownsKey.ts`](../../apps/desktop/src/keyboard/ownsKey.ts)
 - **Lint:** none
 - **Example:** the text-field test in
-  [`examples/components/DayStepper/DayStepper.test.tsx`](../../apps/desktop/examples/components/DayStepper/DayStepper.test.tsx)
+  [`keyboard/useShortcuts.test.tsx`](../../apps/desktop/src/keyboard/useShortcuts.test.tsx)
 
 ## Show shortcuts the platform's way
 
@@ -88,7 +87,7 @@ Never write a key symbol by hand. Show a shortcut from its id:
 - **Source:** [`keyboard/format.ts`](../../apps/desktop/src/keyboard/format.ts),
   [`keyboard/ShortcutTooltip.tsx`](../../apps/desktop/src/keyboard/ShortcutTooltip.tsx)
 - **Lint:** none
-- **Example:** [`examples/components/DayStepper/DayStepper.tsx`](../../apps/desktop/examples/components/DayStepper/DayStepper.tsx)
+- **Example:** [`pages/Home/LeftHeader.tsx`](../../apps/desktop/src/pages/Home/LeftHeader.tsx)
 
 The platform comes from `IS_MAC` in [`platform/os.ts`](../../apps/desktop/src/platform/os.ts).
 `hotkey`, `shortcutHandler`, `describeShortcut` and `shortcutLabel` also take a `mac` flag, so

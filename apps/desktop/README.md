@@ -28,8 +28,5 @@ pnpm --filter @spoor/desktop test       # Vitest (IPC mocked)
 - `src/`: React UI.
 - `src/platform/`: desktop implementations of core's platform seams
   (`Database` over Tauri IPC).
-- `examples/`: checked examples of the conventions in
-  [`docs/conventions/`](../../docs/conventions/README.md). Typechecked, linted and tested,
-  never imported or built.
 - `src-tauri/`: Rust side: window, IPC commands, and the SQLite database
   behind core's `Database` seam.

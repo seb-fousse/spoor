@@ -18,7 +18,7 @@ no zone can't shift by a day when it's read in another zone.
 
 - **Source:** core's [`lib/time.ts`](../../packages/core/src/lib/time.ts)
 - **Lint:** none
-- **Example:** [`examples/lib/longestStreak.ts`](../../apps/desktop/examples/lib/longestStreak.ts)
+- **Example:** [`pages/Home/homeDays.ts`](../../apps/desktop/src/pages/Home/homeDays.ts)
   steps dates with `addDays`
 
 ## Days are counted in the `time_zone` setting
@@ -66,5 +66,5 @@ rail once showed datetime values in the wrong zone that way.
 - **Lint:** rule 4 reports `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString`
   (plain and `?.` calls) and `Intl.DateTimeFormat`, with or without `new`, outside
   `lib/format.ts` and tests
-- **Example:** [`examples/components/DayStepper/DayStepper.tsx`](../../apps/desktop/examples/components/DayStepper/DayStepper.tsx)
+- **Example:** [`pages/Home/RightHeader.tsx`](../../apps/desktop/src/pages/Home/RightHeader.tsx)
   shows its day with `formatDay`

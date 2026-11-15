@@ -17,7 +17,7 @@ hook runs it on staged files, and CI runs it on every PR.
 
 Settled in [#146](https://github.com/seb-fousse/spoor/issues/146), and numbered as there. The
 other pages name each rule by its number. Each is at `error`. All but rule 5 are scoped to
-`apps/desktop/{src,examples}/**`, so the checked examples get the same rules as the app's code.
+`apps/desktop/src/**`.
 
 | #   | Rule                                                                                                                          | Tool                                                                                                   | Allowed in                                         | Page                                                                         |
 | --- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -82,7 +82,6 @@ where it shouldn't, fails the build. CI runs it after `pnpm lint`.
 - **A diagnostic about the whole file**, such as a bad file name, is expected on the file's
   first line.
 
-Add a fixture with every rule, and with every change to where a rule applies. The fixtures under
-`fixtures/apps/desktop/examples/` check that the examples get the app's rules.
+Add a fixture with every rule, and with every change to where a rule applies.
 
 - **Source:** [#146](https://github.com/seb-fousse/spoor/issues/146)

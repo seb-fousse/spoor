@@ -15,8 +15,7 @@ Each rule says what to do, then why. Below it:
 - **Source**: the issue that settled it, or the outside doc it builds on.
 - **Lint**: the rule that enforces it, numbered as in [lint.md](lint.md), or "none" when
   review is the only check.
-- **Example**: a checked example in [`apps/desktop/examples/`](../../apps/desktop/examples),
-  or the real file that shows it best.
+- **Example**: the real file in `src/` that shows it best.
 
 Conventions that haven't landed yet are marked **planned (#NNN)**, and the PR that lands one
 removes its marker. None are planned right now.
@@ -58,29 +57,6 @@ At `src/`'s root sit `App.tsx`, `main.tsx`, `routes.ts` and `vite-env.d.ts`, whe
 aliases expect them. The aliases are set twice, in `tsconfig.json`'s `paths` and in
 `vite.config.ts`, which says to keep them in sync.
 
-## The checked examples
-
-[`apps/desktop/examples/`](../../apps/desktop/examples) holds small, complete files that show
-the conventions. Each starts with a header naming the page it illustrates. The guide links to
-them and doesn't copy their code, so the code the pages point to is always code that compiles.
-
-| Example                                                                                              | Shows                                                                         | Page                                                   |
-| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------ |
-| [`data/metrics.ts`](../../apps/desktop/examples/data/metrics.ts)                                     | a data domain file: one read factory, one read hook, one write                | [data.md](data.md)                                     |
-| [`data/metrics.test.tsx`](../../apps/desktop/examples/data/metrics.test.tsx)                         | a hook test that stubs core                                                   | [testing.md](testing.md)                               |
-| [`data/metrics.integration.test.tsx`](../../apps/desktop/examples/data/metrics.integration.test.tsx) | an integration test on the in-memory database                                 | [testing.md](testing.md)                               |
-| [`components/RenameMetric/`](../../apps/desktop/examples/components/RenameMetric)                    | a component folder with its CSS module, test and `index.ts`; showing an error | [components.md](components.md), [errors.md](errors.md) |
-| [`components/DayStepper/`](../../apps/desktop/examples/components/DayStepper)                        | binding and showing shortcuts                                                 | [keyboard.md](keyboard.md)                             |
-| [`lib/longestStreak.ts`](../../apps/desktop/examples/lib/longestStreak.ts) and its test              | a pure module and its test                                                    | [react.md](react.md), [testing.md](testing.md)         |
-
-**They're checked like the app's code.** `tsconfig.json` includes `examples/`, so
-`pnpm typecheck` compiles them. `vite.config.ts` includes `examples/**/*.test.{ts,tsx}`, so
-`pnpm test` runs their tests. `biome.jsonc` scopes the desktop rules to
-`apps/desktop/{src,examples}/**`, and `examples/` mirrors `src/`'s folders, so
-`examples/data/` is linted like `src/data/`. The lint selftest has fixtures under
-`examples/` that check this. If a convention changes, its example breaks the build until it's
-updated.
-
 **They never ship.** Nothing imports them, and Vite bundles from `index.html`, so the build
 leaves them out.
 
@@ -105,7 +81,7 @@ of this guide and slated for replacement
   name. Their own cleanup waits for the rebuild: one `ValueInput` instead of two, shared value
   formatters, and no components that call core directly.
 
-Don't copy a pattern from a POC page. Copy from Home, `components/`, or the examples.
+Don't copy a pattern from a POC page. Copy from Home, `components/` or `data/`.
 
 ## Known exceptions
 

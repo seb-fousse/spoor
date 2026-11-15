@@ -27,7 +27,7 @@ component does.
 
 - **Source:** react.dev, [Keeping Components Pure](https://react.dev/learn/keeping-components-pure)
 - **Lint:** none
-- **Example:** [`examples/lib/longestStreak.ts`](../../apps/desktop/examples/lib/longestStreak.ts)
+- **Example:** [`pages/Home/homeDays.ts`](../../apps/desktop/src/pages/Home/homeDays.ts)
   and its test
 
 ## Effects only to sync with something outside React
@@ -78,7 +78,6 @@ holds state, with a reducer.
 - **Source:** react.dev, [Passing Data Deeply with Context](https://react.dev/learn/passing-data-deeply-with-context)
 - **Lint:** none
 - **Example:** [`platform/DatabaseProvider.tsx`](../../apps/desktop/src/platform/DatabaseProvider.tsx).
-  It's the clearest instance, so there's no copy in `examples/`.
 
 ## Where a hook goes
 
