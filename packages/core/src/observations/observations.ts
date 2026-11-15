@@ -61,7 +61,8 @@ export interface RecordObservationResult {
 
 type ObservationRow = Selectable<DB["observations"]>;
 
-const VALUE_COLUMNS = ["value_bool", "value_num", "value_enum"] as const;
+/** The value columns an observation has. */
+export const OBSERVATION_VALUE_COLUMNS = ["value_bool", "value_num", "value_enum"] as const;
 
 // ---------------------------------------------------------------------------
 // Observations
@@ -133,7 +134,11 @@ export async function recordObservation(
     const content = {
       ...(metric.valueType === "multi_enum"
         ? { value_bool: null, value_num: null, value_enum: null }
-        : encodeValue(metric.valueType, valid as boolean | number | string, VALUE_COLUMNS)),
+        : encodeValue(
+            metric.valueType,
+            valid as boolean | number | string,
+            OBSERVATION_VALUE_COLUMNS,
+          )),
       written_by: writtenBy,
       written_at: t,
       updated_at: t,

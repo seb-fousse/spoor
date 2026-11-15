@@ -6,6 +6,7 @@ import { SpoorError } from "../lib/spoor-error";
 import { isoToInstant } from "../lib/time";
 import {
   TABLES as ALL_TABLES,
+  type CheckProblem,
   type Column,
   columnsOf,
   EXPORT_SCHEMA_VERSION,
@@ -22,9 +23,12 @@ const TABLES: readonly TableSpec[] = ALL_TABLES;
  * `invalid`, with the `path` at fault in its details, or `newer_version`; a database
  * that already holds data is a `conflict`. The inserts then run in
  * one transaction: the database constraints enforce foreign keys and per-row
- * consistency, and each table's `check` enforces the cross-record rules only core
- * knows, such as interval overlap. A refused or failed import changes nothing.
- * Invalid data is refused, never dropped or altered.
+ * consistency, and each table's `check` enforces the rules only core knows,
+ * such as interval overlap, and that definitions and values are ones core could
+ * have written (`checks.ts`). Values are checked against their definitions'
+ * value types strictly but not against their constraints, which may have been
+ * tightened since the values were written. A refused or failed import changes
+ * nothing. Invalid data is refused, never dropped or altered.
  */
 
 /** Parses `text` as JSON and imports it. See `importData`. */
@@ -85,11 +89,24 @@ export async function importData(db: Database, doc: unknown): Promise<void> {
     }
     for (const spec of TABLES) {
       const problem = await spec.check?.(db);
-      if (problem !== undefined) {
-        throw new SpoorError("invalid", `${spec.key}: ${problem}`, { path: spec.key });
-      }
+      if (problem !== undefined) throw refusal(spec, rows.get(spec) ?? [], problem);
     }
   });
+}
+
+/** The `invalid` error for a `check`'s `problem`, with its `path` in the file. */
+function refusal(spec: TableSpec, records: unknown[][], problem: CheckProblem): SpoorError {
+  const columns = columnsOf(spec);
+  const idAt = columns.findIndex((c) => c.sql === "id");
+  const index =
+    problem.rowId === undefined ? -1 : records.findIndex((r) => r[idAt] === problem.rowId);
+  let path = spec.key;
+  if (index !== -1) {
+    path += `[${index}]`;
+    const column = columns.find((c) => c.sql === problem.column);
+    if (column !== undefined) path += `.${column.name}`;
+  }
+  return new SpoorError("invalid", `${path}: ${problem.message}`, { ...problem.details, path });
 }
 
 /**

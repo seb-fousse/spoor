@@ -763,12 +763,12 @@ function storedRows(db: Database, tables: DefinitionTables, recordId: string) {
 }
 
 /** `"Thing <id>, field <id>"`, as `values/values.ts` names failing values. */
-function valueLabel(tables: DefinitionTables, recordId: string, fieldId: string) {
+export function valueLabel(tables: DefinitionTables, recordId: string, fieldId: string) {
   return `${tables.recordKind} ${recordId}, field ${fieldId}`;
 }
 
 /** A value's record and field, as an error's details. */
-function valueSubject(
+export function valueSubject(
   tables: DefinitionTables,
   recordId: string,
   fieldId: string,

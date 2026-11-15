@@ -17,9 +17,10 @@
  *   deleting a thing type's title field.
  *   Details: `entity` and `id` (the record written, when there is one), `field`
  *   (the input property at fault), `fieldId` (a thing or log field whose value or
- *   definition is at fault), `constraint` (with `field: "constraints"`, the
- *   constraint at fault), `rule` and `limit` (for a value its field refuses),
- *   `path` (where in an import file).
+ *   definition is at fault), `metricId` (an observation metric whose value is at
+ *   fault), `constraint` (with `field: "constraints"`, the constraint at fault),
+ *   `rule` and `limit` (for a value its field refuses), `path` (where in an
+ *   import file).
  * - `conflict`: the input is fine on its own, but other stored data is in the way:
  *   a name or external id already used, an overlapping or later ongoing interval,
  *   an interval already stopped, a database that isn't empty for an import.
@@ -103,6 +104,8 @@ export interface SpoorErrorDetails {
   field?: string;
   /** The thing or log field whose value or definition is at fault. */
   fieldId?: string;
+  /** The observation metric whose value is at fault. */
+  metricId?: string;
   /** With `field: "constraints"`, the constraint at fault, such as `min` or `options`. */
   constraint?: string;
   /** The rule a field's value broke. */

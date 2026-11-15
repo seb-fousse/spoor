@@ -186,6 +186,249 @@ describe("importData", () => {
     });
   });
 
+  describe("definitions and values", () => {
+    const BOGUS_THING = "01900000-0000-7000-8000-0000000000fe";
+
+    /** The row of `key` whose `field` is `value`, and its index. */
+    const find = (key: string, field: string, value: unknown) => {
+      const index = rows(doc, key).findIndex((r) => r[field] === value);
+      if (index === -1) throw new Error(`fixture has no ${key} with ${field} ${value}`);
+      return { index, row: rows(doc, key)[index] };
+    };
+    const metric = (name: string) => find("observationMetrics", "name", name);
+    const observation = (metricName: string, date: string) => {
+      const metricId = metric(metricName).row.id;
+      const index = rows(doc, "observations").findIndex(
+        (o) => o.metricId === metricId && o.date === date,
+      );
+      return { index, row: rows(doc, "observations")[index], metricId };
+    };
+    /** The first value of the field named `name` in `fieldsKey`, from `valuesKey`. */
+    const fieldValue = (fieldsKey: string, valuesKey: string, name: string) => {
+      const field = find(fieldsKey, "name", name).row;
+      return { ...find(valuesKey, "fieldId", field.id), fieldId: field.id as string };
+    };
+    const thingValue = (name: string) => fieldValue("thingFields", "thingFieldValues", name);
+    const logValue = (name: string) => fieldValue("logFields", "logFieldValues", name);
+
+    describe("refuses definitions core would not read", () => {
+      it("constraints that are invalid", async () => {
+        const { index, row } = metric("Water");
+        row.constraints = { min: 5, max: 1 };
+        await refused({
+          path: `observationMetrics[${index}].constraints`,
+          entity: "observation_metric",
+          id: row.id as string,
+          field: "constraints",
+          constraint: "min",
+        });
+      });
+
+      it("constraints of another value type", async () => {
+        const { index, row } = find("thingFields", "name", "Year");
+        row.constraints = { maxLength: 4 };
+        await refused({
+          path: `thingFields[${index}].constraints`,
+          entity: "thing_field",
+          id: row.id as string,
+          field: "constraints",
+          constraint: "maxLength",
+        });
+      });
+
+      it("option labels that are not text", async () => {
+        const { index, row } = find("logFields", "name", "Format");
+        row.optionLabels = { cinema: 1 };
+        await refused({
+          path: `logFields[${index}].optionLabels`,
+          entity: "log_field",
+          id: row.id as string,
+          field: "optionLabels",
+        });
+      });
+    });
+
+    describe("refuses a value of the wrong type", () => {
+      it("in another value column", async () => {
+        const { index, row, fieldId } = thingValue("Year");
+        row.valueNum = null;
+        row.valueText = "1979";
+        await refused({
+          path: `thingFieldValues[${index}].valueText`,
+          entity: "thing",
+          id: row.thingId as string,
+          field: "values",
+          fieldId,
+          rule: "type",
+        });
+      });
+
+      it("that its column holds, but the type does not", async () => {
+        const { index, row, fieldId } = logValue("Released");
+        row.valueDate = "1979-5-25";
+        await refused({
+          path: `logFieldValues[${index}].valueDate`,
+          entity: "log_entry",
+          id: row.logEntryId as string,
+          field: "values",
+          fieldId,
+          rule: "type",
+        });
+      });
+
+      it("for an observation", async () => {
+        const { index, row, metricId } = observation("Water", "2026-10-20");
+        row.valueNum = null;
+        row.valueBool = true;
+        await refused({
+          path: `observations[${index}].valueBool`,
+          entity: "observation",
+          id: row.id as string,
+          field: "value",
+          metricId: metricId as string,
+          rule: "type",
+        });
+      });
+
+      it("of a field of another type", async () => {
+        const { index, row } = thingValue("Year");
+        row.fieldId = find("thingFields", "name", "Friends").row.id;
+        await refused({
+          path: `thingFieldValues[${index}].fieldId`,
+          entity: "thing",
+          id: row.thingId as string,
+          fieldId: row.fieldId as string,
+        });
+      });
+    });
+
+    it("refuses an enum value that no option could have as its key", async () => {
+      const { index, row, metricId } = observation("Mood", "2026-10-20");
+      row.valueEnum = " high";
+      await refused({
+        path: `observations[${index}].valueEnum`,
+        entity: "observation",
+        id: row.id as string,
+        metricId: metricId as string,
+        rule: "option",
+      });
+    });
+
+    describe("refuses a bad multi_enum selection", () => {
+      const selection = () => {
+        const { row, metricId } = observation("Symptoms", "2026-10-20");
+        const index = rows(doc, "observationSelections").findIndex(
+          (s) => s.observationId === row.id,
+        );
+        return { index, row: rows(doc, "observationSelections")[index], metricId };
+      };
+
+      it("whose key no option could have", async () => {
+        const { index, row, metricId } = selection();
+        row.optionKey = "";
+        await refused({
+          path: `observationSelections[${index}].optionKey`,
+          entity: "observation",
+          id: row.observationId as string,
+          metricId: metricId as string,
+          rule: "option",
+        });
+      });
+
+      it("of an observation whose metric is not multi_enum", async () => {
+        const { index, row } = selection();
+        const mood = observation("Mood", "2026-10-20");
+        row.observationId = mood.row.id;
+        await refused({
+          path: `observationSelections[${index}]`,
+          entity: "observation",
+          id: mood.row.id as string,
+          metricId: mood.metricId as string,
+          rule: "type",
+        });
+      });
+
+      it("next to a value column a multi_enum observation does not set", async () => {
+        const { index, row, metricId } = observation("Symptoms", "2026-10-20");
+        row.valueEnum = "fever";
+        await refused({
+          path: `observations[${index}].valueEnum`,
+          entity: "observation",
+          id: row.id as string,
+          metricId: metricId as string,
+          rule: "type",
+        });
+      });
+    });
+
+    describe("refuses a bad reference", () => {
+      it("to a thing that does not exist, by the foreign key", async () => {
+        const { index, row } = logValue("Movie");
+        row.valueRef = BOGUS_THING;
+        await refused({ path: `logFieldValues[${index}]` });
+      });
+
+      it("to a thing of another thing type", async () => {
+        const { index, row, fieldId } = logValue("Movie");
+        row.valueRef = find("thingFieldValues", "valueText", "Sam").row.thingId;
+        await refused({
+          path: `logFieldValues[${index}].valueRef`,
+          entity: "log_entry",
+          id: row.logEntryId as string,
+          field: "values",
+          fieldId,
+          rule: "type",
+        });
+      });
+
+      it("a second thing for a ref field", async () => {
+        const { row, fieldId } = thingValue("Director");
+        const values = rows(doc, "thingFieldValues");
+        const sam = find("thingFieldValues", "valueText", "Sam").row.thingId;
+        values.push({ ...row, id: "f0000000-0000-7000-8000-0000000000ff", valueRef: sam });
+        await refused({
+          path: `thingFieldValues[${values.length - 1}].valueRef`,
+          entity: "thing",
+          id: row.thingId as string,
+          fieldId,
+          rule: "type",
+        });
+      });
+    });
+
+    it("imports values that break constraints tightened since they were written", async () => {
+      // The app checks constraints only on write: tightening one leaves stored values alone.
+      metric("Water").row.constraints = { unit: "cups", min: 10, max: 11, precision: 0 };
+      metric("Symptoms").row.constraints = {
+        options: [{ key: "cough", order: 1 }],
+        minSelected: 1,
+        maxSelected: 1,
+      };
+      find("thingFields", "name", "Name").row.constraints = { maxLength: 2 };
+      find("logFields", "name", "Rating").row.constraints = { min: 4.75, max: 5, precision: 0 };
+      await importData(db, doc);
+      const imported = await dumpAll(db);
+      const written = await dumpAll(source);
+      for (const table of [
+        "observations",
+        "observation_selections",
+        "thing_field_values",
+        "log_field_values",
+      ]) {
+        expect(imported[table], table).toEqual(written[table]);
+      }
+    });
+
+    it("imports the key of an option removed since, as the app keeps it", async () => {
+      const { row } = find("thingFields", "name", "Format");
+      row.constraints = { options: [{ key: "tv", order: 2 }] };
+      await importData(db, doc);
+      expect((await dumpAll(db)).thing_field_values).toEqual(
+        (await dumpAll(source)).thing_field_values,
+      );
+    });
+  });
+
   function intervalStartingAt(startAt: string): Record<string, unknown> {
     const interval = rows(doc, "timelineIntervals").find((i) => i.startAt === startAt);
     if (!interval) throw new Error(`fixture has no interval starting at ${startAt}`);

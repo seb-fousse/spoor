@@ -1,6 +1,15 @@
 import type { Database } from "../db/platform";
 import type { DB } from "../db/schema/tables";
+import { LOG_TABLES, THING_TABLES } from "../definitions/tables";
+import type { SpoorErrorDetails } from "../lib/spoor-error";
 import { findOverlap } from "../timelines/overlap";
+import {
+  checkFields,
+  checkFieldValues,
+  checkMetrics,
+  checkObservations,
+  checkSelections,
+} from "./checks";
 
 /**
  * The export format and its table registry (see docs/data-spec.md § Export and import).
@@ -15,7 +24,8 @@ import { findOverlap } from "../timelines/overlap";
  *    A column referencing its own table is declared as `selfReference` instead.
  * 2. Give every column a kind. A trailing `?` marks a nullable column.
  * 3. Add a `check` for any rule core enforces that the database constraints cannot,
- *    such as the overlap rule, so import refuses data core would never write.
+ *    such as the overlap rule or values fitting their definitions (`checks.ts`),
+ *    so import refuses data core would never write.
  * 4. Extend the fixture in `roundtrip.test.ts` so the table holds rows in every state
  *    it has, such as archived.
  *
@@ -64,10 +74,24 @@ interface TableSpec {
   /** Checked against `TABLE_COLUMNS` by `portable.test.ts`. */
   readonly columns: Readonly<Record<string, ColumnSpec>>;
   /**
-   * Cross-record rules the database cannot enforce. Import runs it after every
-   * insert, in the same transaction, and refuses the file if it names a problem.
+   * Rules the database cannot enforce, such as cross-record ones and values
+   * fitting their definitions. Import runs every table's after every insert, in
+   * the same transaction and in this order, and refuses the file if one names a
+   * problem.
    */
-  readonly check?: (db: Database) => Promise<string | undefined>;
+  readonly check?: (db: Database) => Promise<CheckProblem | undefined>;
+}
+
+/** What a table's `check` found wrong. */
+export interface CheckProblem {
+  /** For developers, as a `SpoorError` message: ids are fine here. */
+  message: string;
+  /** The row at fault, by id, which import names by its index in the file. */
+  rowId?: string;
+  /** The column at fault, by its SQL name. Ignored without `rowId`. */
+  column?: string;
+  /** Details for the `invalid` error, which import adds the `path` to. */
+  details?: SpoorErrorDetails;
 }
 
 /** In foreign-key order: parents before the tables that reference them. */
@@ -109,6 +133,7 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
     },
+    check: checkFields(THING_TABLES),
   },
   {
     key: "things",
@@ -141,6 +166,7 @@ export const TABLES = [
       written_by: "text",
       written_at: "instant",
     },
+    check: checkFieldValues(THING_TABLES),
   },
   {
     key: "timelines",
@@ -189,8 +215,9 @@ export const TABLES = [
     async check(db: Database) {
       const overlap = await findOverlap(db);
       return (
-        overlap &&
-        `intervals ${overlap.a} and ${overlap.b} overlap on timeline ${overlap.timelineId}`
+        overlap && {
+          message: `intervals ${overlap.a} and ${overlap.b} overlap on timeline ${overlap.timelineId}`,
+        }
       );
     },
   },
@@ -209,6 +236,7 @@ export const TABLES = [
       updated_at: "instant",
       archived_at: "instant?",
     },
+    check: checkMetrics,
   },
   {
     key: "observations",
@@ -228,12 +256,14 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
     },
+    check: checkObservations,
   },
   {
     key: "observationSelections",
     table: "observation_selections",
     orderBy: "id",
     columns: { id: "uuid", observation_id: "uuid", option_key: "text" },
+    check: checkSelections,
   },
   {
     key: "logTypes",
@@ -266,6 +296,7 @@ export const TABLES = [
       created_at: "instant",
       updated_at: "instant",
     },
+    check: checkFields(LOG_TABLES),
   },
   {
     key: "logEntries",
@@ -305,6 +336,7 @@ export const TABLES = [
       written_by: "text",
       written_at: "instant",
     },
+    check: checkFieldValues(LOG_TABLES),
   },
 ] as const satisfies readonly TableSpec[];
 
