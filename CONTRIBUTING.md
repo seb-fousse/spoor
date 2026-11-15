@@ -16,6 +16,12 @@ scope. The maintainer may decline features that don't fit the project.
 Build in **vertical slices**: one thin feature working end to end, not one
 layer at a time.
 
+## Conventions
+
+The desktop app's conventions, from data hooks to lint rules, are in
+[`docs/conventions/`](docs/conventions/README.md). Read them before adding to
+the app.
+
 ## Setup
 
 See the [README quickstart](README.md#quickstart):
