@@ -291,7 +291,7 @@ function parseOptions(
     const { key, order, score, ...rest } = o as Record<string, unknown>;
     const unknown = Object.keys(rest)[0];
     if (unknown !== undefined) fail(`options[${i}]: unknown field ${JSON.stringify(unknown)}`);
-    if (typeof key !== "string" || key.trim() === "" || key !== key.trim()) {
+    if (!isOptionKey(key)) {
       fail(`options[${i}]: key must be a non-empty string without surrounding spaces`);
     }
     if (!Number.isSafeInteger(order)) fail(`options[${i}]: order must be an integer`);
@@ -306,6 +306,11 @@ function parseOptions(
     fail("option orders must be unique");
   }
   return options.sort((a, b) => a.order - b.order);
+}
+
+/** True for a string that can be an option's key: non-empty, without surrounding spaces. */
+function isOptionKey(key: unknown): key is string {
+  return typeof key === "string" && key !== "" && key === key.trim();
 }
 
 /** `obj` without its `undefined` properties, keeping key order. */
@@ -364,11 +369,43 @@ export function validateValue(
   value: unknown,
   details: SpoorErrorDetails = {},
 ): Value {
+  return checkValue(label, shape, value, details, true);
+}
+
+/**
+ * `value` if a definition of `shape` can hold it as stored, or throws as
+ * `validateValue` does. For values core may have written, read back from
+ * outside it, such as an import.
+ *
+ * Constraints are edited in place and checked only when a value is written (see
+ * docs/data-spec.md § Changing definitions), so a stored value may break one
+ * tightened since, and removing an option leaves its stored keys alone. So this
+ * checks only what no edit changes: the value type, members not repeated, a
+ * datetime in range, and that an enum key could be an option's key, not that it
+ * still is one.
+ */
+export function validateStoredValue(
+  label: string,
+  shape: ValueShape,
+  value: unknown,
+  details: SpoorErrorDetails = {},
+): Value {
+  return checkValue(label, shape, value, details, false);
+}
+
+/** `validateValue`, checking the constraints only if `constrained`. */
+function checkValue(
+  label: string,
+  shape: ValueShape,
+  value: unknown,
+  details: SpoorErrorDetails,
+  constrained: boolean,
+): Value {
   const fail = (problem: string, rule: SpoorValueRule = "type", limit?: number | string): never => {
     throw new SpoorError("invalid", `${label}: ${problem}`, compact({ ...details, rule, limit }));
   };
   const keyOf = (options: readonly EnumOption[], key: unknown) =>
-    typeof key === "string" && options.some((o) => o.key === key)
+    isOptionKey(key) && (!constrained || options.some((o) => o.key === key))
       ? key
       : fail(`${JSON.stringify(key)} is not an option`, "option");
   const members = (v: unknown): string[] => {
@@ -383,6 +420,7 @@ export function validateValue(
 
     case "number": {
       if (typeof value !== "number" || !Number.isFinite(value)) return fail("must be a number");
+      if (!constrained) return value;
       const { min, max, precision } = shape.constraints;
       if (min !== undefined && value < min) fail(`must be at least ${min}`, "min", min);
       if (max !== undefined && value > max) fail(`must be at most ${max}`, "max", max);
@@ -398,6 +436,7 @@ export function validateValue(
     case "multi_enum": {
       const keys = members(value);
       for (const key of keys) keyOf(shape.constraints.options, key);
+      if (!constrained) return keys;
       const { minSelected, maxSelected } = shape.constraints;
       if (minSelected !== undefined && keys.length < minSelected) {
         fail(`must select at least ${minSelected}`, "minSelected", minSelected);
@@ -410,6 +449,7 @@ export function validateValue(
 
     case "text": {
       if (typeof value !== "string") return fail("must be a string");
+      if (!constrained) return value;
       const { minLength, maxLength } = shape.constraints;
       if (minLength !== undefined && value.length < minLength) {
         fail(`must be at least ${minLength} characters`, "minLength", minLength);
@@ -422,6 +462,7 @@ export function validateValue(
 
     case "date": {
       if (!isLocalDate(value)) return fail("must be a YYYY-MM-DD date");
+      if (!constrained) return value;
       const { min, max } = shape.constraints;
       if (min !== undefined && value < min) fail(`must be on or after ${min}`, "min", min);
       if (max !== undefined && value > max) fail(`must be on or before ${max}`, "max", max);

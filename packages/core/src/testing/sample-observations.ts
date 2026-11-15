@@ -8,10 +8,10 @@ import {
 import { deleteObservation, recordObservation } from "../observations/observations";
 
 /**
- * TEST-ONLY. Observation rows for `populate`: metrics, one archived and one
+ * TEST-ONLY. Observation rows for `populate`: metrics, one archived and two
  * whose constraints changed, and observations of every value type (`multi_enum` with
- * none and several selected, one automated). A deleted metric and a deleted
- * observation leave nothing behind.
+ * none and several selected, one automated, one holding the key of an option
+ * removed since). A deleted metric and a deleted observation leave nothing behind.
  */
 export async function populateObservations(db: Database): Promise<void> {
   const teeth = await createMetric(db, { name: "Brushed teeth", valueType: "boolean" });
@@ -62,6 +62,16 @@ export async function populateObservations(db: Database): Promise<void> {
   });
   await recordObservation(db, symptoms.id, "2026-10-19", []);
   await recordObservation(db, symptoms.id, "2026-10-20", ["fever", "headache"]);
+  // Removing fever leaves its stored key alone, and import must accept it.
+  await updateMetric(db, symptoms.id, {
+    constraints: {
+      options: [
+        { key: "headache", order: 1 },
+        { key: "cough", order: 2 },
+      ],
+      maxSelected: 3,
+    },
+  });
 
   const gone = await createMetric(db, { name: "Gone", valueType: "boolean" });
   await recordObservation(db, gone.id, "2026-10-20", true);

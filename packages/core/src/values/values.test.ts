@@ -11,6 +11,7 @@ import {
   parseShape,
   VALUE_TYPES,
   type ValueShape,
+  validateStoredValue,
   validateValue,
 } from "./values";
 
@@ -250,6 +251,54 @@ describe("validateValue", () => {
     ok(multi, []);
     await bad(multi, [THING_TYPE, THING_TYPE], "unique");
     await bad(multi, ["alex"], "type");
+  });
+});
+
+describe("validateStoredValue", () => {
+  const ok = (s: ValueShape, value: unknown) =>
+    expect(validateStoredValue(L, s, value)).toEqual(value);
+  const bad = async (s: ValueShape, value: unknown, rule: SpoorValueRule) => {
+    const error = await expectSpoorError(() => validateStoredValue(L, s, value), "invalid");
+    expect(error.details).toEqual({ rule });
+  };
+  const symptoms = shape("multi_enum", {
+    options: [
+      { key: "a", order: 1 },
+      { key: "b", order: 2 },
+    ],
+    minSelected: 1,
+    maxSelected: 1,
+  });
+
+  it("allows values that break a constraint, which may have been tightened since", () => {
+    ok(shape("number", { min: 0, max: 10, precision: 0 }), 12.5);
+    ok(shape("text", { minLength: 2, maxLength: 3 }), "");
+    ok(shape("text", { maxLength: 3 }), "abcd");
+    ok(shape("date", { min: "2000-01-01", max: "2000-12-31" }), "1999-12-31");
+    ok(symptoms, []);
+    ok(symptoms, ["a", "b"]);
+  });
+
+  it("allows the keys of options removed since", () => {
+    ok(mood, "meh");
+    ok(symptoms, ["a", "gone"]);
+  });
+
+  it("still refuses values of another type", async () => {
+    await bad(shape("boolean"), 0, "type");
+    await bad(shape("number", { min: 0 }), "2", "type");
+    await bad(shape("text"), 3, "type");
+    await bad(shape("date"), "2026-13-01", "type");
+    await bad(shape("datetime"), 300_000_000_000_000, "range");
+    await bad(shape("ref", { thingTypeId: THING_TYPE }), "alex", "type");
+    await bad(symptoms, "a", "type");
+  });
+
+  it("refuses enum keys no option could have, and repeated members", async () => {
+    await bad(mood, 1, "option");
+    await bad(mood, "", "option");
+    await bad(mood, " good", "option");
+    await bad(symptoms, ["a", "a"], "unique");
   });
 });
 

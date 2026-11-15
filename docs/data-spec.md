@@ -534,6 +534,12 @@ LogFieldValue, ThingFieldValue ──> Thing   (ref, multi_ref)
 - Import validates definitions and values and refuses invalid data rather than
   dropping or altering it. It checks the whole file before writing anything, so
   a refused import changes nothing.
+- Values are checked strictly against their definition's value type, and a
+  reference must name a thing of the field's thing type. Constraints and
+  `required` are not re-checked: they are checked only when a value is written
+  (see [Changing definitions](#changing-definitions)), so an export can hold
+  values that break a constraint tightened since, or keys of a removed option,
+  and those import as they are.
 - Records use camelCase field names. Instants are ISO 8601 UTC, booleans are
   `true`/`false`, and a setting's `value` is its JSON value. Every row is
   exported, archived ones included.
