@@ -1,9 +1,10 @@
 /**
  * `@spoor/core` public surface.
  *
- * Apps import from here only. This is the package's only barrel: it lists what
- * is public by name, so anything not listed stays internal. Inside the package,
- * import from the file that defines a thing, not from here.
+ * Apps import from here only. This is the package's barrel: it lists what is
+ * public by name, so anything not listed stays internal. (Tests also have
+ * `@spoor/core/testing`, from `./testing/index.ts`.) Inside the package, import
+ * from the file that defines a thing, not from here.
  */
 
 export type { Database, HealthSource, SecretStore } from "./db/platform";

@@ -1,4 +1,4 @@
-import { EntryForm, type EntryTimeInput } from "@components/LogEntryForm";
+import { type EntryTimeInput, LogEntryForm } from "@components/LogEntryForm";
 import { EMPTY_FIELDS, useCreateLogEntry, useFields, useLogTypes } from "@data/logs";
 import { formatDay } from "@lib/format";
 import {
@@ -155,7 +155,9 @@ function TypeForm({
   onCreate: (time: EntryTimeInput, values: Record<string, Value>) => void;
 }) {
   const fields = useFields(type.id).data ?? EMPTY_FIELDS;
-  return <EntryForm fields={fields} child={false} layout="stacked" day={day} onCreate={onCreate} />;
+  return (
+    <LogEntryForm fields={fields} child={false} layout="stacked" day={day} onCreate={onCreate} />
+  );
 }
 
 function ChildForm({
@@ -173,7 +175,7 @@ function ChildForm({
         {type.name}
         {added > 0 && ` (${added} added)`}
       </Text>
-      <EntryForm
+      <LogEntryForm
         fields={fields}
         child
         layout="stacked"

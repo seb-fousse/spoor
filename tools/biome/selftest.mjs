@@ -15,6 +15,9 @@
 //
 // Every other line must not be reported, so a fixture without any is one the rules allow.
 //
+// A diagnostic about the whole file, such as a file name, has no line (Biome reports
+// line 0). It is expected with a comment on the file's first line.
+//
 // Usage: pnpm lint:selftest
 
 import { execFileSync } from "node:child_process";
@@ -93,7 +96,8 @@ try {
 }
 const reported = diagnostics.map((d) => ({
   path: d.location?.path,
-  line: d.location?.start?.line,
+  // A file-level diagnostic (line 0) is expected on the first line.
+  line: d.location?.start?.line === 0 ? 1 : d.location?.start?.line,
   category: d.category,
   message: d.message,
 }));
