@@ -26,8 +26,10 @@ import {
   createInterval,
   deleteInterval,
   getInterval,
+  joinIntervals,
   listIntervals,
   listIntervalsInRange,
+  restoreInterval,
   splitInterval,
   startInterval,
   stopInterval,
@@ -552,6 +554,180 @@ describe("timelines", () => {
           });
         }
         expect(await listIntervals(db, timeline.id)).toEqual([created]);
+      });
+
+      it("takes the later piece's id, which must be a new UUID", async () => {
+        const { timeline, categories } = await setup();
+        const a = await interval(categories[0].id, 1, 4);
+        const b = await interval(categories[1].id, 5, 6);
+        const laterId = "0190a4f2-7c3e-7000-8000-000000000001";
+        await expectSpoorError(splitInterval(db, a.id, 2 * H, { laterId: b.id }), "conflict", {
+          entity: "timeline_interval",
+          id: a.id,
+          field: "laterId",
+        });
+        await expectSpoorError(splitInterval(db, a.id, 2 * H, { laterId: "x" }), "invalid", {
+          entity: "timeline_interval",
+          id: a.id,
+          field: "laterId",
+        });
+        expect(await listIntervals(db, timeline.id)).toEqual([b, a]);
+        const [, later] = await splitInterval(db, a.id, 2 * H, { laterId });
+        expect(later.id).toBe(laterId);
+      });
+    });
+
+    describe("join", () => {
+      it("undoes a split, restoring the original interval", async () => {
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[0].id, 1, 4);
+        const [earlier, later] = await splitInterval(db, created.id, 2 * H);
+        const joined = await joinIntervals(db, earlier.id, later.id);
+        expect(joined).toEqual({ ...created, updatedAt: expect.any(Number) });
+        expect(await listIntervals(db, timeline.id)).toEqual([joined]);
+      });
+
+      it("undoes a split of an ongoing interval, which is ongoing again", async () => {
+        const { timeline, categories } = await setup();
+        const ongoing = await interval(categories[0].id, 1, null);
+        const [earlier, later] = await splitInterval(db, ongoing.id, 3 * H);
+        const joined = await joinIntervals(db, earlier.id, later.id);
+        expect(joined).toEqual({ ...ongoing, updatedAt: expect.any(Number) });
+        expect(await listIntervals(db, timeline.id)).toEqual([joined]);
+      });
+
+      it("redoes the split with the same ids", async () => {
+        const { categories } = await setup();
+        const created = await interval(categories[0].id, 1, 4);
+        const [earlier, later] = await splitInterval(db, created.id, 2 * H);
+        await joinIntervals(db, earlier.id, later.id);
+        const redone = await splitInterval(db, created.id, 2 * H, { laterId: later.id });
+        expect(redone).toMatchObject([
+          { id: earlier.id, startAt: H, endAt: 2 * H },
+          { id: later.id, categoryId: later.categoryId, startAt: 2 * H, endAt: 4 * H },
+        ]);
+      });
+
+      it("refuses intervals that don't meet, changing nothing", async () => {
+        const { timeline, categories } = await setup();
+        const a = await interval(categories[0].id, 1, 2);
+        const b = await interval(categories[0].id, 3, 4);
+        const ongoing = await interval(categories[0].id, 5, null);
+        for (const [first, second] of [
+          [a, b],
+          [b, a],
+          [ongoing, a],
+          [a, a],
+        ]) {
+          await expectSpoorError(joinIntervals(db, first.id, second.id), "invalid", {
+            entity: "timeline_interval",
+            id: first.id,
+            field: "secondId",
+          });
+        }
+        expect(await listIntervals(db, timeline.id)).toEqual([ongoing, b, a]);
+      });
+
+      it("refuses another category or timeline", async () => {
+        const { categories } = await setup(false);
+        const other = await setup();
+        const a = await interval(categories[0].id, 1, 2);
+        const sleep = await interval(categories[1].id, 2, 3);
+        const elsewhere = await interval(other.categories[0].id, 2, 3);
+        for (const second of [sleep, elsewhere]) {
+          await expectSpoorError(joinIntervals(db, a.id, second.id), "invalid", {
+            entity: "timeline_interval",
+            id: a.id,
+            field: "secondId",
+          });
+          expect(await getInterval(db, second.id)).toEqual(second);
+        }
+        expect(await getInterval(db, a.id)).toEqual(a);
+      });
+
+      it("refuses a missing interval", async () => {
+        const { categories } = await setup();
+        const a = await interval(categories[0].id, 1, 2);
+        const missing = "0190a4f2-7c3e-7000-8000-000000000001";
+        await expectSpoorError(joinIntervals(db, a.id, missing), "not_found", {
+          entity: "timeline_interval",
+          id: missing,
+        });
+      });
+    });
+
+    describe("restore", () => {
+      it("undoes a delete, bringing back every column but updatedAt", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[1].id, 1, 2);
+        await deleteInterval(db, created.id);
+        vi.setSystemTime(5_000);
+        const restored = await restoreInterval(db, created);
+        expect(restored).toEqual({ ...created, updatedAt: 5_000 });
+        expect(await listIntervals(db, timeline.id)).toEqual([restored]);
+      });
+
+      it("brings back an ongoing interval", async () => {
+        const { categories } = await setup();
+        const ongoing = await interval(categories[0].id, 1, null);
+        await deleteInterval(db, ongoing.id);
+        expect(await restoreInterval(db, ongoing)).toMatchObject({ id: ongoing.id, endAt: null });
+      });
+
+      it("refuses an id in use", async () => {
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[0].id, 1, 2);
+        await expectSpoorError(restoreInterval(db, created), "conflict", {
+          entity: "timeline_interval",
+          id: created.id,
+          field: "id",
+        });
+        await expectSpoorError(restoreInterval(db, { ...created, id: "x" }), "invalid", {
+          entity: "timeline_interval",
+          id: "x",
+          field: "id",
+        });
+        expect(await listIntervals(db, timeline.id)).toEqual([created]);
+      });
+
+      it("refuses an overlap, writing nothing", async () => {
+        const { timeline, categories } = await setup();
+        const created = await interval(categories[0].id, 1, 3);
+        await deleteInterval(db, created.id);
+        const since = await interval(categories[1].id, 2, 4);
+        await expectSpoorError(restoreInterval(db, created), "conflict", {
+          entity: "timeline_interval",
+          id: created.id,
+        });
+        expect(await listIntervals(db, timeline.id)).toEqual([since]);
+      });
+
+      it("refuses an archived or deleted category, or an archived timeline", async () => {
+        const { timeline, categories } = await setup();
+        const [work, sleep] = categories;
+        const a = await interval(work.id, 1, 2);
+        const b = await interval(sleep.id, 3, 4);
+        await deleteInterval(db, a.id);
+        await deleteInterval(db, b.id);
+
+        await setCategoryArchived(db, work.id, true);
+        await expectSpoorError(restoreInterval(db, a), "archived", {
+          entity: "timeline_category",
+          id: work.id,
+        });
+        await setTimelineArchived(db, timeline.id, true);
+        await expectSpoorError(restoreInterval(db, b), "archived", {
+          entity: "timeline",
+          id: timeline.id,
+        });
+        await deleteCategory(db, sleep.id);
+        await expectSpoorError(restoreInterval(db, b), "not_found", {
+          entity: "timeline_category",
+          id: sleep.id,
+        });
+        expect(await listIntervals(db, timeline.id)).toEqual([]);
       });
     });
   });

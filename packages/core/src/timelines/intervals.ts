@@ -4,7 +4,7 @@ import { queryBuilder } from "../db/query";
 import type { DB } from "../db/schema/tables";
 import { transaction } from "../db/transaction";
 import { isTimeZone } from "../lib/days";
-import { newId } from "../lib/ids";
+import { isUuid, newId } from "../lib/ids";
 import { SpoorError } from "../lib/spoor-error";
 import { type Instant, instantToIso, isInstant, now } from "../lib/time";
 import { getTimeZone } from "../settings/settings";
@@ -223,15 +223,21 @@ export async function stopInterval(
  * category and zone runs from `at` to where it ended (ongoing if it was).
  * Returns both, earlier first. Together they cover the same time, so the
  * split never overlaps anything.
+ *
+ * `laterId` gives the new interval that id instead of a fresh one, so a split
+ * redone after `joinIntervals` undid it brings back the same two ids. It must
+ * be a UUID no interval has.
  */
 export async function splitInterval(
   db: Database,
   id: string,
   at: Instant,
+  options: { laterId?: string } = {},
 ): Promise<[TimelineInterval, TimelineInterval]> {
-  const laterId = newId();
+  const laterId = options.laterId ?? newId();
   await transaction(db, async () => {
     const interval = await requireInterval(db, id);
+    if (options.laterId !== undefined) await assertNewId(db, laterId, id, "laterId");
     if (
       !isInstant(at) ||
       at <= interval.startAt ||
@@ -272,6 +278,75 @@ export async function deleteInterval(db: Database, id: string): Promise<void> {
   });
 }
 
+/**
+ * Joins the two intervals a split leaves, or any two like them: `secondId`
+ * must start where `firstId` ends, on the same timeline and in the same
+ * category. The first keeps its id, category and zone and now runs to where
+ * the second ended (ongoing if it was); the second is deleted. Undoes
+ * `splitInterval`. Together they cover the same time, so a join never
+ * overlaps anything.
+ */
+export async function joinIntervals(
+  db: Database,
+  firstId: string,
+  secondId: string,
+): Promise<TimelineInterval> {
+  await transaction(db, async () => {
+    const first = await requireInterval(db, firstId);
+    const second = await requireInterval(db, secondId);
+    const refuse = (problem: string) =>
+      new SpoorError(
+        "invalid",
+        `Timeline interval ${firstId}: cannot join ${secondId}, which ${problem}`,
+        { entity: "timeline_interval", id: firstId, field: "secondId" },
+      );
+    if (second.timelineId !== first.timelineId) throw refuse("is on another timeline");
+    if (second.categoryId !== first.categoryId) throw refuse("is in another category");
+    if (first.endAt === null || second.startAt !== first.endAt) {
+      throw refuse("doesn't start where it ends");
+    }
+    const timeline = await requireTimeline(db, first.timelineId);
+    const q = queryBuilder(db);
+    // Deleted first, so an ongoing second doesn't clash with the first reopening.
+    await q.deleteFrom("timeline_intervals").where("id", "=", secondId).execute();
+    await assertValidInterval(db, timeline, { ...first, endAt: second.endAt });
+    await q
+      .updateTable("timeline_intervals")
+      .set({ end_at: second.endAt, updated_at: now() })
+      .where("id", "=", firstId)
+      .execute();
+  });
+  return (await getInterval(db, firstId)) as TimelineInterval;
+}
+
+/**
+ * Brings back a deleted interval, as `getInterval` returned it: the same id,
+ * category, range, zone and `createdAt`, with `updatedAt` now, as for any
+ * write. Undoes `deleteInterval`, and redoes an undone `createInterval`
+ * keeping its id. Fails like `createInterval` when the category or its
+ * timeline is gone or archived, or on any overlap conflict, and when an
+ * interval has the id.
+ */
+export async function restoreInterval(
+  db: Database,
+  interval: Omit<TimelineInterval, "timelineId" | "updatedAt">,
+): Promise<TimelineInterval> {
+  const { id, categoryId, startAt, endAt, timeZone, createdAt } = interval;
+  if (!isInstant(createdAt)) {
+    throw new SpoorError("invalid", `Timeline interval ${id}: invalid created at ${createdAt}`, {
+      entity: "timeline_interval",
+      id,
+      field: "createdAt",
+    });
+  }
+  await transaction(db, async () => {
+    await assertNewId(db, id, id, "id");
+    const { timeline } = await requireOfferedCategory(db, categoryId);
+    await insertInterval(db, timeline, { id, categoryId, startAt, endAt, timeZone }, createdAt);
+  });
+  return (await getInterval(db, id)) as TimelineInterval;
+}
+
 // ---------------------------------------------------------------------------
 // Internals
 
@@ -283,7 +358,12 @@ interface IntervalDraft {
   timeZone: string;
 }
 
-async function insertInterval(db: Database, timeline: Timeline, draft: IntervalDraft) {
+async function insertInterval(
+  db: Database,
+  timeline: Timeline,
+  draft: IntervalDraft,
+  createdAt?: Instant,
+) {
   await assertValidInterval(db, timeline, draft);
   const t = now();
   await queryBuilder(db)
@@ -295,7 +375,7 @@ async function insertInterval(db: Database, timeline: Timeline, draft: IntervalD
       start_at: draft.startAt,
       end_at: draft.endAt,
       time_zone: draft.timeZone,
-      created_at: t,
+      created_at: createdAt ?? t,
       updated_at: t,
     })
     .execute();
@@ -346,6 +426,27 @@ async function assertNoOverlap(
       `Timeline interval ${draft.id}: overlaps interval ${conflict.id}`,
       { entity: "timeline_interval", id: draft.id },
     );
+  }
+}
+
+/**
+ * Fails unless `candidate` is a UUID no interval has. The error names `id`,
+ * the interval written, and `field`, the input that gave `candidate`.
+ */
+async function assertNewId(db: Database, candidate: string, id: string, field: string) {
+  if (!isUuid(candidate)) {
+    throw new SpoorError("invalid", `Timeline interval ${id}: invalid ${field} ${candidate}`, {
+      entity: "timeline_interval",
+      id,
+      field,
+    });
+  }
+  if (await getInterval(db, candidate)) {
+    throw new SpoorError("conflict", `Timeline interval ${candidate}: already exists`, {
+      entity: "timeline_interval",
+      id,
+      field,
+    });
   }
 }
 

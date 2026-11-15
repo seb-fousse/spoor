@@ -196,7 +196,16 @@ change closes the current interval and starts another.
 Splitting an interval at an instant strictly inside it ends it there and starts
 a new interval in the same category and zone, running to where the original
 ended (ongoing if it was). The two cover the same time, so a split never
-creates an overlap.
+creates an overlap. Joining two intervals undoes a split: the second must start
+where the first ends, on the same timeline and in the same category. The first
+keeps its id, category and zone and runs to where the second ended; the second
+is deleted. A split can be given the later piece's id, so redoing it after a
+join brings back the same ids.
+
+Deleting an interval removes its row. Restoring it, to undo the delete, writes
+the row again with its id, category, range, zone and `created_at`, subject to
+the overlap rule and refused if the id is in use or the category or timeline is
+archived or gone.
 
 Core enforces the overlap rule, checking and writing in one transaction. There
 is no database trigger, because a future sync merge must apply a conflict
