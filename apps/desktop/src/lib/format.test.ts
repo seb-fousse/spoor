@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateFormat, formatClockTime, formatDay, formatDayRange, formatShortDay } from "./format";
+import { dateFormat, formatClockTime, formatDay, formatMonthRange, formatShortDay } from "./format";
 
 describe("dateFormat", () => {
   it("reuses one formatter for the same locale and options", () => {
@@ -22,8 +22,12 @@ describe("date labels", () => {
     expect(formatShortDay("2026-11-09", "en-GB")).toBe("Mon 9");
   });
 
-  it("labels a run of days as a range", () => {
-    expect(formatDayRange("2026-11-05", "2026-11-09", "en-GB")).toMatch(/^5\s*–\s*9 Nov 2026$/);
+  it("labels days in one month as that month", () => {
+    expect(formatMonthRange("2026-11-05", "2026-11-09", "en-GB")).toBe("November 2026");
+  });
+
+  it("labels days across months as a range of months", () => {
+    expect(formatMonthRange("2026-10-30", "2026-11-03", "en-GB")).toMatch(/^Oct\s*–\s*Nov 2026$/);
   });
 });
 

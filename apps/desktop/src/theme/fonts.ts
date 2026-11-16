@@ -1,6 +1,7 @@
 // Fonts are bundled (not loaded from a CDN) because the desktop app runs offline.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/jetbrains-mono/wght-italic.css";
 
 const systemSans =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";

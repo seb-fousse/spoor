@@ -213,8 +213,9 @@ export function ghostPieces(
 
 /**
  * How many of the day's observations are recorded, such as "3/7": filled when
- * all are, outlined when some are, dashed when none are. It sits inside the
- * day's button, so focusing the header reads the count out in words too.
+ * none are, outlined when some are, greyed when all are, so what is left to do
+ * stands out. It sits inside the day's button, so focusing the header reads
+ * the count out in words too.
  */
 export function DayBadge({ count }: { count: DayObservationCount | undefined }) {
   const state = count && completeness(count);

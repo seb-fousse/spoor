@@ -1,5 +1,5 @@
 import { ArrowButtons } from "@components/ArrowButtons";
-import { formatDay } from "@lib/format";
+import { formatShortDay } from "@lib/format";
 import type { LocalDate } from "@spoor/core";
 import type { Dispatch } from "react";
 import classes from "./Home.module.css";
@@ -10,12 +10,12 @@ interface RightHeaderProps {
   dispatch: Dispatch<HomeDaysAction>;
 }
 
-/** Above the right pane (the rail): the active day, and arrows at the right edge to step it a day at a time. */
+/** Above the right pane (the rail): the active day, such as "Mon 9", and arrows at the right edge to step it a day at a time. */
 export function RightHeader({ activeDay, dispatch }: RightHeaderProps) {
   return (
     <div className={classes.bar}>
       <div className={`${classes.label} ${classes.rightLabel}`} aria-live="polite">
-        <span>{formatDay(activeDay)}</span>
+        <span>{formatShortDay(activeDay)}</span>
       </div>
 
       <ArrowButtons
