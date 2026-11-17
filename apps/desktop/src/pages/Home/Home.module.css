@@ -14,7 +14,7 @@
 /*
  * Header bars, in the bottom bar's blueprint style: hairline dividers, mono
  * labels. The left header reads date · range toggle ··· Today · ‹ ›; the
- * right header reads date ··· ‹ ›. Every item is one 44px row; a narrow pane
+ * right header reads ··· ‹ ›. Every item is one 44px row; a narrow pane
  * wraps the bar onto two.
  */
 .bar {
@@ -109,17 +109,6 @@
 .bar .endArrows {
   border-right: 0;
   border-left: 1px solid var(--app-border);
-}
-
-/*
- * The right header's date: like the left header's, one width whatever it
- * says, centered, with an edge on its right.
- */
-.rightLabel {
-  box-sizing: content-box;
-  width: 8ch;
-  justify-content: center;
-  border-right: 1px solid var(--app-border);
 }
 
 /* Takes the bar's leftover space, so this item sits against the right edge. */

@@ -36,6 +36,11 @@
   text-transform: uppercase;
 }
 
+/* The dot between the day and the title: centered, with room on both sides. */
+.separator {
+  margin-inline: 0.75ch;
+}
+
 .count {
   font-size: var(--mantine-font-size-xs);
   color: var(--app-text-muted);

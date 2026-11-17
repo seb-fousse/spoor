@@ -41,6 +41,7 @@ export function ObservationRail({ day }: ObservationRailProps) {
 
   return (
     <RailPanel
+      day={day}
       title="Observations"
       count={shown !== undefined && items.length > 0 ? `${recorded}/${total} recorded` : undefined}
       read={{

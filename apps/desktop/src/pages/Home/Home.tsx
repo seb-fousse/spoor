@@ -58,7 +58,7 @@ export function Home() {
 
       <Splitter.Pane defaultSize={30} min={30}>
         <div className={classes.column}>
-          <RightHeader activeDay={days.activeDay} dispatch={dispatch} />
+          <RightHeader dispatch={dispatch} />
 
           <div className={classes.fill}>
             <FluidSplitter orientation="vertical" h="100%">
