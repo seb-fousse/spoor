@@ -1,10 +1,14 @@
 import { ErrorAlert } from "@components/ErrorAlert";
 import type { ReadResult } from "@data/readResult";
+import { formatShortDay } from "@lib/format";
 import { Loader } from "@mantine/core";
+import type { LocalDate } from "@spoor/core";
 import { type ReactNode, useId } from "react";
 import classes from "./RailPanel.module.css";
 
 interface RailPanelProps {
+  /** The active day, which leads the title, such as "Mon 15 · Observations". */
+  day: LocalDate;
   title: string;
   /** Beside the title, such as "3/7 recorded". Left out until there is one. */
   count?: ReactNode;
@@ -28,11 +32,12 @@ interface RailPanelProps {
 }
 
 /**
- * One half of Home's rail, the observations or the logs: a header with its
- * title, count and action, then a scrolling body with any error, a loader
+ * One half of Home's rail, the observations or the logs: a header with the
+ * day and title, count and action, then a scrolling body with any error, a loader
  * while nothing has loaded, the empty state, and the list.
  */
 export function RailPanel({
+  day,
   title,
   count,
   action,
@@ -48,6 +53,10 @@ export function RailPanel({
     <section className={classes.rail} aria-labelledby={titleId}>
       <header className={classes.header}>
         <h2 id={titleId} className={classes.title}>
+          {formatShortDay(day)}
+          <span className={classes.separator} aria-hidden="true">
+            ·
+          </span>
           {title}
         </h2>
         {count !== undefined && (

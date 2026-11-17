@@ -39,6 +39,7 @@ export function LogRail({ day }: LogRailProps) {
   return (
     <>
       <RailPanel
+        day={day}
         title="Logs"
         count={data !== undefined ? count : undefined}
         action={

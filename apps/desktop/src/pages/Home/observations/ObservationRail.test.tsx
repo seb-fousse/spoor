@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatShortDay } from "@lib/format";
 import { createQueryClient } from "@lib/queryClient";
 import {
   type Database,
@@ -103,6 +104,13 @@ afterEach(() => {
 });
 
 describe("ObservationRail", () => {
+  it("leads its title with the day", async () => {
+    await showDay(MONDAY);
+    expect(document.body.querySelector("h2")?.textContent).toBe(
+      `${formatShortDay(MONDAY)}·Observations`,
+    );
+  });
+
   it("shows a failed save on its day, and not on other days", async () => {
     vi.mocked(recordObservation).mockRejectedValue(refused);
     await showDay(MONDAY);
